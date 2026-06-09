@@ -2,76 +2,34 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"strings"
-
 	"gopkg.in/yaml.v3"
+	"os"
 
 	"github.com/netd-tud/ipid-measure/internal/types"
 )
 
-// ZMapConfig describes one ZMap scan. The mandatory knobs cover what every
-// scan needs (payload, port, bandwidth, output volume, egress interface). The
-// optional knobs map straight onto zmap CLI flags so users can fine-tune a
-// scan without recompiling the binary.
-//
-// Pointer-typed optional fields use null/missing in YAML to mean "let zmap
-// decide" (i.e. the flag is not emitted at all).
 type ZMapConfig struct {
-	// --- mandatory ---------------------------------------------------------
-
-	Payload   types.Payload `yaml:"payload"`
-	Port      *uint16       `yaml:"port"`
-	Bandwidth ScaledNumber  `yaml:"bandwidth"`
-	Interface Interface     `yaml:"interface"`
-
-	// NumberOfTargetIPAddresses is the desired number of responding IPs; once
-	// reached zmap exits. null/missing means "scan the whole IPv4 space".
+	Payload                   types.Payload `yaml:"payload"`
+	Port                      *uint16       `yaml:"port"`
+	Interface                 Interface     `yaml:"interface"`
 	NumberOfTargetIPAddresses *ScaledNumber `yaml:"number_of_target_ip_addresses"`
 
-	// --- optional zmap tuning ---------------------------------------------
-
-	// PacketsPerSecond is an alternative rate cap; if non-nil, zmap is invoked
-	// with -r instead of -B (mutually exclusive with Bandwidth at zmap's CLI;
-	// here we forward whichever the user set, preferring rate when both are).
+	Bandwidth        *ScaledNumber `yaml:"bandwidth"`
 	PacketsPerSecond *ScaledNumber `yaml:"packets_per_second"`
 
-	// CooldownSeconds: how long zmap keeps listening after sending; default
-	// from consts.ZMapDefaultCooldownSeconds.
-	CooldownSeconds *uint32 `yaml:"cooldown_seconds"`
+	SenderThreads   ScaledNumber `yaml:"sender_threads"`
+	ProbesPerTarget ScaledNumber `yaml:"probes_per_target"`
+	Verbosity       uint8        `yaml:"verbosity"`
 
-	// SenderThreads: zmap -T. 0/nil means "let zmap decide".
-	SenderThreads *uint32 `yaml:"sender_threads"`
-
-	// ProbesPerTarget: zmap --probes; default 1.
-	ProbesPerTarget *uint32 `yaml:"probes_per_target"`
-
-	// Seed: zmap --seed for reproducible permutations. nil -> zmap picks one.
 	Seed *uint64 `yaml:"seed"`
 
-	// Verbosity: zmap -v level (0..5).
-	Verbosity *uint8 `yaml:"verbosity"`
-
-	// BlacklistFile: optional path passed to zmap -b. Useful for excluding
-	// private/reserved ranges (zmap ships a default blocklist; explicit override
-	// here).
 	BlacklistFile *string `yaml:"blacklist_file"`
-
-	// WhitelistFile: optional path passed to zmap -w (restrict targets).
 	WhitelistFile *string `yaml:"whitelist_file"`
 
-	// SourcePortMin/SourcePortMax: zmap --source-port=MIN-MAX. Both must be set
-	// together or both null.
 	SourcePortMin *uint16 `yaml:"source_port_min"`
 	SourcePortMax *uint16 `yaml:"source_port_max"`
 
-	// Dryrun: zmap --dryrun (do not actually transmit packets). For wiring up
-	// the binary on a new host without flooding the network.
 	Dryrun bool `yaml:"dryrun"`
-
-	// ExtraArgs is an escape hatch for zmap CLI options not modelled above.
-	// Passed verbatim after the structured flags. Use sparingly.
-	ExtraArgs []string `yaml:"extra_args"`
 }
 
 func LoadZMapConfig(path string) (*ZMapConfig, error) {
@@ -130,6 +88,19 @@ func validateZMapConfig(config *ZMapConfig) error {
 	}
 
 	// ==================================================
+	// Interface
+	// ==================================================
+
+	if err := validateInterface(
+		config.Interface,
+		"interface",
+		true,
+		true,
+	); err != nil {
+		return err
+	}
+
+	// ==================================================
 	// NumberOfTargetIPAddresses
 	// ==================================================
 
@@ -144,12 +115,14 @@ func validateZMapConfig(config *ZMapConfig) error {
 	}
 
 	// ==================================================
-	// Bandwidth / pps
+	// Rate
 	// ==================================================
 
-	bandwidth := uint64(config.Bandwidth)
-	if bandwidth != 0 && (bandwidth < 1_000 || bandwidth > 5_000_000_000) {
-		return fmt.Errorf("bandwidth must be between 1K and 5G")
+	if config.Bandwidth != nil {
+		bandwidth := uint64(*config.Bandwidth)
+		if bandwidth != 0 && (bandwidth < 1_000 || bandwidth > 5_000_000_000) {
+			return fmt.Errorf("bandwidth must be between 1K and 5G")
+		}
 	}
 
 	if config.PacketsPerSecond != nil {
@@ -159,12 +132,28 @@ func validateZMapConfig(config *ZMapConfig) error {
 		}
 	}
 
-	if bandwidth == 0 && config.PacketsPerSecond == nil {
+	if config.Bandwidth == nil && config.PacketsPerSecond == nil {
 		return fmt.Errorf("either bandwidth or packets_per_second must be set")
 	}
 
 	// ==================================================
-	// Source port range (paired)
+	// Optional
+	// ==================================================
+
+	if config.SenderThreads < 1 || config.SenderThreads > 1_000 {
+		return fmt.Errorf("sender_threads must be between 1 and 1K")
+	}
+
+	if config.ProbesPerTarget < 1 || config.ProbesPerTarget > 100 {
+		return fmt.Errorf("probes_per_target must be between 1 and 100")
+	}
+
+	if config.Verbosity > 5 {
+		return fmt.Errorf("verbosity must be between 0 and 5")
+	}
+
+	// ==================================================
+	// Source port range
 	// ==================================================
 
 	switch {
@@ -179,40 +168,6 @@ func validateZMapConfig(config *ZMapConfig) error {
 		}
 	default:
 		return fmt.Errorf("source_port_min and source_port_max must both be set or both null")
-	}
-
-	// ==================================================
-	// Verbosity bounds
-	// ==================================================
-
-	if config.Verbosity != nil && *config.Verbosity > 5 {
-		return fmt.Errorf("verbosity must be in [0,5]")
-	}
-
-	// ==================================================
-	// Interface
-	// ==================================================
-
-	if err := validateInterface(
-		config.Interface,
-		"interface",
-		true,
-		true,
-	); err != nil {
-		return err
-	}
-
-	// ==================================================
-	// Extra Args
-	// ==================================================
-
-	for _, a := range config.ExtraArgs {
-		if a == "-o" || a == "--output-file" ||
-			strings.HasPrefix(a, "-o=") ||
-			strings.HasPrefix(a, "--output-file=") {
-			return fmt.Errorf(
-				"extra_args must not contain -o / --output-file; the output destination is managed by the runner (found %q)", a)
-		}
 	}
 
 	return nil

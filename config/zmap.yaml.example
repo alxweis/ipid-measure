@@ -27,20 +27,17 @@ bandwidth: 30M
 
 # --- OPTIONAL ----------------------------------------------------------------
 
-# Seconds zmap keeps listening after the send phase ends.
-cooldown_seconds: 8
-
-# Number of zmap send threads. null/0 lets zmap decide (currently 1).
+# Number of zmap send threads. Supports scaled suffixes: K, M, G.
 sender_threads: 1
 
-# Probes sent per target.
+# Probes sent per target. Supports scaled suffixes: K, M, G.
 probes_per_target: 1
-
-# PRNG seed for the IPv4 permutation. null lets zmap generate one.
-# seed: 12345
 
 # zmap log verbosity (0=quiet ... 5=trace).
 verbosity: 3
+
+# PRNG seed for the IPv4 permutation. null lets zmap generate one.
+# seed: 12345
 
 # Path to a zmap blacklist file. null lets zmap use default blocklist.
 # blacklist_file: /etc/zmap/blocklist.conf
@@ -55,8 +52,3 @@ verbosity: 3
 
 # Test zmap configuration without actually sending any packets
 dryrun: false
-
-# Escape hatch for zmap CLI options not modelled above (except output-file).
-# Each string is one argument.
-# extra_args:
-#   - "--max-runtime=3600"

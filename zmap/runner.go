@@ -98,11 +98,6 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 		args = append(args, "--dryrun")
 	}
 
-	// Escape hatch
-	if len(c.ExtraArgs) > 0 {
-		args = append(args, c.ExtraArgs...)
-	}
-
 	return args, nil
 }
 
