@@ -37,7 +37,8 @@ func main() {
 
 	written, err := osmod.Run(c, m)
 	if err != nil {
-		log.Fatalf("run os measurement (wrote %d before error): %v", written, err)
+		log.Fatalf("run os measurement (wrote %d records before error): %v", written, err)
 	}
+
 	log.Printf("os measurement completed: %s (records=%d)", m.Path, written)
 }

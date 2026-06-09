@@ -32,6 +32,7 @@ func Run(c *config.ZMapConfig, m *paths.ZMapMeasurement) (uint64, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Graceful shutdown on Ctrl+C / SIGTERM.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)

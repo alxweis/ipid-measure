@@ -2,123 +2,30 @@ package config
 
 import (
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/files"
 	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
-// OSConfig describes one OS-fingerprinting measurement: which ZMap result set
-// to consume, which probes to run, and how aggressively. The intent of the
-// design is "many small UDP/TCP probes per IP, parallel across many IPs" --
-// no global bandwidth steering, because application-layer probe sizes vary
-// wildly (SSH banner ≈ 50 B, TLS handshake ≈ 5 KB). Steer via concurrency.
 type OSConfig struct {
 	ZMapReference `yaml:",inline"`
+	Interface     Interface `yaml:"interface"`
+	Modules       OSModules `yaml:"modules"`
 
-	// Egress interface. Required (used to set source IP for the subprocess
-	// tools so they bind correctly on multi-homed hosts).
-	Interface Interface `yaml:"interface"`
+	ZGrab2Senders *ScaledNumber `yaml:"zgrab2_senders"`
+	ZDNSThreads   *ScaledNumber `yaml:"zdns_threads"`
+	SNMPWorkers   *ScaledNumber `yaml:"snmp_workers"`
 
-	// Concurrency / timeouts. All optional with sane defaults.
-	ZGrab2Senders  *uint32 `yaml:"zgrab2_senders"`
-	ZDNSThreads    *uint32 `yaml:"zdns_threads"`
-	SNMPWorkers    *uint32 `yaml:"snmp_workers"`
-	ConnectTimeout *string `yaml:"connect_timeout"`
-	ReadTimeout    *string `yaml:"read_timeout"`
-	SNMPTimeout    *string `yaml:"snmp_timeout"`
-	SNMPCommunity  *string `yaml:"snmp_community"`
+	ConnectTimeout time.Duration `yaml:"connect_timeout"`
+	ReadTimeout    time.Duration `yaml:"read_timeout"`
+	SNMPTimeout    time.Duration `yaml:"snmp_timeout"`
 
-	// Tool binary paths. Optional override; defaults from consts.
+	SNMPCommunity string `yaml:"snmp_community"`
+
 	ZGrab2Binary *string `yaml:"zgrab2_binary"`
 	ZDNSBinary   *string `yaml:"zdns_binary"`
-
-	// Modules toggles per service. Unspecified entries default to the values
-	// in consts.OSDefaultModules. Specifying any key here overrides ONLY
-	// that key; the rest keep their defaults.
-	Modules map[string]bool `yaml:"modules"`
-}
-
-// Resolved holds the post-validation view of OSConfig with all defaults
-// applied. The runner uses this exclusively to avoid sprinkling nil-checks
-// through the rest of the code.
-type ResolvedOSConfig struct {
-	Interface      Interface
-	ZGrab2Senders  uint32
-	ZDNSThreads    uint32
-	SNMPWorkers    uint32
-	ConnectTimeout time.Duration
-	ReadTimeout    time.Duration
-	SNMPTimeout    time.Duration
-	SNMPCommunity  string
-	ZGrab2Binary   string
-	ZDNSBinary     string
-	Modules        map[string]bool
-}
-
-// Resolve applies defaults and returns the materialised configuration.
-func (c *OSConfig) Resolve() ResolvedOSConfig {
-	r := ResolvedOSConfig{
-		Interface:      c.Interface,
-		ZGrab2Senders:  consts.OSDefaultZGrab2Senders,
-		ZDNSThreads:    consts.OSDefaultZDNSThreads,
-		SNMPWorkers:    consts.OSDefaultSNMPWorkers,
-		ConnectTimeout: time.Duration(consts.OSDefaultConnectTimeout) * time.Second,
-		ReadTimeout:    time.Duration(consts.OSDefaultReadTimeout) * time.Second,
-		SNMPTimeout:    time.Duration(consts.OSDefaultSNMPTimeout) * time.Second,
-		SNMPCommunity:  consts.OSDefaultSNMPCommunity,
-		ZGrab2Binary:   consts.OSZGrab2Binary,
-		ZDNSBinary:     consts.OSZDNSBinary,
-		Modules:        cloneModuleDefaults(),
-	}
-
-	if c.ZGrab2Senders != nil {
-		r.ZGrab2Senders = *c.ZGrab2Senders
-	}
-	if c.ZDNSThreads != nil {
-		r.ZDNSThreads = *c.ZDNSThreads
-	}
-	if c.SNMPWorkers != nil {
-		r.SNMPWorkers = *c.SNMPWorkers
-	}
-	if c.ConnectTimeout != nil {
-		if d, err := time.ParseDuration(*c.ConnectTimeout); err == nil {
-			r.ConnectTimeout = d
-		}
-	}
-	if c.ReadTimeout != nil {
-		if d, err := time.ParseDuration(*c.ReadTimeout); err == nil {
-			r.ReadTimeout = d
-		}
-	}
-	if c.SNMPTimeout != nil {
-		if d, err := time.ParseDuration(*c.SNMPTimeout); err == nil {
-			r.SNMPTimeout = d
-		}
-	}
-	if c.SNMPCommunity != nil {
-		r.SNMPCommunity = *c.SNMPCommunity
-	}
-	if c.ZGrab2Binary != nil {
-		r.ZGrab2Binary = *c.ZGrab2Binary
-	}
-	if c.ZDNSBinary != nil {
-		r.ZDNSBinary = *c.ZDNSBinary
-	}
-	for k, v := range c.Modules {
-		r.Modules[k] = v
-	}
-	return r
-}
-
-func cloneModuleDefaults() map[string]bool {
-	out := make(map[string]bool, len(consts.OSDefaultModules))
-	for k, v := range consts.OSDefaultModules {
-		out[k] = v
-	}
-	return out
 }
 
 func LoadOSConfig(path string) (*OSConfig, error) {
@@ -126,45 +33,94 @@ func LoadOSConfig(path string) (*OSConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	var c OSConfig
-	if err := yaml.Unmarshal(data, &c); err != nil {
+	var config OSConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
 	}
-	if err := validateOSConfig(&c); err != nil {
+	if err := validateOSConfig(&config); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
-	return &c, nil
+	return &config, nil
 }
 
-func validateOSConfig(c *OSConfig) error {
-	if err := c.ValidateAndParseZMap(); err != nil {
+func validateOSConfig(config *OSConfig) error {
+	// --- GENERAL -----------------------------------------------------------------
+
+	if err := config.ValidateAndParseZMap(); err != nil {
 		return fmt.Errorf("invalid zmap reference: %w", err)
 	}
 
-	if c.ZGrab2Senders != nil && *c.ZGrab2Senders == 0 {
-		return fmt.Errorf("zgrab2_senders must be > 0 if set")
-	}
-	if c.ZDNSThreads != nil && *c.ZDNSThreads == 0 {
-		return fmt.Errorf("zdns_threads must be > 0 if set")
-	}
-	if c.SNMPWorkers != nil && *c.SNMPWorkers == 0 {
-		return fmt.Errorf("snmp_workers must be > 0 if set")
-	}
-	for _, ds := range []*string{c.ConnectTimeout, c.ReadTimeout, c.SNMPTimeout} {
-		if ds == nil {
-			continue
-		}
-		if _, err := time.ParseDuration(*ds); err != nil {
-			return fmt.Errorf("invalid duration %q: %w", *ds, err)
-		}
-	}
-	for k := range c.Modules {
-		if _, ok := consts.OSDefaultModules[k]; !ok {
-			return fmt.Errorf("unknown module %q in modules section", k)
-		}
-	}
-	if err := validateInterface(c.Interface, "interface", true, true); err != nil {
+	if err := validateInterface(
+		config.Interface,
+		"interface",
+		true,
+		true,
+	); err != nil {
 		return err
 	}
+
+	if err := validateOSModules(config.Modules); err != nil {
+		return err
+	}
+
+	// --- SPEED -------------------------------------------------------------------
+
+	if config.ZGrab2Senders != nil {
+		zgrab2Senders := uint64(*config.ZGrab2Senders)
+		if zgrab2Senders < 1 || zgrab2Senders > 10_000 {
+			return fmt.Errorf("zgrab2_senders must be in [1, 10K]")
+		}
+	} else if HasZGrab2Module(config.Modules) {
+		return fmt.Errorf("zgrab2_senders must be set, if you use zgrab2 modules")
+	}
+
+	if config.ZDNSThreads != nil {
+		zdnsThreads := uint64(*config.ZDNSThreads)
+		if zdnsThreads < 1 || zdnsThreads > 10_000 {
+			return fmt.Errorf("zdns_threads must be in [1, 10K]")
+		}
+	} else if HasZDNSModule(config.Modules) {
+		return fmt.Errorf("zdns_threads must be set, if you use zdns modules")
+	}
+
+	if config.SNMPWorkers != nil {
+		snmpWorkers := uint64(*config.SNMPWorkers)
+		if snmpWorkers < 1 || snmpWorkers > 10_000 {
+			return fmt.Errorf("snmp_workers must be in [1, 10K]")
+		}
+	} else if HasSNMPModule(config.Modules) {
+		return fmt.Errorf("snmp_workers must be set, if you use snmp modules")
+	}
+
+	// --- ADDITIONAL --------------------------------------------------------------
+
+	if config.ConnectTimeout < 500*time.Millisecond || config.ConnectTimeout > 10*time.Second {
+		return fmt.Errorf("connect_timeout must be in [500ms, 10s]")
+	}
+
+	if config.ReadTimeout < 500*time.Millisecond || config.ReadTimeout > 10*time.Second {
+		return fmt.Errorf("read_timeout must be in [500ms, 10s]")
+	}
+
+	if config.SNMPTimeout < 500*time.Millisecond || config.SNMPTimeout > 10*time.Second {
+		return fmt.Errorf("snmp_timeout must be in [500ms, 10s]")
+	}
+
+	if config.SNMPCommunity != "public" && config.SNMPCommunity != "private" {
+		return fmt.Errorf("snmp_community must be either public or private")
+	}
+
+	if config.ZGrab2Binary != nil {
+		if err := files.IsFile(*config.ZGrab2Binary, "zgrab2_binary", "*"); err != nil {
+			return err
+		}
+	}
+
+	if config.ZDNSBinary != nil {
+		if err := files.IsFile(*config.ZDNSBinary, "zdns_binary", "*"); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

@@ -7,15 +7,7 @@ import (
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
-// Fingerprint derives the OS family from the per-service raw strings populated
-// in an OSRecord. Returns "" + "" when no rule matched -- in that case the
-// caller MUST NOT write the record (we keep os.pq dense in useful data).
-//
-// Rules are ordered from "very high confidence" to "very low / fallback".
-// First match wins. The rule's name is returned as OS_SOURCE so analytics
-// can attribute coverage to data sources.
-//
-// All regexes are pre-compiled at package init.
+// Fingerprint derives the OS family from the per-service raw strings populated in an OSRecord.
 func Fingerprint(r *records.OSRecord) (osName, osSource string) {
 	for _, rule := range rules {
 		field := rule.fieldFn(r)
@@ -29,9 +21,7 @@ func Fingerprint(r *records.OSRecord) (osName, osSource string) {
 	return "", ""
 }
 
-// rule is one extraction attempt: pull a string out of the record via fieldFn,
-// run all the rule's regex patterns over it, return the first match's
-// normalised OS name.
+// rule is one extraction attempt
 type rule struct {
 	source   string
 	fieldFn  func(*records.OSRecord) string
@@ -52,14 +42,12 @@ func (r rule) match(s string) string {
 	return ""
 }
 
-// re compiles a case-insensitive regex (fingerprint banners are unreliable
-// about casing). Panics on bad pattern -- those are bugs caught at init time.
+// re compiles a case-insensitive regex.
 func re(s string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)` + s)
 }
 
-// rules is the global priority-ordered rule list. Built once at init. The
-// order is from "most specific, highest signal" to "least specific, fallback".
+// rules is the global priority-ordered rule list.
 var rules []rule
 
 func init() {
@@ -300,7 +288,6 @@ func init() {
 		},
 
 		// ===== Last-resort fallbacks. Weak but better than nothing. =====
-		// HTTPS cert metadata sometimes hints at OS family.
 		{
 			source:  "https-cert",
 			fieldFn: func(r *records.OSRecord) string { return r.HTTPSCertIssuer + " " + r.HTTPSCertSubject },
@@ -318,8 +305,6 @@ func init() {
 		},
 
 		// ===== HTTP Server header generic fallback (if first run above didn't match). =====
-		// We run httpServerFallbackPatterns last so very generic strings only
-		// trigger when nothing more specific did.
 		{
 			source:   "http-server-fallback",
 			fieldFn:  func(r *records.OSRecord) string { return r.HTTPServer + " " + r.HTTPSServer },
@@ -365,8 +350,7 @@ var httpServerPatterns = []pattern{
 	{re(`router.?os|routeros`), "mikrotik-routeros"},
 }
 
-// httpServerFallbackPatterns are very generic indicators -- used only when
-// nothing more specific matched anywhere else.
+// httpServerFallbackPatterns are very generic indicators.
 var httpServerFallbackPatterns = []pattern{
 	{re(`jetdirect|laserjet|officejet|hp printer`), "printer"},
 	{re(`brother|epson|canon\s+printer`), "printer"},
@@ -382,8 +366,7 @@ var httpServerFallbackPatterns = []pattern{
 	{re(`router|gateway`), "router"},
 }
 
-// mailBannerPatterns is shared between POP3 and IMAP rules. The same software
-// names appear in both.
+// mailBannerPatterns is shared between POP3 and IMAP rules.
 var mailBannerPatterns = []pattern{
 	{re(`microsoft.*(pop3|imap)|microsoft\s+exchange`), "windows"},
 	{re(`dovecot.*(ubuntu)`), "ubuntu"},
@@ -397,8 +380,7 @@ var mailBannerPatterns = []pattern{
 	{re(`zimbra`), "linux"},
 }
 
-// Helper used by tests and the merger to normalise / clean banner text before
-// it lands in the parquet (trim, single-line, strip control chars).
+// CleanBanner used by tests and the merger to normalise / clean banner text.
 func CleanBanner(s string) string {
 	if s == "" {
 		return ""

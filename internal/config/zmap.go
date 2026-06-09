@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/files"
 	"gopkg.in/yaml.v3"
 	"os"
 
@@ -28,24 +29,18 @@ func LoadZMapConfig(path string) (*ZMapConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-
 	var config ZMapConfig
-
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
 	}
-
 	if err := validateZMapConfig(&config); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
-
 	return &config, nil
 }
 
 func validateZMapConfig(config *ZMapConfig) error {
-	// ==================================================
-	// Payload
-	// ==================================================
+	// --- GENERAL -----------------------------------------------------------------
 
 	switch config.Payload {
 	case types.PayloadICMP:
@@ -54,10 +49,6 @@ func validateZMapConfig(config *ZMapConfig) error {
 	default:
 		return fmt.Errorf("invalid payload: %s", config.Payload)
 	}
-
-	// ==================================================
-	// Port
-	// ==================================================
 
 	if config.Payload == types.PayloadICMP {
 		if config.Port != nil {
@@ -78,10 +69,6 @@ func validateZMapConfig(config *ZMapConfig) error {
 		return fmt.Errorf("udp-dns payload requires port 53")
 	}
 
-	// ==================================================
-	// Interface
-	// ==================================================
-
 	if err := validateInterface(
 		config.Interface,
 		"interface",
@@ -91,35 +78,26 @@ func validateZMapConfig(config *ZMapConfig) error {
 		return err
 	}
 
-	// ==================================================
-	// NumberOfTargetIPAddresses
-	// ==================================================
-
 	if config.NumberOfTargetIPAddresses != nil {
 		targets := uint64(*config.NumberOfTargetIPAddresses)
-
-		if targets == 0 || targets > 5_000_000_000 {
-			return fmt.Errorf(
-				"number_of_target_ip_addresses must be between 1 and 5G or null",
-			)
+		if targets < 1 || targets > 5_000_000_000 {
+			return fmt.Errorf("number_of_target_ip_addresses must be in [1, 5G] or null")
 		}
 	}
 
-	// ==================================================
-	// Speed
-	// ==================================================
+	// --- SPEED -------------------------------------------------------------------
 
 	if config.Bandwidth != nil {
 		bandwidth := uint64(*config.Bandwidth)
-		if bandwidth != 0 && (bandwidth < 1_000 || bandwidth > 5_000_000_000) {
-			return fmt.Errorf("bandwidth must be between 1K and 5G")
+		if bandwidth < 1_000 || bandwidth > 5_000_000_000 {
+			return fmt.Errorf("bandwidth must be in [1K, 5G]")
 		}
 	}
 
 	if config.PacketsPerSecond != nil {
 		pps := uint64(*config.PacketsPerSecond)
-		if pps == 0 || pps > 100_000_000 {
-			return fmt.Errorf("packets_per_second must be between 1 and 100M")
+		if pps < 1 || pps > 100_000_000 {
+			return fmt.Errorf("packets_per_second must be in [1, 100M]")
 		}
 	}
 
@@ -131,34 +109,18 @@ func validateZMapConfig(config *ZMapConfig) error {
 		return fmt.Errorf("sender_threads must be between 1 and 1K")
 	}
 
-	// ==================================================
-	// Additional
-	// ==================================================
+	// --- ADDITIONAL --------------------------------------------------------------
 
 	if config.BlacklistFile != nil {
-		if err := checkRegularFile(*config.BlacklistFile, "blacklist_file"); err != nil {
+		if err := files.IsFile(*config.BlacklistFile, "blacklist_file", "*.*"); err != nil {
 			return err
 		}
 	}
 	if config.WhitelistFile != nil {
-		if err := checkRegularFile(*config.WhitelistFile, "whitelist_file"); err != nil {
+		if err := files.IsFile(*config.WhitelistFile, "whitelist_file", "*.*"); err != nil {
 			return err
 		}
 	}
 
-	return nil
-}
-
-func checkRegularFile(path, field string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("%s: file does not exist: %s", field, path)
-		}
-		return fmt.Errorf("%s: cannot stat %s: %w", field, path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s: not a regular file: %s", field, path)
-	}
 	return nil
 }

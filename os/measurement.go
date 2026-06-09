@@ -1,11 +1,3 @@
-// Package os drives an OS-fingerprinting scan that, given a ZMap result set
-// of responder IPs, runs a battery of application-layer probes per IP
-// (zgrab2 for TCP services, zdns for DNS CHAOS, and an in-process SNMP UDP
-// probe), heuristically extracts an OS family from the replies, and writes
-// the result to a parquet file.
-//
-// Only IPs for which at least one probe yielded an inferrable OS family are
-// written. The intent is that os.pq is dense in actionable rows.
 package os
 
 import (
@@ -20,33 +12,42 @@ import (
 )
 
 // Run executes one OS-fingerprinting measurement end-to-end.
-//
-// The input ZMap parquet is read once; per-IP results from the three
-// scanners are merged and written incrementally to outputPath.
-//
-// SIGINT/SIGTERM trigger a graceful shutdown: the IP feeder stops, the
-// external subprocesses are sent SIGTERM (and SIGKILL after a grace
-// period), the merger is flushed, and the parquet file is closed properly.
 func Run(c *config.OSConfig, m *paths.OSMeasurement) (uint64, error) {
-	rcfg := c.Resolve()
-
 	log.Printf("=== OS measurement configuration ===")
+
 	log.Printf("zmap_input             = %s", m.ZMapLinkPath)
 	log.Printf("output_path            = %s", m.MeasurementFilePath)
-	log.Printf("interface              = %s (%s)", rcfg.Interface.Name, rcfg.Interface.IP)
-	log.Printf("zgrab2_senders         = %d", rcfg.ZGrab2Senders)
-	log.Printf("zdns_threads           = %d", rcfg.ZDNSThreads)
-	log.Printf("snmp_workers           = %d", rcfg.SNMPWorkers)
-	log.Printf("connect_timeout        = %s", rcfg.ConnectTimeout)
-	log.Printf("read_timeout           = %s", rcfg.ReadTimeout)
-	log.Printf("snmp_timeout           = %s", rcfg.SNMPTimeout)
-	log.Printf("snmp_community         = %s", rcfg.SNMPCommunity)
+	log.Printf("interface              = %s (%s)", c.Interface.Name, c.Interface.IP)
+
+	log.Printf("zgrab2_senders         = %d", c.ZGrab2Senders)
+	log.Printf("zdns_threads           = %d", c.ZDNSThreads)
+	log.Printf("snmp_workers           = %d", c.SNMPWorkers)
+
+	log.Printf("connect_timeout        = %s", c.ConnectTimeout)
+	log.Printf("read_timeout           = %s", c.ReadTimeout)
+	log.Printf("snmp_timeout           = %s", c.SNMPTimeout)
+
+	log.Printf("snmp_community         = %s", c.SNMPCommunity)
+
 	log.Printf("modules:")
-	for k, v := range rcfg.Modules {
-		log.Printf("  %-10s = %v", k, v)
-	}
+	log.Printf("ssh                    = %v", c.Modules.SSH)
+	log.Printf("smb                    = %v", c.Modules.SMB)
+	log.Printf("http                   = %v", c.Modules.HTTP)
+	log.Printf("https                  = %v", c.Modules.HTTPS)
+	log.Printf("snmp                   = %v", c.Modules.SNMP)
+	log.Printf("smtp                   = %v", c.Modules.SMTP)
+
+	log.Printf("mssql                  = %v", c.Modules.MSSQL)
+	log.Printf("pop3                   = %v", c.Modules.POP3)
+	log.Printf("imap                   = %v", c.Modules.IMAP)
+	log.Printf("ftp                    = %v", c.Modules.FTP)
+	log.Printf("imap                   = %v", c.Modules.IMAP)
+	log.Printf("telnet                 = %v", c.Modules.TELNET)
+	log.Printf("dns_chaos              = %v", c.Modules.DNSChaos)
+
 	log.Printf("====================================")
 
+	// Top-level context with interrupt handling.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -57,11 +58,11 @@ func Run(c *config.OSConfig, m *paths.OSMeasurement) (uint64, error) {
 	go func() {
 		select {
 		case <-sigCh:
-			log.Printf("os: interrupt received, shutting down scanners and flushing parquet...")
+			log.Printf("os: interrupt received, shutting down...")
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
 
-	return runPipeline(ctx, rcfg, m.ZMapLinkPath, m.MeasurementFilePath)
+	return runPipeline(ctx, c, m.ZMapLinkPath, m.MeasurementFilePath)
 }

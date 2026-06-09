@@ -34,9 +34,7 @@ func validateInterface(
 		return fmt.Errorf("%s.ip is not a valid IP address", path)
 	}
 
-	// ==================================================
 	// Check interface existence
-	// ==================================================
 
 	netInterface, err := net.InterfaceByName(iface.Name)
 	if err != nil {
@@ -51,9 +49,7 @@ func validateInterface(
 		return fmt.Errorf("%s.name interface is down", path)
 	}
 
-	// ==================================================
 	// Check assigned IP
-	// ==================================================
 
 	addrs, err := netInterface.Addrs()
 	if err != nil {
@@ -86,9 +82,7 @@ func validateInterface(
 		)
 	}
 
-	// ==================================================
 	// Permission checks
-	// ==================================================
 
 	if requireSend {
 		conn, err := net.ListenPacket(

@@ -1,6 +1,7 @@
 package os
 
 import (
+	"github.com/alxweis/ipid-measure/internal/config"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,7 +65,7 @@ func anyZGrab2Module(modules map[string]bool) bool {
 	return false
 }
 
-func newMerger(modules map[string]bool, out chan<- records.OSRecord) *merger {
+func newMerger(modules config.OSModules, out chan<- records.OSRecord) *merger {
 	mask := enabledMask(modules)
 	return &merger{
 		enabledOrig: mask,

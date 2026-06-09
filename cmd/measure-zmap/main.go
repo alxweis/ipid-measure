@@ -23,24 +23,18 @@ func main() {
 	}
 
 	now := time.Now()
-
-	m := paths.NewZMapMeasurement(
-		c.Payload,
-		c.Port,
-		now,
-	)
+	m := paths.NewZMapMeasurement(c.Payload, c.Port, now)
 
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
 	}
-
 	if err := m.CreateConfigSnapshot(configFilePath); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
 	}
 
 	written, err := zmap.Run(c, m)
 	if err != nil {
-		log.Fatalf("run zmap measurement (wrote %d records before failure): %v", written, err)
+		log.Fatalf("run zmap measurement (wrote %d records before error): %v", written, err)
 	}
 
 	log.Printf("zmap measurement completed: %s (records=%d)", m.Path, written)

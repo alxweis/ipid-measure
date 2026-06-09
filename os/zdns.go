@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/config"
 	"io"
 	"os/exec"
 	"strings"
@@ -50,7 +51,12 @@ type ZDNSRunner struct {
 // We use the --class=CHAOS flag and --override-ns to drive the per-line
 // nameserver. If your zdns version does not support these flags identically,
 // adjust here.
-func StartZDNS(ctx context.Context, binary string, threads uint32, timeout time.Duration) (*ZDNSRunner, error) {
+func StartZDNS(
+	ctx context.Context,
+	binary string,
+	threads config.ScaledNumber,
+	timeout time.Duration) (*ZDNSRunner, error) {
+
 	args := []string{
 		"TXT",
 		"--class=CHAOS",

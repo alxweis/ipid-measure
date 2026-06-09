@@ -1,59 +1,40 @@
-# Reference to a completed ZMap measurement whose responder IPs we should
-# fingerprint. Same directory naming scheme as the IPID measurement uses.
+# --- GENERAL -----------------------------------------------------------------
+
 zmap: tcp-80_2026-06-03_00-13-06
 
-# Egress interface. The IP must be assigned to the named interface.
+# Egress interface.
 interface:
   name: eth0
-  ip: 141.76.94.12
+  ip: 123.45.67.89
 
-# --- concurrency knobs -------------------------------------------------------
-#
-# We do not steer the OS scan by bandwidth -- application-layer probe sizes
-# vary too widely (SSH banner ≈ 50 B, TLS handshake ≈ 5 KB) for a global
-# bit/s cap to be predictable. Steer with the concurrency knobs instead.
-#
-# Defaults are conservative; raise them on a high-bandwidth host with plenty
-# of open-socket headroom (check `ulimit -n` and /proc/sys/net/ipv4/ip_local_port_range).
-zgrab2_senders: 1000   # concurrent TCP probes inside zgrab2 (HTTP/SSH/SMB/SMTP/...)
-zdns_threads: 1000     # concurrent DNS workers inside zdns (for CHAOS queries)
-snmp_workers: 2000     # concurrent in-process SNMP UDP workers (cheap, raise higher)
+modules:
+  ssh: true  # SSH banner
+  smb: true  # NTLM Native OS field
+  http: true  # HTTP Server header on port 80
+  https: true  # HTTP Server header + TLS cert metadata on port 443
+  snmp: true  # SNMP sysDescr.0 (in-process UDP probe, no external tool)
+  smtp: true  # SMTP banner + EHLO respons
 
-# --- timeouts ---------------------------------------------------------------
+  mssql: true  # Pre-Login response -> Windows
+  pop3: true  # POP3 banner
+  imap: true  # IMAP banner
+  ftp: true  # FTP 220 banner
+  telnet: true  # Telnet banner (often router OS)
+  dns_chaos: true  # version.bind / hostname.bind CHAOS-class via zdns
+
+# --- SPEED -------------------------------------------------------------------
+
+zgrab2_senders: 1000
+zdns_threads: 1000
+snmp_workers: 2000
+
+# --- ADDITIONAL --------------------------------------------------------------
+
 connect_timeout: 3s
 read_timeout: 3s
 snmp_timeout: 2s
 
-# --- SNMP ---------------------------------------------------------------------
-# Community string used for SNMPv2c GET requests. "public" is the default
-# string on misconfigured devices, which is the population we want to
-# fingerprint anyway.
 snmp_community: public
 
-# --- tool paths -------------------------------------------------------------
-# Override if zgrab2 / zdns are not on $PATH.
 # zgrab2_binary: /usr/local/bin/zgrab2
 # zdns_binary: /usr/local/bin/zdns
-
-# --- modules ----------------------------------------------------------------
-# Toggle each service on or off. Defaults shown below; specifying any key
-# only overrides that key (the rest keep their defaults). Tier 1 + Tier 2
-# probes are enabled by default; together they cover both general-purpose
-# server OSes (Linux distros, Windows, BSD, macOS) and network-gear OSes
-# (Cisco IOS, MikroTik, Juniper, Huawei, Fortinet, ...) reasonably well.
-modules:
-  # Tier 1 (highly indicative when present)
-  ssh:        true   # SSH banner, e.g. "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
-  smb:        true   # NTLM Native OS field
-  http:       true   # HTTP Server header on port 80
-  https:     true    # HTTP Server header + TLS cert metadata on port 443
-  snmp:       true   # SNMP sysDescr.0 (in-process UDP probe, no external tool)
-  smtp:       true   # SMTP banner + EHLO response
-
-  # Tier 2 (indirect; fills gaps where Tier 1 didn't get a hit)
-  mssql:      true   # Pre-Login response -> Windows
-  pop3:       true   # POP3 banner
-  imap:       true   # IMAP banner
-  ftp:        true   # FTP 220 banner
-  telnet:     true   # Telnet banner (often router OS)
-  dns_chaos:  true   # version.bind / hostname.bind CHAOS-class via zdns

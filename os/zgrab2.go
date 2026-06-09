@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/config"
 	"io"
 	osstd "os"
 	"os/exec"
@@ -16,9 +17,7 @@ import (
 	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
-// ZGrab2Result is the per-IP outcome of the multi-module zgrab2 scan. Each
-// field corresponds to a probe module configured in the run; empty strings
-// mean "module disabled or no useful field returned".
+// ZGrab2Result is the per-IP outcome of the multimodule ZGrab2 scan.
 type ZGrab2Result struct {
 	IP               string
 	SSHServerID      string
@@ -36,7 +35,7 @@ type ZGrab2Result struct {
 	TelnetBanner     string
 }
 
-// ZGrab2Runner manages one zgrab2 child process configured to run the union
+// ZGrab2Runner manages one ZGrab2 child process configured to run the union
 // of all enabled modules in a single pass.
 type ZGrab2Runner struct {
 	cmd        *exec.Cmd
@@ -46,16 +45,13 @@ type ZGrab2Runner struct {
 	iniPath    string
 }
 
-// BuildZGrab2INI assembles a multi-module zgrab2 .ini file. Only modules with
-// Modules[name]=true are included.
-//
-// Note: we deliberately do NOT emit `source-ip=` here. Recent zgrab2 versions
-// rejected it as an unknown application option, and even on older builds
-// the GitHub issue tracker reports it as broken for all modules except http.
-// If you need to bind to a specific source address, route via the OS
-// (set the default route on the desired interface, or use `ip rule add from
-// <ip> table <T>` plus `ip route add default dev <if> table <T>`).
-func BuildZGrab2INI(modules map[string]bool, senders uint32, connectTimeout, readTimeout time.Duration, sourceIP string) string {
+// BuildZGrab2INI assembles a multimodule ZGrab2 .ini file.
+func BuildZGrab2INI(
+	modules config.OSModules,
+	senders config.ScaledNumber,
+	connectTimeout, readTimeout time.Duration,
+	sourceIP string) string {
+
 	_ = sourceIP // intentionally unused; see doc comment above
 	var b strings.Builder
 
@@ -65,7 +61,7 @@ func BuildZGrab2INI(modules map[string]bool, senders uint32, connectTimeout, rea
 	fmt.Fprintf(&b, "output-file=-\n")
 	fmt.Fprintf(&b, "input-file=-\n")
 
-	// Common per-module flags: timeouts in seconds (zgrab2 uses duration).
+	// Common per-module flags: timeouts in seconds (ZGrab2 uses duration).
 	connectSecs := int(connectTimeout.Seconds())
 	if connectSecs < 1 {
 		connectSecs = 1
@@ -75,43 +71,41 @@ func BuildZGrab2INI(modules map[string]bool, senders uint32, connectTimeout, rea
 		readSecs = 1
 	}
 
-	if modules["http"] {
+	if modules.HTTP {
 		fmt.Fprintf(&b, "\n[http]\nname=\"http\"\nport=80\nendpoint=\"/\"\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["https"] {
+	if modules.HTTPS {
 		fmt.Fprintf(&b, "\n[http]\nname=\"https\"\nport=443\nendpoint=\"/\"\nuse-https=true\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["ssh"] {
+	if modules.SSH {
 		fmt.Fprintf(&b, "\n[ssh]\nname=\"ssh\"\nport=22\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["smb"] {
+	if modules.SMB {
 		fmt.Fprintf(&b, "\n[smb]\nname=\"smb\"\nport=445\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["smtp"] {
+	if modules.SMTP {
 		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nsend-ehlo=true\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["mssql"] {
+	if modules.MSSQL {
 		fmt.Fprintf(&b, "\n[mssql]\nname=\"mssql\"\nport=1433\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["pop3"] {
+	if modules.POP3 {
 		fmt.Fprintf(&b, "\n[pop3]\nname=\"pop3\"\nport=110\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["imap"] {
+	if modules.IMAP {
 		fmt.Fprintf(&b, "\n[imap]\nname=\"imap\"\nport=143\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["ftp"] {
+	if modules.FTP {
 		fmt.Fprintf(&b, "\n[ftp]\nname=\"ftp\"\nport=21\ntimeout=%ds\n", connectSecs+readSecs)
 	}
-	if modules["telnet"] {
+	if modules.TELNET {
 		fmt.Fprintf(&b, "\n[telnet]\nname=\"telnet\"\nport=23\ntimeout=%ds\n", connectSecs+readSecs)
 	}
 
 	return b.String()
 }
 
-// StartZGrab2 spawns zgrab2 in multi-module mode. Writing IPs (one per line)
-// to the returned stdin causes zgrab2 to scan them; reading from the output
-// channel yields parsed per-IP results as they complete.
+// StartZGrab2 spawns ZGrab2 in multimodule mode.
 func StartZGrab2(ctx context.Context, binary, iniPath string) (*ZGrab2Runner, error) {
 	cmd := exec.CommandContext(ctx, binary, "multiple", "-c", iniPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -155,11 +149,7 @@ func (r *ZGrab2Runner) Shutdown() error {
 	}
 }
 
-// ParseZGrab2Stream consumes zgrab2's JSON-lines stdout and emits ZGrab2Result.
-// One input line = one target's result, containing per-module sub-results.
-//
-// We treat parse failures per line as warnings (skip the line) rather than as
-// hard errors -- some zgrab2 builds emit non-JSON status lines occasionally.
+// ParseZGrab2Stream consumes ZGrab2's JSON-lines stdout and emits ZGrab2Result.
 func ParseZGrab2Stream(r io.Reader, out chan<- ZGrab2Result) error {
 	br := bufio.NewReaderSize(r, consts.OSStdoutReadBufferBytes)
 	for {
@@ -180,19 +170,6 @@ func ParseZGrab2Stream(r io.Reader, out chan<- ZGrab2Result) error {
 }
 
 // parseZGrab2Line decodes one JSON-line into a structured ZGrab2Result.
-// Returns ok=false on JSON errors or on input that has no IP.
-//
-// zgrab2 emits one JSON object per scan target, with shape:
-//
-//	{ "ip": "1.2.3.4",
-//	  "data": {
-//	      "ssh":   { "status": "success", "result": { "server_id": { "raw": "SSH-2.0-..." } } },
-//	      "http":  { "status": "success", "result": { "response": { "headers": { "server": ["nginx ..."] } } } },
-//	      ...
-//	  }}
-//
-// Module sub-results have status "success", "io-timeout", "connection-refused",
-// "application-error", etc. We only mine the success ones.
 func parseZGrab2Line(line string) (ZGrab2Result, bool) {
 	var raw struct {
 		IP   string                     `json:"ip"`
@@ -208,9 +185,7 @@ func parseZGrab2Line(line string) (ZGrab2Result, bool) {
 	return res, true
 }
 
-// extractZGrab2Module is a switch over the module names we configured. Each
-// case is tolerant of missing nested fields -- the goal is to extract any
-// OS-relevant string and silently skip anything that's not there.
+// extractZGrab2Module is a switch over the module names we configured.
 func extractZGrab2Module(name string, blob json.RawMessage, out *ZGrab2Result) {
 	switch name {
 	case "ssh":
@@ -238,7 +213,7 @@ func extractZGrab2Module(name string, blob json.RawMessage, out *ZGrab2Result) {
 			} `json:"result"`
 		}
 		if json.Unmarshal(blob, &v) == nil {
-			// Different zgrab2 versions surface the field in slightly different
+			// Different ZGrab2 versions surface the field in slightly different
 			// nested paths. Take the first non-empty.
 			switch {
 			case v.Result.NativeOS != "":
@@ -360,7 +335,6 @@ func joined(ss []string) string {
 }
 
 // WriteIniFile writes the .ini contents to a temp file and returns its path.
-// Caller is responsible for removing it after the run.
 func WriteIniFile(contents string, path string) error {
 	f, err := osstd.Create(path)
 	if err != nil {
@@ -372,7 +346,6 @@ func WriteIniFile(contents string, path string) error {
 }
 
 // drainPipe is a small helper for stderr: forwards lines to a logger function.
-// Used both for zgrab2 and zdns.
 func drainPipe(r io.Reader, logFn func(string)) {
 	br := bufio.NewReaderSize(r, 64*1024)
 	for {

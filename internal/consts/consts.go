@@ -86,21 +86,3 @@ const (
 	// after SIGTERM before SIGKILL.
 	OSShutdownGraceSeconds = 5
 )
-
-// OSDefaultModules is the default set of probes that get enabled when the user
-// has no explicit "modules:" section in os.yaml. Listed here as constants so
-// the config layer can reference them without duplicating defaults.
-var OSDefaultModules = map[string]bool{
-	"ssh":       true,
-	"smb":       true,
-	"http":      true,
-	"https":     true,
-	"snmp":      true,
-	"smtp":      true,
-	"mssql":     true,
-	"pop3":      true,
-	"imap":      true,
-	"ftp":       true,
-	"telnet":    true,
-	"dns_chaos": true,
-}
