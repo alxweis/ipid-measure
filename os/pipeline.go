@@ -31,7 +31,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	// Build subprocess args & write ZGrab2 ini
 	iniPath := ""
 	if config.HasZGrab2Module(c.Modules) {
-		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout, c.Interface.IP)
+		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout)
 		iniPath = osstd.TempDir() + "/ipid-zgrab2-" + fmt.Sprint(osstd.Getpid()) + ".ini"
 		if err := WriteIniFile(ini, iniPath); err != nil {
 			return 0, fmt.Errorf("write ini: %w", err)
@@ -66,6 +66,18 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		}
 	}()
 
+	// Resolve subprocess binary paths. Falls back to the bare command name so
+	// the OS's PATH lookup applies; user can override via YAML for non-standard
+	// install locations.
+	zgrab2Binary := consts.OSZGrab2Binary
+	if c.ZGrab2Binary != nil {
+		zgrab2Binary = *c.ZGrab2Binary
+	}
+	zdnsBinary := consts.OSZDNSBinary
+	if c.ZDNSBinary != nil {
+		zdnsBinary = *c.ZDNSBinary
+	}
+
 	// Start the three scanners
 	var (
 		zGrab2Runner *ZGrab2Runner
@@ -81,7 +93,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	scannerWg := sync.WaitGroup{}
 
 	if config.HasZGrab2Module(c.Modules) {
-		zGrab2Runner, err = StartZGrab2(ctx, *c.ZGrab2Binary, iniPath)
+		zGrab2Runner, err = StartZGrab2(ctx, zgrab2Binary, iniPath)
 		if err != nil {
 			close(outRecords)
 			writerWg.Wait()
@@ -138,7 +150,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	}
 
 	if config.HasZDNSModule(c.Modules) {
-		zDnsRunner, err = StartZDNS(ctx, *c.ZDNSBinary, *c.ZDNSThreads, c.ReadTimeout)
+		zDnsRunner, err = StartZDNS(ctx, zdnsBinary, *c.ZDNSThreads, c.ReadTimeout)
 		if err != nil {
 			close(outRecords)
 			writerWg.Wait()
@@ -229,6 +241,10 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 			return false
 		}
 	}
+	// Hoist scanner-enabled flags out of the per-IP loop.
+	useZGrab2 := config.HasZGrab2Module(c.Modules)
+	useZDNS := config.HasZDNSModule(c.Modules)
+	useSNMP := config.HasSNMPModule(c.Modules)
 	go func() {
 		defer close(zGrab2In)
 		defer close(zDnsIn)
@@ -247,19 +263,19 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 				if ip == "" {
 					continue
 				}
-				if config.HasZGrab2Module(c.Modules) {
+				if useZGrab2 {
 					if !send(zGrab2In, ip) {
 						feederErrCh <- ctx.Err()
 						return
 					}
 				}
-				if config.HasZDNSModule(c.Modules) {
+				if useZDNS {
 					if !send(zDnsIn, ip) {
 						feederErrCh <- ctx.Err()
 						return
 					}
 				}
-				if config.HasSNMPModule(c.Modules) {
+				if useSNMP {
 					if !send(snmpIn, ip) {
 						feederErrCh <- ctx.Err()
 						return

@@ -5,15 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/alxweis/ipid-measure/internal/config"
 	"io"
 	osstd "os"
 	"os/exec"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
+	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
@@ -42,17 +41,18 @@ type ZGrab2Runner struct {
 	stdin      io.WriteCloser
 	stdoutPipe io.ReadCloser
 	stderrPipe io.ReadCloser
-	iniPath    string
 }
 
 // BuildZGrab2INI assembles a multimodule ZGrab2 .ini file.
+//
+// Per-module timeouts use ZGrab2's BaseFlags names "connect-timeout" and
+// "target-timeout". The older "timeout" flag was renamed by upstream and is
+// rejected by current zgrab2 builds.
 func BuildZGrab2INI(
 	modules config.OSModules,
 	senders config.ScaledNumber,
 	connectTimeout, readTimeout time.Duration,
-	sourceIP string) string {
-
-	_ = sourceIP // intentionally unused; see doc comment above
+) string {
 	var b strings.Builder
 
 	// Application options apply to all subsequent sections.
@@ -61,45 +61,41 @@ func BuildZGrab2INI(
 	fmt.Fprintf(&b, "output-file=-\n")
 	fmt.Fprintf(&b, "input-file=-\n")
 
-	// Common per-module flags: timeouts in seconds (ZGrab2 uses duration).
-	connectSecs := int(connectTimeout.Seconds())
-	if connectSecs < 1 {
-		connectSecs = 1
-	}
-	readSecs := int(readTimeout.Seconds())
-	if readSecs < 1 {
-		readSecs = 1
-	}
+	// Per-module timeouts.
+	//   connect-timeout = wait for initial TCP handshake
+	//   target-timeout  = upper bound on the whole scan of one target
+	ctStr := connectTimeout.String()
+	ttStr := (connectTimeout + readTimeout).String()
 
 	if modules.HTTP {
-		fmt.Fprintf(&b, "\n[http]\nname=\"http\"\nport=80\nendpoint=\"/\"\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[http]\nname=\"http\"\nport=80\nendpoint=\"/\"\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.HTTPS {
-		fmt.Fprintf(&b, "\n[http]\nname=\"https\"\nport=443\nendpoint=\"/\"\nuse-https=true\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[http]\nname=\"https\"\nport=443\nendpoint=\"/\"\nuse-https=true\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.SSH {
-		fmt.Fprintf(&b, "\n[ssh]\nname=\"ssh\"\nport=22\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[ssh]\nname=\"ssh\"\nport=22\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.SMB {
-		fmt.Fprintf(&b, "\n[smb]\nname=\"smb\"\nport=445\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[smb]\nname=\"smb\"\nport=445\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.SMTP {
-		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nsend-ehlo=true\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nsend-ehlo=true\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.MSSQL {
-		fmt.Fprintf(&b, "\n[mssql]\nname=\"mssql\"\nport=1433\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[mssql]\nname=\"mssql\"\nport=1433\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.POP3 {
-		fmt.Fprintf(&b, "\n[pop3]\nname=\"pop3\"\nport=110\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[pop3]\nname=\"pop3\"\nport=110\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.IMAP {
-		fmt.Fprintf(&b, "\n[imap]\nname=\"imap\"\nport=143\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[imap]\nname=\"imap\"\nport=143\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.FTP {
-		fmt.Fprintf(&b, "\n[ftp]\nname=\"ftp\"\nport=21\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[ftp]\nname=\"ftp\"\nport=21\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.TELNET {
-		fmt.Fprintf(&b, "\n[telnet]\nname=\"telnet\"\nport=23\ntimeout=%ds\n", connectSecs+readSecs)
+		fmt.Fprintf(&b, "\n[telnet]\nname=\"telnet\"\nport=23\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 
 	return b.String()
@@ -124,7 +120,7 @@ func StartZGrab2(ctx context.Context, binary, iniPath string) (*ZGrab2Runner, er
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", binary, err)
 	}
-	return &ZGrab2Runner{cmd: cmd, stdin: stdin, stdoutPipe: stdout, stderrPipe: stderr, iniPath: iniPath}, nil
+	return &ZGrab2Runner{cmd: cmd, stdin: stdin, stdoutPipe: stdout, stderrPipe: stderr}, nil
 }
 
 func (r *ZGrab2Runner) Stdin() io.WriteCloser { return r.stdin }
@@ -358,16 +354,3 @@ func drainPipe(r io.Reader, logFn func(string)) {
 		}
 	}
 }
-
-// pipelinerSpawnGroup is a small helper for goroutine bookkeeping across the
-// three scanners in pipeline.go.
-type spawnGroup struct {
-	wg sync.WaitGroup
-}
-
-func (g *spawnGroup) Go(fn func()) {
-	g.wg.Add(1)
-	go func() { defer g.wg.Done(); fn() }()
-}
-
-func (g *spawnGroup) Wait() { g.wg.Wait() }

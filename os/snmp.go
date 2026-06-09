@@ -60,13 +60,15 @@ func (p *SNMPProbe) Run(ctx context.Context, in <-chan string, workers int) <-ch
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Per-worker scratch buffer; reused across all probes.
+			buf := make([]byte, 1500)
 			for target := range in {
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
-				descr, ok := p.probeOne(ctx, target)
+				descr, ok := p.probeOne(ctx, target, buf)
 				select {
 				case out <- SNMPResult{IP: target, SysDescr: descr, OK: ok}:
 				case <-ctx.Done():
@@ -87,7 +89,7 @@ func (p *SNMPProbe) Run(ctx context.Context, in <-chan string, workers int) <-ch
 // probeOne sends one GET-Request for sysDescr.0 and waits for the reply.
 // On any error returns ("", false). On a successful reply with a string
 // varBind value returns (value, true).
-func (p *SNMPProbe) probeOne(ctx context.Context, target string) (string, bool) {
+func (p *SNMPProbe) probeOne(ctx context.Context, target string, buf []byte) (string, bool) {
 	deadline := time.Now().Add(p.timeout)
 	if dctx, ok := ctx.Deadline(); ok && dctx.Before(deadline) {
 		deadline = dctx
@@ -100,10 +102,6 @@ func (p *SNMPProbe) probeOne(ctx context.Context, target string) (string, bool) 
 	defer conn.Close()
 	_ = conn.SetDeadline(deadline)
 
-	// Build GET-Request once per call. Request-ID is small and randomish via
-	// a monotonic counter so concurrent probes never collide on the same conn
-	// (they don't share conns anyway, but we use a unique ID per probe for
-	// hygiene).
 	reqID := nextRequestID()
 	pkt, err := buildSysDescrGet(p.community, reqID)
 	if err != nil {
@@ -113,7 +111,6 @@ func (p *SNMPProbe) probeOne(ctx context.Context, target string) (string, bool) 
 		return "", false
 	}
 
-	buf := make([]byte, 1500)
 	n, err := conn.Read(buf)
 	if err != nil {
 		return "", false

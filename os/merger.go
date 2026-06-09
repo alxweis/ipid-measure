@@ -1,11 +1,11 @@
 package os
 
 import (
-	"github.com/alxweis/ipid-measure/internal/config"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
@@ -42,27 +42,18 @@ const (
 
 // enabledMask returns the bitmask of scanners that will actually emit per-IP
 // results given the user's modules configuration.
-func enabledMask(modules map[string]bool) uint8 {
+func enabledMask(modules config.OSModules) uint8 {
 	var m uint8
-	if anyZGrab2Module(modules) {
+	if config.HasZGrab2Module(modules) {
 		m |= scannerZGrab2
 	}
-	if modules["dns_chaos"] {
+	if config.HasZDNSModule(modules) {
 		m |= scannerZDNS
 	}
-	if modules["snmp"] {
+	if config.HasSNMPModule(modules) {
 		m |= scannerSNMP
 	}
 	return m
-}
-
-func anyZGrab2Module(modules map[string]bool) bool {
-	for _, k := range []string{"http", "https", "ssh", "smb", "smtp", "mssql", "pop3", "imap", "ftp", "telnet"} {
-		if modules[k] {
-			return true
-		}
-	}
-	return false
 }
 
 func newMerger(modules config.OSModules, out chan<- records.OSRecord) *merger {
@@ -155,19 +146,21 @@ func (m *merger) emit(rec records.OSRecord) {
 }
 
 // flushAll forces emission of every pending entry, regardless of whether all
-// scanners reported. Called once after all input streams are closed, so any
-// IP for which one of the scanners silently dropped output still gets
-// fingerprinted on the data we did receive.
+// scanners reported. Called once after all input streams are closed.
+//
+// We collect under the lock and emit without it, so a slow downstream writer
+// does not stall holding the merger lock (no producers remain at this stage,
+// but this keeps the lock discipline consistent with the rest of the merger).
 func (m *merger) flushAll() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	toEmit := make([]records.OSRecord, 0, len(m.pendings))
 	for ip, p := range m.pendings {
-		rec := p.rec
+		toEmit = append(toEmit, p.rec)
 		delete(m.pendings, ip)
-		// Unlock briefly so emit -> writer doesn't deadlock on a slow consumer.
-		m.mu.Unlock()
+	}
+	m.mu.Unlock()
+	for _, rec := range toEmit {
 		m.emit(rec)
-		m.mu.Lock()
 	}
 }
 

@@ -50,11 +50,12 @@ func validateOSConfig(config *OSConfig) error {
 		return fmt.Errorf("invalid zmap reference: %w", err)
 	}
 
+	// No raw-ICMP send/receive permission test required, as modules only open regular sockets
 	if err := validateInterface(
 		config.Interface,
 		"interface",
-		true,
-		true,
+		false,
+		false,
 	); err != nil {
 		return err
 	}
