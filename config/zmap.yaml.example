@@ -1,23 +1,22 @@
-# --- MANDATORY ---------------------------------------------------------------
+# --- GENERAL -----------------------------------------------------------------
 
-# Determine the zmap module used.
+# Determine the ZMap module used.
 # (icmp -> icmp_echoscan, tcp -> tcp_synscan, udp-dns -> udp).
 payload: tcp
 
-# Destination port for the scan. Must be null for ICMP and 53 for udp-dns.
+# Destination port for the scan. Must be null for icmp and 53 for udp-dns.
 port: 80
 
-# Egress interface zmap sends from.
+# Egress interface ZMap sends from.
 interface:
   name: eth0
   ip: 123.45.67.89
 
 # Stop after this many responsive IP addresses.
-# Use null to scan the entire IPv4 space.
-# Supports scaled suffixes: K, M, G.
+# Use null to scan the entire IPv4 space. Supports scaled suffixes: K, M, G.
 number_of_target_ip_addresses: 100K
 
-# --- RATE --------------------------------------------------------------------
+# --- SPEED -------------------------------------------------------------------
 
 # Bandwidth cap. null disables. Supports scaled suffixes: K, M, G.
 bandwidth: 30M
@@ -25,30 +24,16 @@ bandwidth: 30M
 # pps cap. null disables. Supports scaled suffixes: K, M, G.
 # packets_per_second: 500K
 
-# --- OPTIONAL ----------------------------------------------------------------
-
-# Number of zmap send threads. Supports scaled suffixes: K, M, G.
+# Number of ZMap send threads. Supports scaled suffixes: K, M, G.
 sender_threads: 1
 
-# Probes sent per target. Supports scaled suffixes: K, M, G.
-probes_per_target: 1
+# --- ADDITIONAL --------------------------------------------------------------
 
-# zmap log verbosity (0=quiet ... 5=trace).
-verbosity: 3
+# Test ZMap configuration without actually sending any packets
+dryrun: false
 
-# PRNG seed for the IPv4 permutation. null lets zmap generate one.
-# seed: 12345
-
-# Path to a zmap blacklist file. null lets zmap use default blocklist.
+# Path to a ZMap blacklist file. null lets ZMap use default blocklist.
 # blacklist_file: /etc/zmap/blocklist.conf
 
-# Path to a zmap whitelist file. Targets are restricted to this set.
+# Path to a ZMap whitelist file. Targets are restricted to this set.
 # whitelist_file: /etc/zmap/whitelist.conf
-
-# Source port range zmap will use for probes. Both must be set together or
-# both null. null lets zmap pick.
-# source_port_min: 40000
-# source_port_max: 40999
-
-# Test zmap configuration without actually sending any packets
-dryrun: false

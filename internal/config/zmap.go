@@ -16,20 +16,11 @@ type ZMapConfig struct {
 
 	Bandwidth        *ScaledNumber `yaml:"bandwidth"`
 	PacketsPerSecond *ScaledNumber `yaml:"packets_per_second"`
+	SenderThreads    ScaledNumber  `yaml:"sender_threads"`
 
-	SenderThreads   ScaledNumber `yaml:"sender_threads"`
-	ProbesPerTarget ScaledNumber `yaml:"probes_per_target"`
-	Verbosity       uint8        `yaml:"verbosity"`
-
-	Seed *uint64 `yaml:"seed"`
-
+	Dryrun        bool    `yaml:"dryrun"`
 	BlacklistFile *string `yaml:"blacklist_file"`
 	WhitelistFile *string `yaml:"whitelist_file"`
-
-	SourcePortMin *uint16 `yaml:"source_port_min"`
-	SourcePortMax *uint16 `yaml:"source_port_max"`
-
-	Dryrun bool `yaml:"dryrun"`
 }
 
 func LoadZMapConfig(path string) (*ZMapConfig, error) {
@@ -115,7 +106,7 @@ func validateZMapConfig(config *ZMapConfig) error {
 	}
 
 	// ==================================================
-	// Rate
+	// Speed
 	// ==================================================
 
 	if config.Bandwidth != nil {
@@ -136,39 +127,38 @@ func validateZMapConfig(config *ZMapConfig) error {
 		return fmt.Errorf("either bandwidth or packets_per_second must be set")
 	}
 
-	// ==================================================
-	// Optional
-	// ==================================================
-
 	if config.SenderThreads < 1 || config.SenderThreads > 1_000 {
 		return fmt.Errorf("sender_threads must be between 1 and 1K")
 	}
 
-	if config.ProbesPerTarget < 1 || config.ProbesPerTarget > 100 {
-		return fmt.Errorf("probes_per_target must be between 1 and 100")
-	}
-
-	if config.Verbosity > 5 {
-		return fmt.Errorf("verbosity must be between 0 and 5")
-	}
-
 	// ==================================================
-	// Source port range
+	// Additional
 	// ==================================================
 
-	switch {
-	case config.SourcePortMin == nil && config.SourcePortMax == nil:
-		// both null -> zmap chooses
-	case config.SourcePortMin != nil && config.SourcePortMax != nil:
-		if *config.SourcePortMin == 0 || *config.SourcePortMax == 0 {
-			return fmt.Errorf("source ports must be > 0")
+	if config.BlacklistFile != nil {
+		if err := checkRegularFile(*config.BlacklistFile, "blacklist_file"); err != nil {
+			return err
 		}
-		if *config.SourcePortMin > *config.SourcePortMax {
-			return fmt.Errorf("source_port_min must be <= source_port_max")
+	}
+	if config.WhitelistFile != nil {
+		if err := checkRegularFile(*config.WhitelistFile, "whitelist_file"); err != nil {
+			return err
 		}
-	default:
-		return fmt.Errorf("source_port_min and source_port_max must both be set or both null")
 	}
 
+	return nil
+}
+
+func checkRegularFile(path, field string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s: file does not exist: %s", field, path)
+		}
+		return fmt.Errorf("%s: cannot stat %s: %w", field, path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s: not a regular file: %s", field, path)
+	}
 	return nil
 }

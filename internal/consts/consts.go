@@ -15,10 +15,6 @@ const (
 	ZMapBinary                    = "zmap"
 	ZMapOutputFields              = "saddr,timestamp-ts,timestamp-us"
 	ZMapOutputFormat              = "csv"
-	ZMapDefaultCooldownSeconds    = 8
-	ZMapDefaultSenderThreads      = 0
-	ZMapDefaultProbesPerTarget    = 1
-	ZMapDefaultVerbosity          = 3
 	ZMapParquetWriteBatchSize     = 10_000
 	ZMapStdoutReadBufferBytes     = 1 << 20
 	ZMapParquetMaxRowsPerRowGroup = 2_000_000

@@ -34,68 +34,32 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 		return nil, fmt.Errorf("zmap: unsupported payload %q", c.Payload)
 	}
 
-	// Egress interface and source IP
+	// Interface
 	args = append(args, "-i", c.Interface.Name, "-S", c.Interface.IP)
-
-	// Rate / bandwidth (whichever is tighter wins)
-	if c.PacketsPerSecond != nil {
-		args = append(args, "-r", strconv.FormatUint(uint64(*c.PacketsPerSecond), 10))
-	}
-	if uint64(c.Bandwidth) > 0 {
-		args = append(args, "-B", strconv.FormatUint(uint64(c.Bandwidth), 10))
-	}
 
 	// Result count
 	if c.NumberOfTargetIPAddresses != nil {
 		args = append(args, "-N", strconv.FormatUint(uint64(*c.NumberOfTargetIPAddresses), 10))
 	}
 
-	// Optional tuning
-	cooldown := uint32(consts.ZMapDefaultCooldownSeconds)
-	if c.CooldownSeconds != nil {
-		cooldown = *c.CooldownSeconds
+	// Speed
+	if c.PacketsPerSecond != nil {
+		args = append(args, "-r", strconv.FormatUint(uint64(*c.PacketsPerSecond), 10))
 	}
-	args = append(args, "-c", strconv.FormatUint(uint64(cooldown), 10))
+	if c.Bandwidth != nil {
+		args = append(args, "-B", strconv.FormatUint(uint64(*c.Bandwidth), 10))
+	}
+	args = append(args, "-T", strconv.FormatUint(uint64(c.SenderThreads), 10))
 
-	if c.SenderThreads != nil && *c.SenderThreads > 0 {
-		args = append(args, "-T", strconv.FormatUint(uint64(*c.SenderThreads), 10))
-	} else if consts.ZMapDefaultSenderThreads > 0 {
-		args = append(args, "-T", strconv.Itoa(consts.ZMapDefaultSenderThreads))
+	// Additional
+	if c.Dryrun {
+		args = append(args, "--dryrun")
 	}
-
-	probes := uint32(consts.ZMapDefaultProbesPerTarget)
-	if c.ProbesPerTarget != nil {
-		probes = *c.ProbesPerTarget
-	}
-	if probes != 1 {
-		args = append(args, "--probes", strconv.FormatUint(uint64(probes), 10))
-	}
-
-	if c.Seed != nil {
-		args = append(args, "--seed", strconv.FormatUint(*c.Seed, 10))
-	}
-
-	verbosity := uint8(consts.ZMapDefaultVerbosity)
-	if c.Verbosity != nil {
-		verbosity = *c.Verbosity
-	}
-	args = append(args, "-v", strconv.FormatUint(uint64(verbosity), 10))
-
 	if c.BlacklistFile != nil {
 		args = append(args, "-b", *c.BlacklistFile)
 	}
 	if c.WhitelistFile != nil {
 		args = append(args, "-w", *c.WhitelistFile)
-	}
-
-	if c.SourcePortMin != nil && c.SourcePortMax != nil {
-		args = append(args, "--source-port",
-			fmt.Sprintf("%d-%d", *c.SourcePortMin, *c.SourcePortMax))
-	}
-
-	// Test zmap configuration without actually sending any packets.
-	if c.Dryrun {
-		args = append(args, "--dryrun")
 	}
 
 	return args, nil
