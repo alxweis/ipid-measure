@@ -8,8 +8,8 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/records"
 )
 
 // Writer is the parquet sink for OS-fingerprint results. Behaves identically

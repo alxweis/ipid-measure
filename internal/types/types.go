@@ -1,6 +1,6 @@
 package types
 
-import "github.com/netd-tud/ipid-measure/internal/sets"
+import "github.com/alxweis/ipid-measure/internal/sets"
 
 type TCPFlag = string
 

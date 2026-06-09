@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/netd-tud/ipid-measure/internal/config"
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/types"
 )
 
 // BuildArgs translates a validated ZMapConfig into a zmap argument vector.

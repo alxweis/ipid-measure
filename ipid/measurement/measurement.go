@@ -11,8 +11,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/netd-tud/ipid-measure/internal/config"
-	"github.com/netd-tud/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/paths"
 )
 
 // The measurement package is the central, dependency-free state holder and

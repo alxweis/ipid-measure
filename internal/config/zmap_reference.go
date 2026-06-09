@@ -1,11 +1,11 @@
 package config
 
 import (
-	"github.com/netd-tud/ipid-measure/internal/dirs"
-	"github.com/netd-tud/ipid-measure/internal/files"
-	"github.com/netd-tud/ipid-measure/internal/paths"
-	"github.com/netd-tud/ipid-measure/internal/root"
-	"github.com/netd-tud/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/internal/dirs"
+	"github.com/alxweis/ipid-measure/internal/files"
+	"github.com/alxweis/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/internal/root"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"path/filepath"
 	"time"
 )

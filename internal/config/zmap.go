@@ -5,7 +5,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 
-	"github.com/netd-tud/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/internal/types"
 )
 
 type ZMapConfig struct {

@@ -2,10 +2,10 @@ package udp
 
 import (
 	"encoding/binary"
+	"github.com/alxweis/ipid-measure/ipid/checksum"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/netd-tud/ipid-measure/ipid/checksum"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
 )
 
 func Layer() gopacket.SerializableLayer {

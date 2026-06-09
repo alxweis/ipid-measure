@@ -7,12 +7,12 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
-	"github.com/netd-tud/ipid-measure/ipid/checksum"
-	"github.com/netd-tud/ipid-measure/ipid/ip"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
-	"github.com/netd-tud/ipid-measure/ipid/payload"
-	"github.com/netd-tud/ipid-measure/ipid/port"
-	"github.com/netd-tud/ipid-measure/ipid/sender"
+	"github.com/alxweis/ipid-measure/ipid/checksum"
+	"github.com/alxweis/ipid-measure/ipid/ip"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/payload"
+	"github.com/alxweis/ipid-measure/ipid/port"
+	"github.com/alxweis/ipid-measure/ipid/sender"
 )
 
 var opts = gopacket.SerializeOptions{ComputeChecksums: false, FixLengths: true}

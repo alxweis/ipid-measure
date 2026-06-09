@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/records"
 )
 
 // ParsedRow is one ZMap result row, normalised into the form the writer wants.

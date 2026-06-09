@@ -13,9 +13,9 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 
-	"github.com/netd-tud/ipid-measure/internal/config"
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/records"
 )
 
 // runPipeline ties together: reading IPs from the zmap parquet input, fanning

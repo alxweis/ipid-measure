@@ -13,15 +13,15 @@ import (
 	"github.com/google/gopacket/pcap"
 	"github.com/google/gopacket/pcapgo"
 
-	"github.com/netd-tud/ipid-measure/internal/config"
-	"github.com/netd-tud/ipid-measure/internal/sets"
-	"github.com/netd-tud/ipid-measure/internal/types"
-	"github.com/netd-tud/ipid-measure/ipid/dns"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
-	"github.com/netd-tud/ipid-measure/ipid/payload"
-	"github.com/netd-tud/ipid-measure/ipid/probe"
-	"github.com/netd-tud/ipid-measure/ipid/stats"
-	"github.com/netd-tud/ipid-measure/ipid/tcp"
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/dns"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/payload"
+	"github.com/alxweis/ipid-measure/ipid/probe"
+	"github.com/alxweis/ipid-measure/ipid/stats"
+	"github.com/alxweis/ipid-measure/ipid/tcp"
 )
 
 // StartAll launches one receiver goroutine per interface. Registered into

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/netd-tud/ipid-measure/internal/config"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
 // Sender owns one AF_PACKET raw socket bound to a single egress interface and

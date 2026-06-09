@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/netd-tud/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
 // OSConfig describes one OS-fingerprinting measurement: which ZMap result set

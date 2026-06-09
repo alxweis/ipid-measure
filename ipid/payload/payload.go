@@ -4,14 +4,14 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 
-	"github.com/netd-tud/ipid-measure/internal/types"
-	"github.com/netd-tud/ipid-measure/ipid/icmp"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
-	"github.com/netd-tud/ipid-measure/ipid/payload/payload_icmp"
-	"github.com/netd-tud/ipid-measure/ipid/payload/payload_tcp"
-	"github.com/netd-tud/ipid-measure/ipid/payload/payload_udp_dns"
-	"github.com/netd-tud/ipid-measure/ipid/tcp"
-	"github.com/netd-tud/ipid-measure/ipid/udp"
+	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/icmp"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/payload/payload_icmp"
+	"github.com/alxweis/ipid-measure/ipid/payload/payload_tcp"
+	"github.com/alxweis/ipid-measure/ipid/payload/payload_udp_dns"
+	"github.com/alxweis/ipid-measure/ipid/tcp"
+	"github.com/alxweis/ipid-measure/ipid/udp"
 )
 
 type Payload struct {

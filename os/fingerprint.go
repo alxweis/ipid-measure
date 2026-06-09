@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/netd-tud/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/records"
 )
 
 // Fingerprint derives the OS family from the per-service raw strings populated

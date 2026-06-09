@@ -10,9 +10,9 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
-	"github.com/netd-tud/ipid-measure/internal/records"
-	"github.com/netd-tud/ipid-measure/internal/types"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
 const (

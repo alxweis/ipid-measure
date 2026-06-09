@@ -10,12 +10,12 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/records"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
-	"github.com/netd-tud/ipid-measure/ipid/packet"
-	"github.com/netd-tud/ipid-measure/ipid/probe"
-	"github.com/netd-tud/ipid-measure/ipid/stats"
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/packet"
+	"github.com/alxweis/ipid-measure/ipid/probe"
+	"github.com/alxweis/ipid-measure/ipid/stats"
 )
 
 // In the new architecture there is no per-worker reply channel and no per-IP

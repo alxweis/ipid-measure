@@ -2,8 +2,8 @@ package paths
 
 import (
 	"fmt"
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"strconv"
 	"strings"
 	"time"

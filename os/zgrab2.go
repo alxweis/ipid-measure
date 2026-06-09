@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/netd-tud/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
 // ZGrab2Result is the per-IP outcome of the multi-module zgrab2 scan. Each

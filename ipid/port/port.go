@@ -5,7 +5,7 @@ import (
 	"math/rand/v2"
 	"sync/atomic"
 
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
 // Pool is a pre-shuffled ring of source base-ports handed out round-robin to

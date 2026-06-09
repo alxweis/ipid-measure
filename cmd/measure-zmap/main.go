@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/netd-tud/ipid-measure/internal/config"
-	"github.com/netd-tud/ipid-measure/internal/files"
-	"github.com/netd-tud/ipid-measure/internal/paths"
-	"github.com/netd-tud/ipid-measure/zmap"
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/files"
+	"github.com/alxweis/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/zmap"
 )
 
 func main() {

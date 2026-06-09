@@ -2,9 +2,9 @@ package icmp
 
 import (
 	"encoding/binary"
+	"github.com/alxweis/ipid-measure/ipid/checksum"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/netd-tud/ipid-measure/ipid/checksum"
 )
 
 func Layer(seqNum uint16) gopacket.SerializableLayer {

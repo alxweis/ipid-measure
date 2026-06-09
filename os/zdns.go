@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/netd-tud/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
 // ZDNSResult is the per-IP outcome of CHAOS-class DNS queries against

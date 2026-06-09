@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
 // RateLimiter throttles the global send rate by bytes (bandwidth) and optionally

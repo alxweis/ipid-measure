@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"github.com/netd-tud/ipid-measure/internal/sets"
-	"github.com/netd-tud/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"gopkg.in/yaml.v3"
 	"os"
 	"time"

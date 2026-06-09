@@ -7,15 +7,15 @@ import (
 
 	"github.com/google/gopacket/layers"
 
-	"github.com/netd-tud/ipid-measure/internal/sets"
-	"github.com/netd-tud/ipid-measure/internal/types"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
-	"github.com/netd-tud/ipid-measure/ipid/packet"
-	"github.com/netd-tud/ipid-measure/ipid/payload"
-	"github.com/netd-tud/ipid-measure/ipid/port"
-	"github.com/netd-tud/ipid-measure/ipid/sender"
-	"github.com/netd-tud/ipid-measure/ipid/seqnum"
-	"github.com/netd-tud/ipid-measure/ipid/stats"
+	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/packet"
+	"github.com/alxweis/ipid-measure/ipid/payload"
+	"github.com/alxweis/ipid-measure/ipid/port"
+	"github.com/alxweis/ipid-measure/ipid/sender"
+	"github.com/alxweis/ipid-measure/ipid/seqnum"
+	"github.com/alxweis/ipid-measure/ipid/stats"
 )
 
 // SampleState is the state of one request slot, mutated by atomic ops so the

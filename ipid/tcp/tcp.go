@@ -2,12 +2,12 @@ package tcp
 
 import (
 	"encoding/binary"
+	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/checksum"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/netd-tud/ipid-measure/internal/sets"
-	"github.com/netd-tud/ipid-measure/internal/types"
-	"github.com/netd-tud/ipid-measure/ipid/checksum"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
 )
 
 var payload = []byte("GET / HTTP/1.1\r\n\r\n")

@@ -1,11 +1,11 @@
 package dns
 
 import (
+	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/netd-tud/ipid-measure/internal/consts"
-	"github.com/netd-tud/ipid-measure/internal/sets"
-	"github.com/netd-tud/ipid-measure/internal/types"
 	"strconv"
 )
 

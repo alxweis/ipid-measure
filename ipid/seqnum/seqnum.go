@@ -1,7 +1,7 @@
 package seqnum
 
 import (
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
 func GetConnectionIndex(seqNum uint16) uint16 {

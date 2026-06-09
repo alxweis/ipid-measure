@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/netd-tud/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/records"
 )
 
 // pending is the per-IP merge state. We track which of the enabled scanners

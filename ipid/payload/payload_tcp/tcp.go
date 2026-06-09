@@ -1,12 +1,12 @@
 package payload_tcp
 
 import (
+	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/seqnum"
+	"github.com/alxweis/ipid-measure/ipid/tcp"
 	"github.com/google/gopacket"
-	"github.com/netd-tud/ipid-measure/internal/sets"
-	"github.com/netd-tud/ipid-measure/internal/types"
-	"github.com/netd-tud/ipid-measure/ipid/measurement"
-	"github.com/netd-tud/ipid-measure/ipid/seqnum"
-	"github.com/netd-tud/ipid-measure/ipid/tcp"
 )
 
 func Layer(seqNum uint16) []gopacket.SerializableLayer {

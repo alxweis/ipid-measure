@@ -1,4 +1,4 @@
-# ipid
+# ipid-measure
 
 High-throughput active IP-ID measurement toolkit. Given a list of target IPv4
 addresses (the output of a ZMap-style scan, stored as a Parquet file), it sends
