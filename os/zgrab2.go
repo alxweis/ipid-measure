@@ -44,10 +44,6 @@ type ZGrab2Runner struct {
 }
 
 // BuildZGrab2INI assembles a multimodule ZGrab2 .ini file.
-//
-// Per-module timeouts use ZGrab2's BaseFlags names "connect-timeout" and
-// "target-timeout". The older "timeout" flag was renamed by upstream and is
-// rejected by current zgrab2 builds.
 func BuildZGrab2INI(
 	modules config.OSModules,
 	senders config.ScaledNumber,
@@ -61,9 +57,6 @@ func BuildZGrab2INI(
 	fmt.Fprintf(&b, "output-file=-\n")
 	fmt.Fprintf(&b, "input-file=-\n")
 
-	// Per-module timeouts.
-	//   connect-timeout = wait for initial TCP handshake
-	//   target-timeout  = upper bound on the whole scan of one target
 	ctStr := connectTimeout.String()
 	ttStr := (connectTimeout + readTimeout).String()
 
@@ -80,7 +73,7 @@ func BuildZGrab2INI(
 		fmt.Fprintf(&b, "\n[smb]\nname=\"smb\"\nport=445\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.SMTP {
-		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nsend-ehlo=true\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
+		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.MSSQL {
 		fmt.Fprintf(&b, "\n[mssql]\nname=\"mssql\"\nport=1433\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
