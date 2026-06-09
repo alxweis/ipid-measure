@@ -31,7 +31,11 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	// Build subprocess args & write ZGrab2 ini
 	iniPath := ""
 	if config.HasZGrab2Module(c.Modules) {
-		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout)
+		blocklistPath := ""
+		if c.ZGrab2BlocklistFile != nil {
+			blocklistPath = *c.ZGrab2BlocklistFile
+		}
+		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout, blocklistPath)
 		iniPath = osstd.TempDir() + "/ipid-zgrab2-" + fmt.Sprint(osstd.Getpid()) + ".ini"
 		if err := WriteIniFile(ini, iniPath); err != nil {
 			return 0, fmt.Errorf("write ini: %w", err)

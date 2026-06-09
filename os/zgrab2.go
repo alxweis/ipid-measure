@@ -44,18 +44,52 @@ type ZGrab2Runner struct {
 }
 
 // BuildZGrab2INI assembles a multimodule ZGrab2 .ini file.
+//
+// All flag names below have been verified against `zgrab2 -h` and
+// `zgrab2 <module> -h` output. The relevant Basic Options that every module
+// accepts are: port, name, connect-timeout, target-timeout. Each module also
+// has its own command options which we keep minimal -- we want banner data,
+// not specialised probes.
+//
+// Per-module timeout semantics:
+//
+//	connect-timeout = wait for initial TCP handshake (default: 10s)
+//	target-timeout  = upper bound on the whole scan of one target (default: 60s)
+//
+// History:
+//   - The older single "timeout" flag was renamed to "connect-timeout" +
+//     "target-timeout" by upstream and is rejected by current builds.
+//   - SMTP's "send-ehlo" was renamed to "send-ehlo-override". We do not set
+//     it at all because the default behaviour ("send EHLO if the server
+//     advertises ESMTP in the banner, HELO otherwise") is what we want.
+//   - There is no per-module "source-ip" option. Use the global
+//     "--local-addr" application option for source-IP binding if required.
 func BuildZGrab2INI(
 	modules config.OSModules,
 	senders config.ScaledNumber,
 	connectTimeout, readTimeout time.Duration,
+	blocklistFile string,
 ) string {
 	var b strings.Builder
+
+	// zgrab2's default for blocklist-file is "-", which resolves to
+	// $HOME/.config/zgrab2/blocklist.conf. When running as root that path is
+	// /root/.config/zgrab2/blocklist.conf, which typically does not exist and
+	// makes zgrab2 abort on startup. We set the path explicitly: either the
+	// user-supplied file from os.yaml, or /dev/null which is always readable
+	// and empty -- effectively disabling the blocklist while keeping the run
+	// reproducible (same idea as the "-C /dev/null" we pass to zmap).
+	bl := blocklistFile
+	if bl == "" {
+		bl = "/dev/null"
+	}
 
 	// Application options apply to all subsequent sections.
 	fmt.Fprintf(&b, "[Application Options]\n")
 	fmt.Fprintf(&b, "senders=%d\n", senders)
 	fmt.Fprintf(&b, "output-file=-\n")
 	fmt.Fprintf(&b, "input-file=-\n")
+	fmt.Fprintf(&b, "blocklist-file=%s\n", bl)
 
 	ctStr := connectTimeout.String()
 	ttStr := (connectTimeout + readTimeout).String()
@@ -73,6 +107,9 @@ func BuildZGrab2INI(
 		fmt.Fprintf(&b, "\n[smb]\nname=\"smb\"\nport=445\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.SMTP {
+		// SMTP default behaviour is: read banner, send EHLO if ESMTP is
+		// advertised (otherwise HELO). That gives us the SMTPBanner field
+		// the OS fingerprint heuristic looks at -- no overrides needed.
 		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
 	}
 	if modules.MSSQL {
