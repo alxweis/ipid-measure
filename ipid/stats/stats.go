@@ -172,7 +172,7 @@ func Log() {
 				"estimated_time_left=[%s] "+
 					"probed_ip_addresses=[+%d, %.2f%%] "+
 					"valid_probes=[+%d, %.2f%%] "+
-					"sent_mbps=[%.2f] "+
+					"sent_mbps=[%.0f] "+
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
 					"heap=[%dMB] "+
