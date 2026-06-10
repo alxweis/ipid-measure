@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/breml/bpfutils"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/google/gopacket/pcapgo"
+	"golang.org/x/sys/unix"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/sets"
@@ -24,6 +25,11 @@ import (
 	"github.com/alxweis/ipid-measure/ipid/stats"
 	"github.com/alxweis/ipid-measure/ipid/tcp"
 )
+
+// receiveTimeoutMs is how long the recvmsg() syscall blocks before returning
+// EAGAIN so the loop can observe StopReceiving. 200ms gives a bounded shutdown
+// latency without measurable CPU overhead under normal load.
+const receiveTimeoutMs = 200
 
 // StartAll launches one receiver goroutine per interface. Registered into
 // measurement.StartReceivers.
@@ -51,19 +57,20 @@ func Receive(iface config.Interface) {
 	if err != nil {
 		panic(err)
 	}
+	defer handle.Close()
 
-	// Close the handle exactly once, either via deferred cleanup at function
-	// exit or via the watchdog when shutdown is requested. ZeroCopyReadPacketData
-	// blocks indefinitely on the AF_PACKET socket until data arrives or the fd
-	// is closed; closing it from the watchdog unblocks the read with an error,
-	// which is how we react to StopReceiving.
-	var closeOnce sync.Once
-	closeHandle := func() { closeOnce.Do(func() { handle.Close() }) }
-	defer closeHandle()
-	go func() {
-		<-measurement.StopReceiving
-		closeHandle()
-	}()
+	// Set a periodic read timeout so the blocking recvmsg() in
+	// ZeroCopyReadPacketData returns regularly and the loop can observe
+	// StopReceiving. handle.Close() alone does NOT reliably unblock recvmsg
+	// on Linux when the fd is closed from another goroutine.
+	//
+	// pcapgo.EthernetHandle.fd is unexported, but the struct layout is stable:
+	// fd is the first field, so &handle's first int is the socket fd.
+	fd := *(*int)(unsafe.Pointer(handle))
+	tv := unix.Timeval{Sec: 0, Usec: int64((receiveTimeoutMs * time.Millisecond) / time.Microsecond)}
+	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
+		panic(fmt.Errorf("set SO_RCVTIMEO on %s: %w", iface.Name, err))
+	}
 
 	ifc, err := net.InterfaceByName(iface.Name)
 	if err != nil {
@@ -113,8 +120,8 @@ func Receive(iface config.Interface) {
 
 		data, _, err := handle.ZeroCopyReadPacketData()
 		if err != nil {
-			// Either a transient read error or the handle was closed by the
-			// watchdog on shutdown. Check the stop signal to disambiguate.
+			// Either no packet arrived within the SO_RCVTIMEO window (EAGAIN)
+			// or a transient read error. Re-check the stop signal and loop.
 			select {
 			case <-measurement.StopReceiving:
 				return
