@@ -38,9 +38,3 @@ snmp_community: public
 
 # zgrab2_binary: /usr/local/bin/zgrab2
 # zdns_binary: /usr/local/bin/zdns
-
-# Optional CIDR blocklist passed to zgrab2 via --blocklist-file. One CIDR per
-# line, '#' comments allowed. null leaves the blocklist disabled (/dev/null
-# fallback) -- without this override zgrab2 would try to read
-# $HOME/.config/zgrab2/blocklist.conf and abort if missing.
-# zgrab2_blocklist_file: /etc/zgrab2/blocklist.conf

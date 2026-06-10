@@ -23,14 +23,8 @@ type ZDNSResult struct {
 	HostnameBind string
 }
 
-// ZDNSRunner manages one zdns subprocess that issues CHAOS-class TXT queries
-// against the responder IP itself (using --name-servers).
-//
-// zdns is typically used to resolve domain names *against* an external
-// resolver; here we abuse it to query each target IP directly as the
-// resolver and ask for "version.bind" CHAOS TXT. We feed two queries per
-// target -- version.bind and hostname.bind -- and pair them up by IP at
-// the parse stage.
+// ZDNSRunner manages one zdns subprocess that issues CHAOS TXT queries against
+// each target IP as the DNS resolver.
 type ZDNSRunner struct {
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
@@ -38,19 +32,8 @@ type ZDNSRunner struct {
 	stderrPipe io.ReadCloser
 }
 
-// StartZDNS spawns zdns configured to issue CHAOS TXT queries against the
-// resolver named in each input line.
-//
-// Input format we feed: "<query-name>,<target-ip>" per line, e.g.
-//
-//	"version.bind,8.8.8.8"
-//
-// zdns reads the first column as the question name and uses the second
-// column as the DNS server to ask. Returns JSON-lines on stdout.
-//
-// We use the --class=CHAOS flag and --override-ns to drive the per-line
-// nameserver. If your zdns version does not support these flags identically,
-// adjust here.
+// StartZDNS spawns zdns. Input format per line: "<query-name>,<target-ip>".
+// Output: one JSON line per query on stdout.
 func StartZDNS(
 	ctx context.Context,
 	binary string,
@@ -110,19 +93,13 @@ func (r *ZDNSRunner) Shutdown() error {
 	}
 }
 
-// ParseZDNSStream consumes zdns JSON-lines stdout and emits exactly one
-// ZDNSResult per IP. Since we feed two queries per IP (version.bind and
-// hostname.bind), the parser tracks per-IP partial state and emits when
-// BOTH queries have been seen (or, at stream end, whatever was accumulated).
-//
-// This contract is required by the merger: each scanner emits at most one
-// result per IP. Multiple emissions for the same IP would cause the merger
-// to leak pending entries.
+// ParseZDNSStream pairs the two CHAOS queries per IP (version.bind +
+// hostname.bind) and emits exactly one ZDNSResult per IP -- contract required
+// by the merger to avoid pending-entry leaks.
 func ParseZDNSStream(r io.Reader, out chan<- ZDNSResult) error {
 	br := bufio.NewReaderSize(r, consts.OSStdoutReadBufferBytes)
 
-	// Per-IP merge state: how many queries have been answered for this IP,
-	// plus the accumulated record. We expect two queries per IP.
+	// Per-IP merge state. Two queries expected per IP.
 	type partial struct {
 		rec  ZDNSResult
 		seen int // count of distinct query types reported (0, 1, or 2)
@@ -180,9 +157,8 @@ func ParseZDNSStream(r io.Reader, out chan<- ZDNSResult) error {
 	}
 }
 
-// parseZDNSLine extracts (query-name, name-server-IP, txt-answer) from one
-// zdns JSON output line. Returns ip="" if the line cannot be parsed or
-// carries no usable answer.
+// parseZDNSLine extracts (query-name, name-server-IP, txt-answer) from one zdns
+// JSON output line. Returns ip="" if the line is malformed.
 func parseZDNSLine(line string) (queryName, ip, txt string) {
 	var raw struct {
 		Name       string `json:"name"`
@@ -217,7 +193,7 @@ func parseZDNSLine(line string) (queryName, ip, txt string) {
 	if server == "" {
 		return "", "", ""
 	}
-	// Pick first TXT answer; ignore non-TXT or empty.
+	// Pick first non-empty TXT answer; fall back to legacy schema if needed.
 	var answers []struct {
 		Type   string `json:"type"`
 		Answer string `json:"answer"`
@@ -232,14 +208,11 @@ func parseZDNSLine(line string) (queryName, ip, txt string) {
 			return strings.TrimSuffix(strings.ToLower(raw.Name), "."), server, a.Answer
 		}
 	}
-	// Even if there was no answer, return the (name, server) pair so the
-	// merger can record "this target was queried" -- but with empty txt the
-	// caller should not produce a partial entry.
+	// No usable answer; still return the (name, server) pair with empty txt.
 	return strings.TrimSuffix(strings.ToLower(raw.Name), "."), server, ""
 }
 
-// ZDNSInputLine formats one input line for zdns: "<query-name>,<target-ip>".
-// Helper kept here so the pipeline does not need to know the format.
+// ZDNSInputLine formats one stdin line for zdns: "<query-name>,<target-ip>".
 func ZDNSInputLine(queryName, ip string) string {
 	return queryName + "," + ip + "\n"
 }

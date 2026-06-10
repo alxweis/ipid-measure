@@ -11,22 +11,14 @@ import (
 	"time"
 )
 
-// SNMPProbe sends a single SNMPv2c GET-Request for sysDescr.0 (OID 1.3.6.1.2.1.1.1.0)
-// to udp/161 and returns the responder's sysDescr string. One UDP packet out,
-// one UDP packet back, with a short timeout: this is the cheapest possible
-// OS-fingerprint probe and can be parallelised much more aggressively than
-// the TCP-based scanners.
-//
-// We do not depend on a third-party SNMP library: the protocol surface we use
-// here (single GET for one scalar OID) is small enough that a focused
-// implementation is more reliable and quite a bit faster than a generic one.
+// SNMPProbe sends a single SNMPv2c GET-Request for sysDescr.0 (OID 1.3.6.1.2.1.1.1.0).
+// One UDP round trip per target, no third-party library.
 type SNMPProbe struct {
 	community []byte
 	timeout   time.Duration
 }
 
-// NewSNMPProbe builds a probe with the given v2c community string and per-
-// request timeout (no retries).
+// NewSNMPProbe builds a probe with the given v2c community and per-request timeout.
 func NewSNMPProbe(community string, timeout time.Duration) *SNMPProbe {
 	return &SNMPProbe{
 		community: []byte(community),
@@ -41,17 +33,8 @@ type SNMPResult struct {
 	OK       bool   // true iff we got a valid SNMP response with a string varBind
 }
 
-// Run streams targets in from `in`, sends one SNMP GET-Request per target
-// with `workers` goroutines, and emits results on `out`. The returned
-// channel `out` is closed when `in` closes AND all workers have drained.
-//
-// On any error per target (DNS, network unreachable, timeout, malformed
-// reply) the worker emits SNMPResult{IP: target, OK: false} so the merger
-// has a record of the attempt -- this lets the merger know "snmp for this
-// IP is done" even when there was no useful result.
-//
-// All ctx.Done() checks ensure a clean shutdown on SIGINT: workers exit
-// promptly even while blocked on a slow consumer.
+// Run fans `in` out to `workers` goroutines and emits one SNMPResult per target.
+// Always emits, even on error, so the merger sees "this scanner is done for this IP".
 func (p *SNMPProbe) Run(ctx context.Context, in <-chan string, workers int) <-chan SNMPResult {
 	out := make(chan SNMPResult, 1024)
 	var wg sync.WaitGroup
@@ -231,14 +214,8 @@ func lenOfHeader(b []byte) int {
 	return 2 + int(b[1]&0x7f) // long form: tag + 1 + N length bytes
 }
 
-// parseSysDescrReply attempts to find a non-empty string varBind value in a
-// SNMPv2c response. Returns (value, true) on success, ("", false) on any
-// parse failure or mismatched request-id/community.
-//
-// Tolerant of agents that reorder varBinds or wrap the value in OCTET STRING
-// with various sub-types -- we extract the OCTET STRING value regardless of
-// what variable name the agent chose (since we only asked for one OID, any
-// returned value belongs to it).
+// parseSysDescrReply extracts the first OCTET STRING varBind value from a v2c
+// reply. Returns ("", false) on any parse failure or community/request-id mismatch.
 func parseSysDescrReply(reply []byte, expectedReqID int32, expectedCommunity []byte) (string, bool) {
 	var msg struct {
 		Version   int

@@ -9,18 +9,15 @@ import (
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
-// pending is the per-IP merge state. We track which of the enabled scanners
-// have already reported for this IP -- once all of them have, the row is
-// emitted to the writer.
+// pending tracks per-IP merge state; emitted once all enabled scanners reported.
 type pending struct {
 	rec     records.OSRecord
 	flags   uint8 // bit-flags: which scanners have reported
 	started time.Time
 }
 
-// merger joins ZGrab2Result, ZDNSResult, SNMPResult streams into one
-// records.OSRecord per IP. It also runs the OS-name fingerprint heuristic
-// and only forwards rows that produced a non-empty match.
+// merger joins ZGrab2/ZDNS/SNMP streams into one records.OSRecord per IP,
+// fingerprints it, and forwards only non-empty matches.
 type merger struct {
 	enabledOrig   uint8 // initial mask -- never changes
 	mu            sync.Mutex
@@ -66,11 +63,8 @@ func newMerger(modules config.OSModules, out chan<- records.OSRecord) *merger {
 	}
 }
 
-// markScannerDead tells the merger that the given scanner will no longer
-// produce results for any IP. We drop the bit from `enabled` so that the
-// per-IP "all scanners reported" check uses the reduced mask. Any pending
-// entries that were waiting only on the dead scanner become eligible for
-// emission and are flushed.
+// markScannerDead drops the scanner's bit from `enabled` and flushes pending
+// entries that are now complete under the reduced mask.
 func (m *merger) markScannerDead(scanner uint8) {
 	m.mu.Lock()
 	if (m.enabled & scanner) == 0 {
@@ -93,11 +87,8 @@ func (m *merger) markScannerDead(scanner uint8) {
 	}
 }
 
-// integrate adds one scanner-source's data to the per-IP pending entry. If
-// the entry now has all enabled scanners accounted for, it is fingerprinted
-// and the result is forwarded (or dropped if no OS name could be inferred).
-//
-// applyFn mutates the OSRecord with the data from this scanner.
+// integrate folds one scanner's result into the per-IP pending entry and
+// emits + fingerprints once all enabled scanners have reported.
 func (m *merger) integrate(ip string, sourceFlag uint8, ts int64, applyFn func(*records.OSRecord)) {
 	m.totalReceived.Add(1)
 
@@ -145,12 +136,8 @@ func (m *merger) emit(rec records.OSRecord) {
 	m.totalEmitted.Add(1)
 }
 
-// flushAll forces emission of every pending entry, regardless of whether all
-// scanners reported. Called once after all input streams are closed.
-//
-// We collect under the lock and emit without it, so a slow downstream writer
-// does not stall holding the merger lock (no producers remain at this stage,
-// but this keeps the lock discipline consistent with the rest of the merger).
+// flushAll emits every pending entry regardless of scanner completion; called
+// once after all input streams are closed. Collect under lock, emit without.
 func (m *merger) flushAll() {
 	m.mu.Lock()
 	toEmit := make([]records.OSRecord, 0, len(m.pendings))
@@ -185,9 +172,7 @@ func applyZGrab2(in ZGrab2Result) func(*records.OSRecord) {
 
 func applyZDNS(in ZDNSResult) func(*records.OSRecord) {
 	return func(r *records.OSRecord) {
-		// zdns emits separate lines for version.bind and hostname.bind that
-		// the zdns parser already merges into one ZDNSResult per IP. We
-		// take the union: never overwrite a non-empty field with empty.
+		// Take the union; never overwrite a non-empty field with empty.
 		if in.VersionBind != "" {
 			r.DNSVersionBind = in.VersionBind
 		}

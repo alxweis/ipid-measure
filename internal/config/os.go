@@ -24,9 +24,8 @@ type OSConfig struct {
 
 	SNMPCommunity string `yaml:"snmp_community"`
 
-	ZGrab2Binary        *string `yaml:"zgrab2_binary"`
-	ZDNSBinary          *string `yaml:"zdns_binary"`
-	ZGrab2BlocklistFile *string `yaml:"zgrab2_blocklist_file"`
+	ZGrab2Binary *string `yaml:"zgrab2_binary"`
+	ZDNSBinary   *string `yaml:"zdns_binary"`
 }
 
 func LoadOSConfig(path string) (*OSConfig, error) {
@@ -120,12 +119,6 @@ func validateOSConfig(config *OSConfig) error {
 
 	if config.ZDNSBinary != nil {
 		if err := files.IsFile(*config.ZDNSBinary, "zdns_binary", "*"); err != nil {
-			return err
-		}
-	}
-
-	if config.ZGrab2BlocklistFile != nil {
-		if err := files.IsFile(*config.ZGrab2BlocklistFile, "zgrab2_blocklist_file", "*"); err != nil {
 			return err
 		}
 	}

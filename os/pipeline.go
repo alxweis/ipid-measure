@@ -16,8 +16,8 @@ import (
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
-// runPipeline reads IP addresses from the ZMap parquet input, fanning them out to the three scanners,
-// merging their per-IP results, fingerprinting, and writing to the OS parquet.
+// runPipeline reads IPs from zmap.pq, fans out to the three scanners,
+// merges per-IP results, fingerprints, and writes to os.pq.
 func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputPath string) (uint64, error) {
 	// Open zmap
 	inFile, err := osstd.Open(zmapInputPath)
@@ -31,11 +31,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	// Build subprocess args & write ZGrab2 ini
 	iniPath := ""
 	if config.HasZGrab2Module(c.Modules) {
-		blocklistPath := ""
-		if c.ZGrab2BlocklistFile != nil {
-			blocklistPath = *c.ZGrab2BlocklistFile
-		}
-		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout, blocklistPath)
+		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout)
 		iniPath = osstd.TempDir() + "/ipid-zgrab2-" + fmt.Sprint(osstd.Getpid()) + ".ini"
 		if err := WriteIniFile(ini, iniPath); err != nil {
 			return 0, fmt.Errorf("write ini: %w", err)
@@ -70,9 +66,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		}
 	}()
 
-	// Resolve subprocess binary paths. Falls back to the bare command name so
-	// the OS's PATH lookup applies; user can override via YAML for non-standard
-	// install locations.
+	// Resolve subprocess binary paths; default falls back to PATH lookup.
 	zgrab2Binary := consts.OSZGrab2Binary
 	if c.ZGrab2Binary != nil {
 		zgrab2Binary = *c.ZGrab2Binary
