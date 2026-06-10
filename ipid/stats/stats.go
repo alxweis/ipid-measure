@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -32,21 +31,10 @@ var (
 	MatchedReplies   int64
 	UnmatchedReplies int64
 	RejectedReplies  int64
-
-	// ProbesReachedSeq[i] counts probes that successfully completed seqNum=i.
-	// Size up to 256: practical RequestCount is small. A probe that finishes
-	// seqNum=15 increments both ProbesReachedSeq[0..15]. Lets you spot whether
-	// probes die mostly at the first seq (host unreachable) or mid-sequence
-	// (ICMP rate-limiting). Sized at init() from RequestCount.
-	ProbesReachedSeq []int64
 )
 
 func Log() {
 	defer measurement.LogsWg.Done()
-
-	if ProbesReachedSeq == nil {
-		ProbesReachedSeq = make([]int64, measurement.RequestCount)
-	}
 
 	duration := consts.LogUpdateInterval
 	ticker := time.NewTicker(duration)
@@ -136,33 +124,6 @@ func Log() {
 			unmatched := atomic.LoadInt64(&UnmatchedReplies)
 			rejected := atomic.LoadInt64(&RejectedReplies)
 
-			// Per-seq histogram. For small RequestCount (typical) show every
-			// seq; otherwise show 5 quantile positions.
-			n := len(ProbesReachedSeq)
-			var seqHist string
-			if n > 0 {
-				if n <= 32 {
-					var sb strings.Builder
-					sb.WriteString("reached_seq=[")
-					for i := 0; i < n; i++ {
-						if i > 0 {
-							sb.WriteByte(' ')
-						}
-						fmt.Fprintf(&sb, "%d", atomic.LoadInt64(&ProbesReachedSeq[i]))
-					}
-					sb.WriteByte(']')
-					seqHist = sb.String()
-				} else {
-					seqHist = fmt.Sprintf("reached_seq[0=%d, q1=%d, q2=%d, q3=%d, last=%d]",
-						atomic.LoadInt64(&ProbesReachedSeq[0]),
-						atomic.LoadInt64(&ProbesReachedSeq[n/4]),
-						atomic.LoadInt64(&ProbesReachedSeq[n/2]),
-						atomic.LoadInt64(&ProbesReachedSeq[3*n/4]),
-						atomic.LoadInt64(&ProbesReachedSeq[n-1]),
-					)
-				}
-			}
-
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
 			inFlight := atomic.LoadInt64(&InFlightProbes)
@@ -175,7 +136,6 @@ func Log() {
 					"sent_mbps=[%.2f] "+
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
-					"%s "+
 					"concurrency=[%d] "+
 					"heap=%dMB goroutines=%d",
 				timeLeft,
@@ -189,7 +149,6 @@ func Log() {
 				sentMbps,
 				sentPps,
 				matched, unmatched, rejected,
-				seqHist,
 				measurement.Config.Concurrency,
 				ms.HeapAlloc>>20, runtime.NumGoroutine(),
 			)

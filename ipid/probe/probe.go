@@ -207,7 +207,6 @@ func measureRTBased(
 			if !probe.Samples[seqNum].IsReceived() {
 				return false
 			}
-			atomic.AddInt64(&stats.ProbesReachedSeq[seqNum], 1)
 			// In RT-based mode the TCP handshake special case (EstablishConnection)
 			// is implicit: we always wait for exactly one reply for each seq, and
 			// the expected SYN-ACK flags are validated by the receiver via the
