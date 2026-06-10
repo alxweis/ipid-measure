@@ -136,8 +136,8 @@ func Log() {
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
 					"heap=[%dMB] "+
-					"in_flight=[%d]"+
-					timeLeft,
+					"in_flight=[%d]",
+				timeLeft,
 				probeCount,
 				probeCountPercentage,
 				deltaValidProbeCount,
