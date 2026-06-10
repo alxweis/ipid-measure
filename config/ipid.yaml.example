@@ -1,9 +1,13 @@
+# --- GENERAL -----------------------------------------------------------------
+
 zmap: tcp-80_2006-01-02_15-04-05
 
 connection_count: 4
 requests_per_connection: 4
 
 measurement_mode: rt-based
+
+# --- DETAILS -----------------------------------------------------------------
 
 fixed_interval:
   request_interval: 20ms
@@ -27,37 +31,16 @@ request_ip_ids:
 
 maximum_tolerated_rtt: 2s
 
-# --- Rate limiting (new, decoupled architecture) ------------------------------
-#
-# Sending is throttled by a single global token-bucket limiter shared by both
-# senders, so throughput is bounded by these caps regardless of how many
-# probers are running concurrently.
-#
-#   bandwidth          - long-run cap in bits/second (e.g. 1G = 1_000_000_000)
-#   packets_per_second - optional cap in packets/second; 0 disables
-#
-# At least one of the two must be > 0. The "100M" / "1G" suffixes from the
-# zmap config are supported (ScaledNumber).
-bandwidth: 1G
+# --- SPEED -------------------------------------------------------------------
+
+bandwidth: 30M
 packets_per_second: 0
 
-# --- Prober pool --------------------------------------------------------------
-#
-# concurrency is the number of in-flight probes (size of the prober goroutine
-# pool). It only needs to be large enough to cover bandwidth * RTT (Little's
-# law): too small wastes bandwidth, too large just wastes a tiny bit of memory.
-# A good starting point at 1 Gbit/s with 200 ms RTT is ~25000.
-#
-# concurrency = 0 falls back to worker_count for backward compatibility with
-# older config files.
-concurrency: 25000
+# Number of in-flight probes. Needs to be large enough to cover bandwidth * RTT:
+# too small wastes bandwidth, too large just wastes a tiny bit of memory.
+concurrency: 25K
 
-# worker_count and worker_target_channel_size are legacy knobs. worker_count is
-# only used as the Concurrency default (when concurrency is 0). It is no longer
-# required to be a power of two (the new model uses a sharded inflight registry
-# instead of a per-worker bitmask routing).
-worker_count: 1024
-worker_target_channel_size: 64
+# --- INTERFACES --------------------------------------------------------------
 
 interfaces:
   a:

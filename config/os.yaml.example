@@ -2,18 +2,13 @@
 
 zmap: tcp-80_2026-06-03_00-13-06
 
-# Egress interface.
-interface:
-  name: eth0
-  ip: 123.45.67.89
-
 modules:
   ssh: true  # SSH banner
   smb: true  # NTLM Native OS field
   http: true  # HTTP Server header on port 80
   https: true  # HTTP Server header + TLS cert metadata on port 443
   snmp: true  # SNMP sysDescr.0 (in-process UDP probe, no external tool)
-  smtp: true  # SMTP banner + EHLO respons
+  smtp: true  # SMTP banner + EHLO response
 
   mssql: true  # Pre-Login response -> Windows
   pop3: true  # POP3 banner
@@ -27,6 +22,12 @@ modules:
 zgrab2_senders: 1000
 zdns_threads: 1000
 snmp_workers: 2000
+
+# --- INTERFACE ---------------------------------------------------------------
+
+interface:
+  name: eth0
+  ip: 123.45.67.89
 
 # --- ADDITIONAL --------------------------------------------------------------
 

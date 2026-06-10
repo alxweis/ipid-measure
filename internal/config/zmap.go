@@ -61,7 +61,7 @@ func validateZMapConfig(config *ZMapConfig) error {
 		}
 
 		if *config.Port == 0 {
-			return fmt.Errorf("port must be between 1 and 65535")
+			return fmt.Errorf("port must be in [1, 65535]")
 		}
 	}
 
@@ -106,7 +106,7 @@ func validateZMapConfig(config *ZMapConfig) error {
 	}
 
 	if config.SenderThreads < 1 || config.SenderThreads > 1_000 {
-		return fmt.Errorf("sender_threads must be between 1 and 1K")
+		return fmt.Errorf("sender_threads must be in [1, 1K]")
 	}
 
 	// --- ADDITIONAL --------------------------------------------------------------

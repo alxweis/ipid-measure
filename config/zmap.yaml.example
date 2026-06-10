@@ -7,11 +7,6 @@ payload: tcp
 # Destination port for the scan. Must be null for icmp and 53 for udp-dns.
 port: 80
 
-# Egress interface ZMap sends from.
-interface:
-  name: eth0
-  ip: 123.45.67.89
-
 # Stop after this many responsive IP addresses.
 # Use null to scan the entire IPv4 space. Supports scaled suffixes: K, M, G.
 number_of_target_ip_addresses: 100K
@@ -26,6 +21,12 @@ bandwidth: 30M
 
 # Number of ZMap send threads. Supports scaled suffixes: K, M, G.
 sender_threads: 1
+
+# --- INTERFACE ---------------------------------------------------------------
+
+interface:
+  name: eth0
+  ip: 123.45.67.89
 
 # --- ADDITIONAL --------------------------------------------------------------
 

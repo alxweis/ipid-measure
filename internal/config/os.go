@@ -50,16 +50,6 @@ func validateOSConfig(config *OSConfig) error {
 		return fmt.Errorf("invalid zmap reference: %w", err)
 	}
 
-	// No raw-ICMP send/receive permission test required, as modules only open regular sockets
-	if err := validateInterface(
-		config.Interface,
-		"interface",
-		false,
-		false,
-	); err != nil {
-		return err
-	}
-
 	if err := validateOSModules(config.Modules); err != nil {
 		return err
 	}
@@ -91,6 +81,18 @@ func validateOSConfig(config *OSConfig) error {
 		}
 	} else if HasSNMPModule(config.Modules) {
 		return fmt.Errorf("snmp_workers must be set, if you use snmp modules")
+	}
+
+	// --- INTERFACE ---------------------------------------------------------------
+
+	// No raw-ICMP send/receive permission test required, as modules only open regular sockets
+	if err := validateInterface(
+		config.Interface,
+		"interface",
+		false,
+		false,
+	); err != nil {
+		return err
 	}
 
 	// --- ADDITIONAL --------------------------------------------------------------
