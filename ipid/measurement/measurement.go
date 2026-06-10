@@ -148,7 +148,7 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) error {
 
 	cleanup()
 
-	log.Printf("IPID measurement completed: %s", Paths.Path)
+	log.Printf("ipid measurement completed: %s", Paths.Path)
 	return nil
 }
 
