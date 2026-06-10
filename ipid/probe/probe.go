@@ -102,6 +102,7 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 		return false
 	}
 
+	atomic.AddInt64(&stats.ProbeCount, 1)
 	atomic.AddInt64(&stats.InFlightProbes, 1)
 	defer atomic.AddInt64(&stats.InFlightProbes, -1)
 
@@ -122,22 +123,14 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	copy(sa[:], sender.SenderA.IP.To4())
 	copy(sb[:], sender.SenderB.IP.To4())
 
-	status := false
 	switch measurement.Config.MeasurementMode {
 	case types.MeasurementModeRTBased:
-		status = measureRTBased(probe, targetKey, scratch, basePort, sa, sb)
+		return measureRTBased(probe, targetKey, scratch, basePort, sa, sb)
 	case types.MeasurementModeFixedInterval:
-		status = measureFixedInterval(probe, targetKey, scratch, basePort, sa, sb)
+		return measureFixedInterval(probe, targetKey, scratch, basePort, sa, sb)
 	default:
 		return false
 	}
-
-	atomic.AddInt64(&stats.ProbeCount, 1)
-	if status {
-		atomic.AddInt64(&stats.ValidProbes, 1)
-	}
-
-	return status
 }
 
 // measureRTBased: one outstanding request at a time. For each seqNum we
@@ -214,6 +207,7 @@ func measureRTBased(
 			if !probe.Samples[seqNum].IsReceived() {
 				return false
 			}
+			atomic.AddInt64(&stats.ProbesReachedSeq[seqNum], 1)
 			// In RT-based mode the TCP handshake special case (EstablishConnection)
 			// is implicit: we always wait for exactly one reply for each seq, and
 			// the expected SYN-ACK flags are validated by the receiver via the
@@ -230,6 +224,7 @@ func measureRTBased(
 	}
 
 	SaveProbesChannel <- probe
+	atomic.AddInt64(&stats.ValidProbes, 1)
 	return true
 }
 
@@ -301,6 +296,7 @@ func measureFixedInterval(
 	}
 
 	SaveProbesChannel <- probe
+	atomic.AddInt64(&stats.ValidProbes, 1)
 	return true
 }
 

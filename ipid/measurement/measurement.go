@@ -79,11 +79,15 @@ var (
 	StreamTargets    func() error
 	CloseTargetChans func()
 	CloseSaveChan    func()
+	// GetRecordCount returns the number of records written to the output
+	// (set by the stats package, returns atomic load of ValidProbes).
+	GetRecordCount func() int64
 )
 
 // Run wires the pipeline together and blocks until the whole target stream has
 // been probed (or an interrupt is received), then performs an ordered shutdown.
-func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) error {
+// Returns the number of records written to the output parquet (= valid probes).
+func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	Config = c
@@ -110,22 +114,22 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) error {
 	// Allow Ctrl+C to trigger a graceful shutdown: stop feeding new targets and
 	// let the in-flight stages drain through cleanup().
 	//
-	// Note: signal.NotifyContext also cancels ctx when our own deferred stop()
-	// runs at function return. The watcher goroutine below therefore prints
-	// "interrupt received" both on real signals and at normal end-of-run --
-	// the latter is cosmetic noise but harmless (triggerStop() is idempotent
-	// via sync.Once, and at end-of-run cleanup() has already finished).
-	//
-	// An earlier attempt at "fixing" this via a runFinished atomic flag
-	// introduced a subtle interaction with cleanup() that caused the program
-	// to hang after probing completed. Until we understand the root cause,
-	// the cosmetic log line is the lesser evil.
+	// Use a `finished` channel to disambiguate "context cancelled because OS
+	// signal" from "context cancelled because deferred stop() ran at function
+	// return". defer order is LIFO, so close(finished) runs before stop(); on
+	// normal exit the goroutine takes the `<-finished` branch and exits silently.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	finished := make(chan struct{})
+	defer close(finished)
 	go func() {
-		<-ctx.Done()
-		log.Printf("interrupt received: finishing in-flight probes and flushing results...")
-		triggerStop()
+		select {
+		case <-ctx.Done():
+			log.Printf("interrupt received: finishing in-flight probes and flushing results...")
+			triggerStop()
+		case <-finished:
+			// Normal end-of-run, nothing to do.
+		}
 	}()
 
 	// Start the consumer stages first so producers never block on startup.
@@ -143,13 +147,19 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) error {
 	if err := StreamTargets(); err != nil {
 		triggerStop()
 		cleanup()
-		return err
+		return records(), err
 	}
 
 	cleanup()
+	return records(), nil
+}
 
-	log.Printf("ipid measurement completed: %s", Paths.Path)
-	return nil
+// records returns the final record count, or 0 if the stats hook is not wired.
+func records() int64 {
+	if GetRecordCount == nil {
+		return 0
+	}
+	return GetRecordCount()
 }
 
 // triggerStop closes the lifecycle channels exactly once.

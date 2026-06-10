@@ -50,7 +50,10 @@ func main() {
 		log.Fatalf("create config snapshot: %v", err)
 	}
 
-	if err := measurement.Run(c, m); err != nil {
-		log.Fatalf("run measurement: %v", err)
+	records, err := measurement.Run(c, m)
+	if err != nil {
+		log.Fatalf("run measurement (wrote %d records before error): %v", records, err)
 	}
+
+	log.Printf("ipid measurement completed: %s (records=%d)", m.Path, records)
 }
