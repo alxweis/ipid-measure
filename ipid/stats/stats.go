@@ -136,7 +136,6 @@ func Log() {
 					"sent_mbps=[%.2f] "+
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
-					"concurrency=[%d] "+
 					"heap=%dMB goroutines=%d",
 				timeLeft,
 				probeCount,
@@ -149,7 +148,6 @@ func Log() {
 				sentMbps,
 				sentPps,
 				matched, unmatched, rejected,
-				measurement.Config.Concurrency,
 				ms.HeapAlloc>>20, runtime.NumGoroutine(),
 			)
 
