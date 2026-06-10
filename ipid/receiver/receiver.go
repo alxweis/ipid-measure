@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,7 +51,19 @@ func Receive(iface config.Interface) {
 	if err != nil {
 		panic(err)
 	}
-	defer handle.Close()
+
+	// Close the handle exactly once, either via deferred cleanup at function
+	// exit or via the watchdog when shutdown is requested. ZeroCopyReadPacketData
+	// blocks indefinitely on the AF_PACKET socket until data arrives or the fd
+	// is closed; closing it from the watchdog unblocks the read with an error,
+	// which is how we react to StopReceiving.
+	var closeOnce sync.Once
+	closeHandle := func() { closeOnce.Do(func() { handle.Close() }) }
+	defer closeHandle()
+	go func() {
+		<-measurement.StopReceiving
+		closeHandle()
+	}()
 
 	ifc, err := net.InterfaceByName(iface.Name)
 	if err != nil {
@@ -100,8 +113,14 @@ func Receive(iface config.Interface) {
 
 		data, _, err := handle.ZeroCopyReadPacketData()
 		if err != nil {
-			// Transient read error (timeout, EINTR); keep going and re-check stop.
-			continue
+			// Either a transient read error or the handle was closed by the
+			// watchdog on shutdown. Check the stop signal to disambiguate.
+			select {
+			case <-measurement.StopReceiving:
+				return
+			default:
+				continue
+			}
 		}
 
 		if perr := parser.DecodeLayers(data, &decoded); perr != nil {

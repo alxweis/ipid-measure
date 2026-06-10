@@ -20,6 +20,7 @@ type Writer struct {
 	pq       *parquet.GenericWriter[records.OSRecord]
 	batch    []records.OSRecord
 	written  uint64
+	closed   bool
 }
 
 func NewWriter(outPath string) (*Writer, error) {
@@ -70,6 +71,10 @@ func (w *Writer) flush() error {
 func (w *Writer) Written() uint64 { return w.written }
 
 func (w *Writer) Close() error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
 	var firstErr error
 	setErr := func(err error) {
 		if err != nil && firstErr == nil {

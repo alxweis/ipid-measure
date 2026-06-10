@@ -145,8 +145,6 @@ func measureRTBased(
 	timer := time.NewTimer(rtt)
 	defer timer.Stop()
 
-	var sentBytes, sentPackets int64
-
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		req := &scratch[seqNum]
 
@@ -185,8 +183,10 @@ func measureRTBased(
 			Inflight.Deregister(targetKey, entry)
 			return false
 		}
-		sentBytes += int64(len(req.Bytes))
-		sentPackets++
+		// Update sent counters incrementally so stats reflect traffic in
+		// flight even for probes that ultimately time out.
+		atomic.AddInt64(&stats.SentBytes, int64(len(req.Bytes)))
+		atomic.AddInt64(&stats.SentPackets, 1)
 
 		// Reset and reuse the per-target timer to avoid per-seqNum allocation.
 		if !timer.Stop() {
@@ -205,6 +205,7 @@ func measureRTBased(
 			if !probe.Samples[seqNum].IsReceived() {
 				return false
 			}
+			atomic.AddInt64(&stats.ProbesReachedSeq[seqNum], 1)
 			// In RT-based mode the TCP handshake special case (EstablishConnection)
 			// is implicit: we always wait for exactly one reply for each seq, and
 			// the expected SYN-ACK flags are validated by the receiver via the
@@ -219,9 +220,6 @@ func measureRTBased(
 			return false
 		}
 	}
-
-	atomic.AddInt64(&stats.SentBytes, sentBytes)
-	atomic.AddInt64(&stats.SentPackets, sentPackets)
 
 	SaveProbesChannel <- probe
 	atomic.AddInt64(&stats.ValidProbes, 1)
@@ -254,24 +252,19 @@ func measureFixedInterval(
 
 	interval := measurement.Config.FixedIntervalConfig.RequestInterval
 
-	var sentBytes, sentPackets int64
-
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		req := &scratch[seqNum]
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 		if err := req.Sender.Send(req.Bytes); err != nil {
 			return false
 		}
-		sentBytes += int64(len(req.Bytes))
-		sentPackets++
+		atomic.AddInt64(&stats.SentBytes, int64(len(req.Bytes)))
+		atomic.AddInt64(&stats.SentPackets, 1)
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
 			time.Sleep(interval)
 		}
 	}
-
-	atomic.AddInt64(&stats.SentBytes, sentBytes)
-	atomic.AddInt64(&stats.SentPackets, sentPackets)
 
 	// Wait for all expected replies or for the MaximumToleratedRTT to elapse
 	// after the LAST send (which is when the last reply could legitimately

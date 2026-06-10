@@ -332,6 +332,12 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	// Stop the stats' reporter.
 	close(statsDone)
 
+	// Close the writer here so Written() reflects the final flushed row count
+	// (the defer at function entry is now a no-op via Writer.closed).
+	if err := writer.Close(); err != nil {
+		log.Printf("os: parquet close: %v", err)
+	}
+
 	log.Printf("os: wrote %d records, %d dropped (no OS match), %d merger inputs",
 		m.totalEmitted.Load(), m.totalDropped.Load(), m.totalReceived.Load())
 
