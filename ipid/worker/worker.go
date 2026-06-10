@@ -36,7 +36,7 @@ var targets chan net.IP
 // StartAll spawns Concurrency prober goroutines. Registered into
 // measurement.StartWorkers.
 func StartAll() {
-	concurrency := measurement.Config.Concurrency
+	concurrency := uint64(measurement.Config.Concurrency)
 	// Channel buffer: enough to keep all probers busy through one parquet read
 	// batch, but bounded so a stalled writer eventually back-pressures here.
 	targets = make(chan net.IP, concurrency*2)
