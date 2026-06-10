@@ -103,6 +103,8 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	}
 
 	atomic.AddInt64(&stats.ProbeCount, 1)
+	atomic.AddInt64(&stats.InFlightProbes, 1)
+	defer atomic.AddInt64(&stats.InFlightProbes, -1)
 
 	basePort := port.Next()
 	packet.BuildPacketsInto(scratch, target4, basePort)

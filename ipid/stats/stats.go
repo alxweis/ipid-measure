@@ -16,8 +16,12 @@ var (
 	NumberOfTargetIPAddresses int64
 	ValidProbes               int64
 	ProbeCount                int64
-	SentBytes                 int64
-	SentPackets               int64
+	// InFlightProbes counts probes that have started but not yet finished
+	// (success or timeout). Incremented at Measure() entry, decremented at
+	// exit. Useful to distinguish "all probes started" from "all probes done".
+	InFlightProbes int64
+	SentBytes      int64
+	SentPackets    int64
 
 	// MatchedReplies: reply was matched to an in-flight probe and filled a
 	// sample. UnmatchedReplies: validly decoded reply that did not match any
@@ -161,10 +165,12 @@ func Log() {
 
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
+			inFlight := atomic.LoadInt64(&InFlightProbes)
 
 			log.Printf(
 				"estimated_time_left=[%s] "+
 					"probed_ip_addresses=[%d, %.2f%%] "+
+					"in_flight=[%d] "+
 					"valid_probes=[%d, %d/%d=%.2f%%] "+
 					"sent_mbps=[%.2f] "+
 					"sent_pps=[%.0f] "+
@@ -175,6 +181,7 @@ func Log() {
 				timeLeft,
 				probeCount,
 				probeCountPercentage,
+				inFlight,
 				deltaValidProbeCount,
 				validProbes,
 				probeCount,
