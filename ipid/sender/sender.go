@@ -168,8 +168,29 @@ func GetSender(seqNum uint16) *Sender {
 	return SenderB
 }
 
+// Close releases this sender's AF_PACKET file descriptor. Safe to call once;
+// further calls are no-ops because the kernel-managed fd is already closed.
+func (s *Sender) Close() {
+	if s == nil || s.Fd <= 0 {
+		return
+	}
+	_ = syscall.Close(s.Fd)
+	s.Fd = -1
+}
+
+// CloseSenders closes both egress sockets. Registered into measurement.CloseSenders.
+func CloseSenders() {
+	if SenderA != nil {
+		SenderA.Close()
+	}
+	if SenderB != nil {
+		SenderB.Close()
+	}
+}
+
 func init() {
 	measurement.SetupSenders = Setup
+	measurement.CloseSenders = CloseSenders
 	measurement.SetupRateLimiter = SetupRateLimiter
 	measurement.StopRateLimiter = func() {
 		if Limiter != nil {

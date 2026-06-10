@@ -3,6 +3,7 @@ package stats
 import (
 	"fmt"
 	"log"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -119,6 +120,9 @@ func Log() {
 			unmatched := atomic.LoadInt64(&UnmatchedReplies)
 			rejected := atomic.LoadInt64(&RejectedReplies)
 
+			var ms runtime.MemStats
+			runtime.ReadMemStats(&ms)
+
 			log.Printf(
 				"estimated_time_left=[%s] "+
 					"probed_ip_addresses=[%d, %.2f%%] "+
@@ -126,7 +130,8 @@ func Log() {
 					"sent_mbps=[%.2f] "+
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
-					"concurrency=[%d]",
+					"concurrency=[%d] "+
+					"heap=%dMB goroutines=%d",
 				timeLeft,
 				probeCount,
 				probeCountPercentage,
@@ -138,6 +143,7 @@ func Log() {
 				sentPps,
 				matched, unmatched, rejected,
 				measurement.Config.Concurrency,
+				ms.HeapAlloc>>20, runtime.NumGoroutine(),
 			)
 
 			lastValidProbes = validProbes

@@ -27,6 +27,10 @@ type merger struct {
 	totalEmitted  atomic.Uint64
 	totalDropped  atomic.Uint64 // rows where fingerprint returned ""
 	totalReceived atomic.Uint64
+	// Per-scanner integrate counters; useful to spot a silent scanner.
+	rxZGrab2 atomic.Uint64
+	rxZDNS   atomic.Uint64
+	rxSNMP   atomic.Uint64
 }
 
 // Scanner-mask bits. Adding a scanner means adding a bit and accounting for
@@ -91,6 +95,14 @@ func (m *merger) markScannerDead(scanner uint8) {
 // emits + fingerprints once all enabled scanners have reported.
 func (m *merger) integrate(ip string, sourceFlag uint8, ts int64, applyFn func(*records.OSRecord)) {
 	m.totalReceived.Add(1)
+	switch sourceFlag {
+	case scannerZGrab2:
+		m.rxZGrab2.Add(1)
+	case scannerZDNS:
+		m.rxZDNS.Add(1)
+	case scannerSNMP:
+		m.rxSNMP.Add(1)
+	}
 
 	m.mu.Lock()
 	p, ok := m.pendings[ip]

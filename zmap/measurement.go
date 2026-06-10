@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -219,6 +220,7 @@ func reportStats(ctx context.Context, written, duplicates *atomic.Uint64, done c
 	defer ticker.Stop()
 
 	var last uint64
+	var ms runtime.MemStats
 	start := time.Now()
 	for {
 		select {
@@ -230,8 +232,9 @@ func reportStats(ctx context.Context, written, duplicates *atomic.Uint64, done c
 			delta := cur - last
 			last = cur
 			elapsed := time.Since(start).Truncate(time.Second)
-			log.Printf("zmap: unique=%d (+%d/s) duplicates=%d elapsed=%s",
-				cur, delta, dups, elapsed)
+			runtime.ReadMemStats(&ms)
+			log.Printf("zmap: unique=%d (+%d/s) duplicates=%d heap=%dMB goroutines=%d elapsed=%s",
+				cur, delta, dups, ms.HeapAlloc>>20, runtime.NumGoroutine(), elapsed)
 		}
 	}
 }

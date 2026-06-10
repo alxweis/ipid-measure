@@ -1,7 +1,6 @@
 package sender
 
 import (
-	"math"
 	"sync"
 	"time"
 
@@ -179,14 +178,13 @@ func (rl *RateLimiter) Stop() {
 }
 
 // SetupRateLimiter installs the global limiter from the loaded configuration.
-// Registered as a measurement.SetupRateLimiter hook.
 func SetupRateLimiter() {
-	bandwidth := math.MaxInt
+	bandwidth := 0
 	if measurement.Config.Bandwidth != nil {
 		bandwidth = int(*measurement.Config.Bandwidth)
 	}
 
-	pps := math.MaxInt
+	pps := 0
 	if measurement.Config.PacketsPerSecond != nil {
 		pps = int(*measurement.Config.PacketsPerSecond)
 	}

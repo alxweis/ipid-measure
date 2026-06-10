@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	osstd "os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -342,6 +343,7 @@ func reportOSStats(ctx context.Context, m *merger, w *Writer, done <-chan struct
 	t := time.NewTicker(consts.LogUpdateInterval)
 	defer t.Stop()
 	var lastEmitted uint64
+	var ms runtime.MemStats
 	start := time.Now()
 	for {
 		select {
@@ -356,8 +358,11 @@ func reportOSStats(ctx context.Context, m *merger, w *Writer, done <-chan struct
 			received := m.totalReceived.Load()
 			dropped := m.totalDropped.Load()
 			elapsed := time.Since(start).Truncate(time.Second)
-			log.Printf("os: emitted=%d (+%d/s) dropped=%d merger_in=%d written=%d elapsed=%s",
-				cur, delta, dropped, received, w.Written(), elapsed)
+			runtime.ReadMemStats(&ms)
+			log.Printf("os: emitted=%d (+%d/s) dropped=%d merger_in=%d (zgrab2=%d zdns=%d snmp=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
+				cur, delta, dropped, received,
+				m.rxZGrab2.Load(), m.rxZDNS.Load(), m.rxSNMP.Load(),
+				w.Written(), ms.HeapAlloc>>20, runtime.NumGoroutine(), elapsed)
 		}
 	}
 }

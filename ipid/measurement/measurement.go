@@ -65,6 +65,7 @@ var stopOnce sync.Once
 // sub-packages here) is what keeps this package a dependency leaf.
 var (
 	SetupSenders     func()
+	CloseSenders     func()
 	SetupRateLimiter func()
 	StopRateLimiter  func()
 	SetupPayload     func()
@@ -183,7 +184,12 @@ func cleanup() {
 	close(StopReceiving)
 	ReceiverWg.Wait()
 
-	// 4. Finally stop the stats logger.
+	// 4. All sockets idle: release the AF_PACKET file descriptors.
+	if CloseSenders != nil {
+		CloseSenders()
+	}
+
+	// 5. Finally stop the stats logger.
 	close(StopLogs)
 	LogsWg.Wait()
 }

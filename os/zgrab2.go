@@ -61,6 +61,7 @@ func BuildZGrab2INI(
 	fmt.Fprintf(&b, "output-file=-\n")
 	fmt.Fprintf(&b, "input-file=-\n")
 	fmt.Fprintf(&b, "blocklist-file=/dev/null\n")
+	fmt.Fprintf(&b, "flush=true\n") // flush stdout per result so parser sees lines promptly
 
 	ctStr := connectTimeout.String()
 	ttStr := (connectTimeout + readTimeout).String()
