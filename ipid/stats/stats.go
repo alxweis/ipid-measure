@@ -43,6 +43,7 @@ func Log() {
 	startTime := time.Now()
 
 	var (
+		lastProbeCount  int64
 		lastValidProbes int64
 		lastSentBytes   int64
 		lastSentPackets int64
@@ -62,6 +63,7 @@ func Log() {
 			numberOfTargets := atomic.LoadInt64(&NumberOfTargetIPAddresses)
 
 			// Deltas
+			deltaProbeCount := probeCount - lastProbeCount
 			deltaValidProbeCount := validProbes - lastValidProbes
 			deltaSentByteCount := sentBytes - lastSentBytes
 			deltaSentPacketCount := sentPackets - lastSentPackets
@@ -130,15 +132,15 @@ func Log() {
 
 			log.Printf(
 				"estimated_time_left=[%s] "+
-					"probed_ip_addresses=[%d, %.2f%%] "+
-					"valid_probes=[%d, %.2f%%] "+
+					"probed_ip_addresses=[+%d, %.2f%%] "+
+					"valid_probes=[+%d, %.2f%%] "+
 					"sent_mbps=[%.2f] "+
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
 					"heap=[%dMB] "+
 					"in_flight=[%d]",
 				timeLeft,
-				probeCount,
+				deltaProbeCount,
 				probeCountPercentage,
 				deltaValidProbeCount,
 				validProbeCountPercentage,
@@ -149,6 +151,7 @@ func Log() {
 				inFlight,
 			)
 
+			lastProbeCount = probeCount
 			lastValidProbes = validProbes
 			lastSentBytes = sentBytes
 			lastSentPackets = sentPackets
