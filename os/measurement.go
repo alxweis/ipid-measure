@@ -29,9 +29,9 @@ func Run(c *config.OSConfig, m *paths.OSMeasurement) (uint64, error) {
 	log.Printf("  telnet               = %v", c.Modules.TELNET)
 	log.Printf("  dns_chaos            = %v", c.Modules.DNSChaos)
 
-	log.Printf("zgrab2_senders         = %s", c.ZGrab2Senders.Str())
-	log.Printf("zdns_threads           = %s", c.ZDNSThreads.Str())
-	log.Printf("snmp_workers           = %s", c.SNMPWorkers.Str())
+	log.Printf("zgrab2_senders         = %s", c.ZGrab2Senders.String())
+	log.Printf("zdns_threads           = %s", c.ZDNSThreads.String())
+	log.Printf("snmp_workers           = %s", c.SNMPWorkers.String())
 
 	log.Printf("interface              = %s (%s)", c.Interface.Name, c.Interface.IP)
 

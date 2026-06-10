@@ -36,8 +36,8 @@ func printConfig() {
 	log.Printf("request_ip_ids        = %v", c.RequestIPIDs)
 	log.Printf("maximum_tolerated_rtt = %s", c.MaximumToleratedRTT)
 
-	log.Printf("bandwidth (bit/s)     = %s", c.Bandwidth.Str())
-	log.Printf("packets_per_second    = %s", c.PacketsPerSecond.Str())
+	log.Printf("bandwidth (bit/s)     = %s", c.Bandwidth.String())
+	log.Printf("packets_per_second    = %s", c.PacketsPerSecond.String())
 	log.Printf("concurrency           = %d", c.Concurrency)
 
 	log.Printf("interface_a           = %s (%s)", c.Interfaces.A.Name, c.Interfaces.A.IP)

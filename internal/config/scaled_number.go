@@ -87,7 +87,7 @@ func ParseScaledNumber(value string) (uint64, error) {
 	return uint64(result), nil
 }
 
-func (s *ScaledNumber) Str() string {
+func (s *ScaledNumber) String() string {
 	if s == nil {
 		return "(unset)"
 	}
