@@ -44,7 +44,7 @@ var Limiter *RateLimiter
 // pps. burstDuration controls how much send can burst above the long-run rate;
 // 100ms is the standard ZMap-class default and avoids both starvation (too
 // small) and unbounded bursts (too large).
-func newRateLimiter(bandwidthBitsPerSecond, packetsPerSecond uint64, burstDuration time.Duration) *RateLimiter {
+func newRateLimiter(bandwidthBitsPerSecond, packetsPerSecond int, burstDuration time.Duration) *RateLimiter {
 	rl := &RateLimiter{
 		bytesPerSecond:   float64(bandwidthBitsPerSecond) / 8.0,
 		packetsPerSecond: float64(packetsPerSecond),
@@ -180,7 +180,15 @@ func (rl *RateLimiter) Stop() {
 // SetupRateLimiter installs the global limiter from the loaded configuration.
 // Registered as a measurement.SetupRateLimiter hook.
 func SetupRateLimiter() {
-	bandwidth := uint64(measurement.Config.Bandwidth)
-	pps := uint64(measurement.Config.PacketsPerSecond)
+	bandwidth := 0
+	if measurement.Config.Bandwidth != nil {
+		bandwidth = int(*measurement.Config.Bandwidth)
+	}
+
+	pps := 0
+	if measurement.Config.PacketsPerSecond != nil {
+		pps = int(*measurement.Config.PacketsPerSecond)
+	}
+
 	Limiter = newRateLimiter(bandwidth, pps, 100*time.Millisecond)
 }
