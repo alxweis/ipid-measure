@@ -40,6 +40,8 @@ func StartZDNS(
 	threads config.ScaledNumber,
 	timeout time.Duration) (*ZDNSRunner, error) {
 
+	// Default is recursive (non-iterative) mode, which is exactly what we want:
+	// the second column of the CSV input is used as the recursive resolver.
 	args := []string{
 		"TXT",
 		"--class=CHAOS",
@@ -48,7 +50,6 @@ func StartZDNS(
 		fmt.Sprintf("--threads=%d", threads),
 		fmt.Sprintf("--timeout=%d", int(timeout.Seconds())),
 		"--retries=0",
-		"--iterative=false",
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -159,24 +160,18 @@ func ParseZDNSStream(r io.Reader, out chan<- ZDNSResult) error {
 
 // parseZDNSLine extracts (query-name, name-server-IP, txt-answer) from one zdns
 // JSON output line. Returns ip="" if the line is malformed.
+//
+// Schema (verified against `zdns TXT --class=CHAOS ... < ip-csv`):
+//
+//	{"name":"version.bind","status":"NOERROR",
+//	 "data":{"resolver":"1.2.3.4:53","answers":[{"type":"TXT","answer":"..."}]}}
 func parseZDNSLine(line string) (queryName, ip, txt string) {
 	var raw struct {
-		Name       string `json:"name"`
-		NameServer string `json:"name_server"`
-		Results    struct {
-			TXT struct {
-				Status string `json:"status"`
-				Data   struct {
-					Answers []struct {
-						Type   string `json:"type"`
-						Answer string `json:"answer"`
-					} `json:"answers"`
-				} `json:"data"`
-			} `json:"TXT"`
-		} `json:"results"`
-		// Older zdns versions place the answers one level higher
-		Data struct {
-			Answers []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Data   struct {
+			Resolver string `json:"resolver"`
+			Answers  []struct {
 				Type   string `json:"type"`
 				Answer string `json:"answer"`
 			} `json:"answers"`
@@ -185,31 +180,25 @@ func parseZDNSLine(line string) (queryName, ip, txt string) {
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
 		return "", "", ""
 	}
-	// Strip "host:port" -> "host" for the name-server field.
-	server := raw.NameServer
+	// resolver is "ip:port" -- strip the port.
+	server := raw.Data.Resolver
 	if idx := strings.LastIndex(server, ":"); idx >= 0 && strings.Count(server, ":") == 1 {
 		server = server[:idx]
 	}
 	if server == "" {
 		return "", "", ""
 	}
-	// Pick first non-empty TXT answer; fall back to legacy schema if needed.
-	var answers []struct {
-		Type   string `json:"type"`
-		Answer string `json:"answer"`
-	}
-	if len(raw.Results.TXT.Data.Answers) > 0 {
-		answers = raw.Results.TXT.Data.Answers
-	} else if len(raw.Data.Answers) > 0 {
-		answers = raw.Data.Answers
-	}
-	for _, a := range answers {
-		if a.Type == "TXT" && a.Answer != "" {
-			return strings.TrimSuffix(strings.ToLower(raw.Name), "."), server, a.Answer
+	queryName = strings.TrimSuffix(strings.ToLower(raw.Name), ".")
+	// Only NOERROR carries useful answers; on SERVFAIL/NXDOMAIN/etc. still
+	// return the (name, server) pair so the merger knows this query is done.
+	if raw.Status == "NOERROR" {
+		for _, a := range raw.Data.Answers {
+			if a.Type == "TXT" && a.Answer != "" {
+				return queryName, server, a.Answer
+			}
 		}
 	}
-	// No usable answer; still return the (name, server) pair with empty txt.
-	return strings.TrimSuffix(strings.ToLower(raw.Name), "."), server, ""
+	return queryName, server, ""
 }
 
 // ZDNSInputLine formats one stdin line for zdns: "<query-name>,<target-ip>".
