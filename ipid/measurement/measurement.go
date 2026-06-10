@@ -161,12 +161,23 @@ func triggerStop() {
 
 // cleanup drains the pipeline stages strictly in producer->consumer order so no
 // stage is closed while another may still write to it.
+//
+// StopRateLimiter is called *early* only when a real interrupt was received --
+// then workers may be blocked in Acquire() and need to be woken up. On normal
+// completion we let workers finish their in-flight sequences naturally and
+// stop the limiter last, because stopping it would cause Send to return
+// ErrStopped mid-sequence and silently kill all in-flight probes.
 func cleanup() {
-	// 0. Release any goroutines currently blocked on the rate limiter so they
-	//    can observe the stop signal and exit promptly. This is safe to do
-	//    before closing the target channels because the prober loop checks the
-	//    stop signal between probes.
-	if StopRateLimiter != nil {
+	isInterrupt := false
+	select {
+	case <-StopSignal:
+		isInterrupt = true
+	default:
+	}
+
+	// 0. On interrupt only: release any goroutines currently blocked on the
+	//    rate limiter so they observe the stop signal and exit promptly.
+	if isInterrupt && StopRateLimiter != nil {
 		StopRateLimiter()
 	}
 
@@ -189,7 +200,13 @@ func cleanup() {
 		CloseSenders()
 	}
 
-	// 5. Finally stop the stats logger.
+	// 5. On normal completion: stop the rate limiter now (after all workers
+	//    have already drained, so it cannot kill in-flight probes).
+	if !isInterrupt && StopRateLimiter != nil {
+		StopRateLimiter()
+	}
+
+	// 6. Finally stop the stats logger.
 	close(StopLogs)
 	LogsWg.Wait()
 }

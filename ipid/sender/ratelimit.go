@@ -178,6 +178,8 @@ func (rl *RateLimiter) Stop() {
 }
 
 // SetupRateLimiter installs the global limiter from the loaded configuration.
+// nil bandwidth or pps means "unlimited" -- pass 0 so Acquire skips that bucket
+// entirely instead of running with a huge-but-finite limit.
 func SetupRateLimiter() {
 	bandwidth := 0
 	if measurement.Config.Bandwidth != nil {

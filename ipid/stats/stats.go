@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -131,17 +132,31 @@ func Log() {
 			unmatched := atomic.LoadInt64(&UnmatchedReplies)
 			rejected := atomic.LoadInt64(&RejectedReplies)
 
-			// Compact per-seq histogram: counts at seq 0, ¼·N, ½·N, ¾·N, N-1.
+			// Per-seq histogram. For small RequestCount (typical) show every
+			// seq; otherwise show 5 quantile positions.
 			n := len(ProbesReachedSeq)
 			var seqHist string
 			if n > 0 {
-				seqHist = fmt.Sprintf("reached_seq[0=%d, q1=%d, q2=%d, q3=%d, last=%d]",
-					atomic.LoadInt64(&ProbesReachedSeq[0]),
-					atomic.LoadInt64(&ProbesReachedSeq[n/4]),
-					atomic.LoadInt64(&ProbesReachedSeq[n/2]),
-					atomic.LoadInt64(&ProbesReachedSeq[3*n/4]),
-					atomic.LoadInt64(&ProbesReachedSeq[n-1]),
-				)
+				if n <= 32 {
+					var sb strings.Builder
+					sb.WriteString("reached_seq=[")
+					for i := 0; i < n; i++ {
+						if i > 0 {
+							sb.WriteByte(' ')
+						}
+						fmt.Fprintf(&sb, "%d", atomic.LoadInt64(&ProbesReachedSeq[i]))
+					}
+					sb.WriteByte(']')
+					seqHist = sb.String()
+				} else {
+					seqHist = fmt.Sprintf("reached_seq[0=%d, q1=%d, q2=%d, q3=%d, last=%d]",
+						atomic.LoadInt64(&ProbesReachedSeq[0]),
+						atomic.LoadInt64(&ProbesReachedSeq[n/4]),
+						atomic.LoadInt64(&ProbesReachedSeq[n/2]),
+						atomic.LoadInt64(&ProbesReachedSeq[3*n/4]),
+						atomic.LoadInt64(&ProbesReachedSeq[n-1]),
+					)
+				}
 			}
 
 			var ms runtime.MemStats
