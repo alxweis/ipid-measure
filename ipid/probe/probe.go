@@ -102,7 +102,6 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 		return false
 	}
 
-	atomic.AddInt64(&stats.ProbeCount, 1)
 	atomic.AddInt64(&stats.InFlightProbes, 1)
 	defer atomic.AddInt64(&stats.InFlightProbes, -1)
 
@@ -123,14 +122,22 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	copy(sa[:], sender.SenderA.IP.To4())
 	copy(sb[:], sender.SenderB.IP.To4())
 
+	status := false
 	switch measurement.Config.MeasurementMode {
 	case types.MeasurementModeRTBased:
-		return measureRTBased(probe, targetKey, scratch, basePort, sa, sb)
+		status = measureRTBased(probe, targetKey, scratch, basePort, sa, sb)
 	case types.MeasurementModeFixedInterval:
-		return measureFixedInterval(probe, targetKey, scratch, basePort, sa, sb)
+		status = measureFixedInterval(probe, targetKey, scratch, basePort, sa, sb)
 	default:
 		return false
 	}
+
+	atomic.AddInt64(&stats.ProbeCount, 1)
+	if status {
+		atomic.AddInt64(&stats.ValidProbes, 1)
+	}
+
+	return status
 }
 
 // measureRTBased: one outstanding request at a time. For each seqNum we
@@ -223,7 +230,6 @@ func measureRTBased(
 	}
 
 	SaveProbesChannel <- probe
-	atomic.AddInt64(&stats.ValidProbes, 1)
 	return true
 }
 
@@ -295,7 +301,6 @@ func measureFixedInterval(
 	}
 
 	SaveProbesChannel <- probe
-	atomic.AddInt64(&stats.ValidProbes, 1)
 	return true
 }
 
