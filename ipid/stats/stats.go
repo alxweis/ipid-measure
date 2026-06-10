@@ -131,22 +131,22 @@ func Log() {
 			log.Printf(
 				"estimated_time_left=[%s] "+
 					"probed_ip_addresses=[%d, %.2f%%] "+
-					"in_flight=[%d] "+
 					"valid_probes=[%d, %.2f%%] "+
 					"sent_mbps=[%.2f] "+
 					"sent_pps=[%.0f] "+
 					"replies[matched=%d unmatched=%d rejected=%d] "+
-					"heap=[%dMB] goroutines=[%d]",
-				timeLeft,
+					"heap=[%dMB] "+
+					"in_flight=[%d]"+
+					timeLeft,
 				probeCount,
 				probeCountPercentage,
-				inFlight,
 				deltaValidProbeCount,
 				validProbeCountPercentage,
 				sentMbps,
 				sentPps,
 				matched, unmatched, rejected,
-				ms.HeapAlloc>>20, runtime.NumGoroutine(),
+				ms.HeapAlloc>>20,
+				inFlight,
 			)
 
 			lastValidProbes = validProbes
