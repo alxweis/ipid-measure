@@ -36,9 +36,7 @@ maximum_tolerated_rtt: 2s
 bandwidth: 30M
 packets_per_second: null
 
-# Number of in-flight probes. Needs to be large enough to cover bandwidth * RTT:
-# too small wastes bandwidth, too large just wastes a tiny bit of memory.
-concurrency: 25K
+number_of_inflight_probes: 25K
 
 # --- INTERFACES --------------------------------------------------------------
 

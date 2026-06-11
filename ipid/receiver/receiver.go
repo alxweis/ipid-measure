@@ -17,7 +17,6 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/sets"
-	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/dns"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
@@ -26,13 +25,8 @@ import (
 	"github.com/alxweis/ipid-measure/ipid/tcp"
 )
 
-// receiveTimeoutMs is how long the recvmsg() syscall blocks before returning
-// EAGAIN so the loop can observe StopReceiving. 200ms gives a bounded shutdown
-// latency without measurable CPU overhead under normal load.
 const receiveTimeoutMs = 200
 
-// StartAll launches one receiver goroutine per interface. Registered into
-// measurement.StartReceivers.
 func StartAll() {
 	measurement.ReceiverWg.Add(1)
 	go Receive(measurement.Config.Interfaces.A)
@@ -43,13 +37,6 @@ func StartAll() {
 
 // Receive captures packets on one interface, decodes the L3/L4 headers, and
 // hands matching replies to probe.FulfillReply for in-place sample filling.
-//
-// Performance: we use ZeroCopyReadPacketData (kernel buffer reused on the next
-// read) together with a DecodingLayerParser that decodes only the headers we
-// need. Both avoid the channel-based gopacket PacketSource and lazy reflection-
-// based decoding of the previous implementation. There is NO copy of the packet
-// bytes and NO allocation per captured frame: the sample filling step is the
-// only mutation, and it happens directly in the probe's pre-allocated slice.
 func Receive(iface config.Interface) {
 	defer measurement.ReceiverWg.Done()
 
@@ -59,13 +46,8 @@ func Receive(iface config.Interface) {
 	}
 	defer handle.Close()
 
-	// Set a periodic read timeout so the blocking recvmsg() in
-	// ZeroCopyReadPacketData returns regularly and the loop can observe
-	// StopReceiving. handle.Close() alone does NOT reliably unblock recvmsg
-	// on Linux when the fd is closed from another goroutine.
-	//
-	// pcapgo.EthernetHandle.fd is unexported, but the struct layout is stable:
-	// fd is the first field, so &handle's first int is the socket fd.
+	// Set a periodic read timeout so the blocking recvmsg() in ZeroCopyReadPacketData returns
+	// regularly and the loop can observe StopReceiving.
 	fd := *(*int)(unsafe.Pointer(handle))
 	tv := unix.Timeval{Sec: 0, Usec: int64((receiveTimeoutMs * time.Millisecond) / time.Microsecond)}
 	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
@@ -91,8 +73,7 @@ func Receive(iface config.Interface) {
 		panic(bpfErr)
 	}
 
-	// Per-goroutine decoder state, reused for every captured frame. The Lazy/
-	// NoCopy options mean the parser reads directly out of the kernel buffer.
+	// Per-goroutine decoder state, reused for every captured frame.
 	var (
 		eth     layers.Ethernet
 		ipv4    layers.IPv4
@@ -120,8 +101,7 @@ func Receive(iface config.Interface) {
 
 		data, _, err := handle.ZeroCopyReadPacketData()
 		if err != nil {
-			// Either no packet arrived within the SO_RCVTIMEO window (EAGAIN)
-			// or a transient read error. Re-check the stop signal and loop.
+			// Either no packet arrived within the SO_RCVTIMEO window (EAGAIN) or a transient read error.
 			select {
 			case <-measurement.StopReceiving:
 				return
@@ -131,13 +111,11 @@ func Receive(iface config.Interface) {
 		}
 
 		if perr := parser.DecodeLayers(data, &decoded); perr != nil {
-			// Truncated/malformed packet — count it and move on, never panic.
+			// Truncated/malformed packet; count it and move on, never panic.
 			atomic.AddInt64(&stats.RejectedReplies, 1)
 			continue
 		}
 
-		// Extract per-protocol fields. The BPF filter already gated by protocol,
-		// but we re-check on the decoded layers to be robust to filter typos.
 		var (
 			srcIP4    [4]byte
 			dstIP4    [4]byte
@@ -172,18 +150,6 @@ func Receive(iface config.Interface) {
 	}
 }
 
-// extractTCP recovers seqNum (from Ack - 1 - base), the destination port the
-// reply targets (== our source port for that connection), and the TCP flags.
-// extractTCP recovers seqNum (from Ack - 1 - base), the destination port the
-// reply targets (== our source port for that connection), and the TCP flags.
-//
-// It also enforces that the reply's *source* port equals the configured ZMap
-// target port (e.g. 80 for an HTTP scan). The kernel BPF prefilter already
-// gates by protocol, but it does not gate by reply source port — without this
-// defence in depth, an unrelated TCP packet that happens to land on one of our
-// ephemeral source ports and survives the destination-port range and flag
-// checks would be wrongly accepted as a valid reply. This mirrors the old
-// payload_tcp.Validate ValidateSrcPort check.
 func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint16, uint16, sets.Set[string], bool) {
 	found := false
 	for _, lt := range decoded {
@@ -202,14 +168,6 @@ func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint16, uint16, se
 	return seq, uint16(t.DstPort), tcp.GetFlags(t), true
 }
 
-// extractUDPDNS recovers seqNum (from DNS ID), the destination UDP port, and
-// the DNS flag set. Rejects replies that arrived with an embedded ICMP error.
-// extractUDPDNS recovers seqNum (from DNS ID), the destination UDP port, and
-// the DNS flag set. Rejects replies that arrived with an embedded ICMP error.
-//
-// Also enforces that the reply's UDP *source* port equals the configured ZMap
-// target port (e.g. 53 for DNS). See extractTCP for why this defence-in-depth
-// check is necessary even though the BPF prefilter gates by protocol.
 func extractUDPDNS(u *layers.UDP, d *layers.DNS, decoded []gopacket.LayerType) (uint16, uint16, sets.Set[string], bool) {
 	hasUDP, hasDNS, hasICMP := false, false, false
 	for _, lt := range decoded {
@@ -231,12 +189,6 @@ func extractUDPDNS(u *layers.UDP, d *layers.DNS, decoded []gopacket.LayerType) (
 	return d.ID, uint16(u.DstPort), dns.GetFlags(d), true
 }
 
-// extractICMP returns the echo reply's seq number. ICMP echo replies carry the
-// destination port of the original probe in neither the IP nor ICMP headers,
-// because there is no L4 port: we synthesise a port within the probe's range
-// using the original probe's basePort + seqNum % ConnectionCount. The receiver
-// cannot know basePort without consulting the inflight entry, so for ICMP we
-// signal the "any port" sentinel and rely on the entry's port-range check.
 func extractICMP(i *layers.ICMPv4, decoded []gopacket.LayerType) (uint16, uint16, sets.Set[string], bool) {
 	found := false
 	for _, lt := range decoded {
@@ -251,12 +203,6 @@ func extractICMP(i *layers.ICMPv4, decoded []gopacket.LayerType) (uint16, uint16
 	if i.TypeCode != layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0) {
 		return 0, 0, nil, false
 	}
-	// Use a sentinel port that is always inside any probe's connection range:
-	// the receiver-side range check is bypassed for ICMP via the entry's
-	// minPort/maxPort being set to the probe's range and our "any port" being
-	// represented as the minPort itself. ICMP has no port to validate, so this
-	// is the cleanest way to pass the range check unconditionally.
-	_ = types.PayloadICMP // explicit reference so the symbol stays imported if extended
 	return i.Seq, 0, sets.New[string](), true
 }
 

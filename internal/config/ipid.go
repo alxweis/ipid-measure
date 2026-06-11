@@ -20,9 +20,9 @@ type IPIDConfig struct {
 	RequestIPIDs        []uint16            `yaml:"request_ip_ids"`
 	MaximumToleratedRTT time.Duration       `yaml:"maximum_tolerated_rtt"`
 
-	Bandwidth        *ScaledNumber `yaml:"bandwidth"`
-	PacketsPerSecond *ScaledNumber `yaml:"packets_per_second"`
-	Concurrency      ScaledNumber  `yaml:"concurrency"`
+	Bandwidth              *ScaledNumber `yaml:"bandwidth"`
+	PacketsPerSecond       *ScaledNumber `yaml:"packets_per_second"`
+	NumberOfInflightProbes ScaledNumber  `yaml:"number_of_inflight_probes"`
 
 	Interfaces InterfacePair `yaml:"interfaces"`
 }
@@ -38,10 +38,7 @@ type TCPConfig struct {
 	ReplyFlags          []types.TCPFlagSet `yaml:"reply_flags"`
 }
 
-// UnmarshalYAML lets users write TCP flag sets as compact strings ("SA", "R") instead of YAML sequences.
 func (c *TCPConfig) UnmarshalYAML(node *yaml.Node) error {
-	// Mirror the struct but with the flag fields as strings, so we can decode
-	// the YAML in one pass and then convert to sets ourselves.
 	var raw struct {
 		EstablishConnection bool     `yaml:"establish_connection"`
 		RequestFlags        string   `yaml:"request_flags"`
@@ -190,8 +187,8 @@ func validateIPIDConfig(config *IPIDConfig) error {
 		return fmt.Errorf("either bandwidth or packets_per_second must be set")
 	}
 
-	if config.Concurrency < 1 || config.Concurrency > 1_000_000 {
-		return fmt.Errorf("concurrency must be in [1, 1M]")
+	if config.NumberOfInflightProbes < 1 || config.NumberOfInflightProbes > 1_000_000 {
+		return fmt.Errorf("number_of_inflight_probes must be in [1, 1M]")
 	}
 
 	// --- INTERFACES --------------------------------------------------------------

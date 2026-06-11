@@ -28,7 +28,7 @@ This design has two important properties for very large measurements:
 * **Throughput is decoupled from RTT.** The old worker-per-RTT-slot model
   capped throughput at `WorkerCount / RTT`, which at 500 M targets and 2 s RTT
   meant days lost to timeouts. The new model is bounded by the configured
-  bandwidth, with the concurrency knob only sized to cover `bandwidth × RTT`.
+  bandwidth, with the number_of_inflight_probes knob only sized to cover `bandwidth × RTT`.
 
 ```
 cmd/                entry points: measure-ipid, measure-os, measure-zmap
@@ -83,7 +83,7 @@ Key fields (see `config/ipid.yaml.example` for the full set):
 * `measurement_mode` — `rt-based` or `fixed-interval`
 * `bandwidth` / `packets_per_second` — global send caps (token bucket); at
   least one must be > 0
-* `concurrency` — size of the prober pool (default: `worker_count`). Pick big
+* `number_of_inflight_probes` — size of the prober pool (default: `worker_count`). Pick big
   enough to cover `bandwidth × MaximumToleratedRTT`. 25 000 is reasonable at
   1 Gbit/s with 200 ms RTT.
 * `maximum_tolerated_rtt` — late replies are rejected
@@ -102,7 +102,7 @@ parquet writer is fully flushed before exit. Once per second the run logs:
 ```
 estimated_time_left=[1d04h32m] probed_ip_addresses=[12345678, 2.47%] \
 valid_probes=[18432, 9876543/12345678=79.99%] sent_mbps=[842.31] sent_pps=[71250] \
-replies[matched=98765 unmatched=123 rejected=4] concurrency=[25000]
+replies[matched=98765 unmatched=123 rejected=4] number_of_inflight_probes=[25000]
 ```
 
 `matched` is the number of replies that filled a sample. `unmatched` are

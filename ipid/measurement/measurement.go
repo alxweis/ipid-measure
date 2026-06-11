@@ -15,32 +15,19 @@ import (
 	"github.com/alxweis/ipid-measure/internal/paths"
 )
 
-// The measurement package is the central, dependency-free state holder and
-// orchestrator. It intentionally imports NO ipid/* sub-package so that every
-// sub-package may import it without creating an import cycle. Sub-packages wire
-// their behaviour into the orchestration through the function hooks below, which
-// they populate from their own package-level setup code.
-
 var (
-	// Config and Paths describe the immutable parameters of the running
-	// measurement. They are written once before any goroutine starts and only
-	// read afterwards, so they require no synchronisation.
 	Config *config.IPIDConfig
 	Paths  *paths.IPIDMeasurement
 
-	// RequestCount is ConnectionCount * RequestsPerConnection. It is a hot value
-	// read on every probe, so it is cached here as a plain field.
 	RequestCount uint16
 
-	// TcpSequenceNumOffset is fixed random offset for assigned TCP sequence numbers, to appear less suspicious
 	TcpSequenceNumOffset uint32
 
-	// TcpEstablishConnection caches the (Payload==TCP && EstablishConnection)
-	// decision so the hot path avoids repeating the comparison.
 	TcpEstablishConnection bool
+
+	HasPorts bool
 )
 
-// WaitGroups used by cleanup() to drain the pipeline stages in order.
 var (
 	SaveWg     sync.WaitGroup
 	WorkerWg   sync.WaitGroup
@@ -48,21 +35,14 @@ var (
 	LogsWg     sync.WaitGroup
 )
 
-// Lifecycle signals. They are closed (never sent to) so that every reader
-// observes the shutdown via a receive on a closed channel.
 var (
 	StopSignal    = make(chan struct{})
 	StopReceiving = make(chan struct{})
 	StopLogs      = make(chan struct{})
 )
 
-// stopOnce guards the lifecycle channels against a double close when both an
-// interrupt and the normal completion path race.
 var stopOnce sync.Once
 
-// Hooks. Each sub-package assigns the relevant hook during Run's setup phase via
-// the exported Setup* functions it owns. Using hooks (instead of importing the
-// sub-packages here) is what keeps this package a dependency leaf.
 var (
 	SetupSenders     func()
 	CloseSenders     func()
@@ -79,14 +59,11 @@ var (
 	StreamTargets    func() error
 	CloseTargetChans func()
 	CloseSaveChan    func()
-	// GetRecordCount returns the number of records written to the output
-	// (set by the stats package, returns atomic load of ValidProbes).
-	GetRecordCount func() int64
+	GetRecordCount   func() int64
 )
 
-// Run wires the pipeline together and blocks until the whole target stream has
-// been probed (or an interrupt is received), then performs an ordered shutdown.
-// Returns the number of records written to the output parquet (= valid probes).
+// Run wires the pipeline together and blocks until the whole
+// target stream has been probed (or an interrupt is received)
 func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
@@ -98,12 +75,6 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	printConfig()
 
 	// Build immutable, shared resources before any goroutine starts.
-	// Order matters: SetupRawPackets builds template packets per seqNum and
-	// for each one looks up the corresponding sender via sender.GetSender(),
-	// reading sender.SenderA / sender.SenderB. We therefore have to set up
-	// the senders FIRST and only then the raw packet templates.
-	//
-	// SetupPayload also sets TcpEstablishConnection (it owns the protocol type).
 	SetupPayload()
 	SetupSenders()
 	SetupRawPackets()
@@ -111,13 +82,7 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	SetupRateLimiter()
 	SetupSaveChannel()
 
-	// Allow Ctrl+C to trigger a graceful shutdown: stop feeding new targets and
-	// let the in-flight stages drain through cleanup().
-	//
-	// Use a `finished` channel to disambiguate "context cancelled because OS
-	// signal" from "context cancelled because deferred stop() ran at function
-	// return". defer order is LIFO, so close(finished) runs before stop(); on
-	// normal exit the goroutine takes the `<-finished` branch and exits silently.
+	// Allow Ctrl+C to trigger a graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	finished := make(chan struct{})
@@ -169,14 +134,7 @@ func triggerStop() {
 	})
 }
 
-// cleanup drains the pipeline stages strictly in producer->consumer order so no
-// stage is closed while another may still write to it.
-//
-// StopRateLimiter is called *early* only when a real interrupt was received --
-// then workers may be blocked in Acquire() and need to be woken up. On normal
-// completion we let workers finish their in-flight sequences naturally and
-// stop the limiter last, because stopping it would cause Send to return
-// ErrStopped mid-sequence and silently kill all in-flight probes.
+// cleanup drains the pipeline
 func cleanup() {
 	isInterrupt := false
 	select {
@@ -185,38 +143,34 @@ func cleanup() {
 	default:
 	}
 
-	// 0. On interrupt only: release any goroutines currently blocked on the
-	//    rate limiter so they observe the stop signal and exit promptly.
+	// Release any goroutines currently blocked on the rate limiter so they observe the stop signal and exit promptly.
 	if isInterrupt && StopRateLimiter != nil {
 		StopRateLimiter()
 	}
 
-	// 1. No more targets will be produced: close worker input channels and wait
-	//    for all probing to finish.
+	// No more targets will be produced: close worker input channels and wait for all probing to finish.
 	CloseTargetChans()
 	WorkerWg.Wait()
 
-	// 2. Probing finished: close the save channel and wait for the writer to
-	//    flush every buffered record to disk.
+	// Probing finished: close the save channel and wait for the writer to flush every buffered record to disk.
 	CloseSaveChan()
 	SaveWg.Wait()
 
-	// 3. No probe can reference a reply any more: stop the receivers.
+	// No probe can reference a reply any more: stop the receivers.
 	close(StopReceiving)
 	ReceiverWg.Wait()
 
-	// 4. All sockets idle: release the AF_PACKET file descriptors.
+	// All sockets idle: release the AF_PACKET file descriptors.
 	if CloseSenders != nil {
 		CloseSenders()
 	}
 
-	// 5. On normal completion: stop the rate limiter now (after all workers
-	//    have already drained, so it cannot kill in-flight probes).
+	// On normal completion: stop the rate limiter now.
 	if !isInterrupt && StopRateLimiter != nil {
 		StopRateLimiter()
 	}
 
-	// 6. Finally stop the stats logger.
+	// Stop the stats logger.
 	close(StopLogs)
 	LogsWg.Wait()
 }

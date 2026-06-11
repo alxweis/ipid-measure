@@ -16,30 +16,23 @@ import (
 )
 
 const (
-	batchSize          = 20000           // probes per flush to the parquet writer
-	fileBufferSize     = 8 * 1024 * 1024 // 8 MB OS write buffer
-	maxRowsPerRowGroup = 2_000_000       // ~256 MB row groups depending on data
-	pageBufferSize     = 1 * 1024 * 1024 // 1 MB pages
+	batchSize          = 20000
+	fileBufferSize     = 8 * 1024 * 1024
+	maxRowsPerRowGroup = 2_000_000
+	pageBufferSize     = 1 * 1024 * 1024
 	valueSeparator     = ','
 	invalidSymbol      = '-'
-	// saveChannelSize bounds how many completed probes may queue ahead of the
-	// writer. Large enough to absorb flush stalls without blocking workers.
-	saveChannelSize = 1 << 16
+	saveChannelSize    = 1 << 16
 )
 
-// SetupSaveChannel allocates the probe save channel before workers start.
 func SetupSaveChannel() {
 	SaveProbesChannel = make(chan *Probe, saveChannelSize)
 }
 
-// CloseSaveChannel is called once all workers have finished probing. Registered
-// into measurement.CloseSaveChan.
 func CloseSaveChannel() {
 	close(SaveProbesChannel)
 }
 
-// Save consumes completed probes and writes them to the output parquet file.
-// Registered (indirectly) into measurement.StartSaver.
 func Save() {
 	defer measurement.SaveWg.Done()
 
@@ -81,8 +74,7 @@ func Save() {
 		}
 		rec, ok := probeToRecord(p, rtBased)
 		if !ok {
-			// Skip malformed probes rather than aborting the whole measurement;
-			// at 500M targets a single bad probe must never lose the entire run.
+			// Skip malformed probes rather than aborting the whole measurement.
 			continue
 		}
 		batch = append(batch, rec)
@@ -91,8 +83,7 @@ func Save() {
 		}
 	}
 
-	// Final flush, then close writer and buffered writer in order so all bytes
-	// reach disk before the file is closed.
+	// Final flush, then close writer and buffered writer in order.
 	flush()
 	if err := writer.Close(); err != nil {
 		log.Printf("parquet close error: %v", err)
@@ -102,8 +93,6 @@ func Save() {
 	}
 }
 
-// probeToRecord encodes a probe's samples into the comma-separated string
-// columns of the output schema. Returns ok=false for malformed probes.
 func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 	n := int(measurement.RequestCount)
 

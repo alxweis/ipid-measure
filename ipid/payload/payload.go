@@ -22,8 +22,6 @@ type Payload struct {
 	SetChecksum   func(packet []byte)
 }
 
-// Active is the payload selected for this run. Owned by this package and set by
-// Setup before any goroutine starts; read-only thereafter.
 var Active *Payload
 
 var (
@@ -58,18 +56,18 @@ var (
 	}
 )
 
-// Get returns the configured payload definition.
 func Get() *Payload {
 	return payloads[measurement.Config.ZMapPayload]
 }
 
-// Setup selects the active payload and derives the cached TcpEstablishConnection
-// flag. Registered into measurement.SetupPayload.
 func Setup() {
 	Active = Get()
 	measurement.TcpEstablishConnection =
 		Active.ProtocolID == layers.IPProtocolTCP &&
 			measurement.Config.TCPConfig.EstablishConnection
+
+	measurement.HasPorts = Active.ProtocolID == layers.IPProtocolTCP || Active.ProtocolID == layers.IPProtocolUDP
+
 }
 
 func init() {

@@ -16,10 +16,10 @@ func Layer() gopacket.SerializableLayer {
 }
 
 func SetChecksum(packet []byte) {
-	// set checksum 0
+	// Set checksum 0
 	binary.BigEndian.PutUint16(packet[26:28], 0)
 
-	// create pseudo-header
+	// Create pseudo-header
 	ipSrc := packet[12:16]
 	ipDst := packet[16:20]
 	udpData := packet[20:]
@@ -27,11 +27,11 @@ func SetChecksum(packet []byte) {
 	pseudoHeader := make([]byte, 12)
 	copy(pseudoHeader[0:4], ipSrc)
 	copy(pseudoHeader[4:8], ipDst)
-	pseudoHeader[8] = 0  // zero
-	pseudoHeader[9] = 17 // udp protocol
+	pseudoHeader[8] = 0  // Zero
+	pseudoHeader[9] = 17 // UDP protocol
 	binary.BigEndian.PutUint16(pseudoHeader[10:12], uint16(len(udpData)))
 
-	// combine pseudo-header + udp replies
+	// Combine pseudo-header + UDP replies
 	checksumData := append(pseudoHeader, udpData...)
 	cs := checksum.Compute(checksumData)
 	binary.BigEndian.PutUint16(packet[26:28], cs)

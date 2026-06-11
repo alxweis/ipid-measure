@@ -15,28 +15,15 @@ var (
 	NumberOfTargetIPAddresses int64
 	ValidProbes               int64
 	ProbeCount                int64
-	// InFlightProbes counts probes that have started but not yet finished
-	// (success or timeout). Incremented at Measure() entry, decremented at
-	// exit. Useful to distinguish "all probes started" from "all probes done".
+
 	InFlightProbes int64
 	SentBytes      int64
 	SentPackets    int64
 
-	// MatchedReplies: reply was matched to an in-flight probe and filled a
-	// sample. UnmatchedReplies: validly decoded reply that did not match any
-	// in-flight probe (typical for late replies and replies arriving after the
-	// per-target window closed; these are not data loss). RejectedReplies:
-	// reply could not be decoded (truncated/malformed); investigated via the
-	// counter rate, not by dropping data silently.
 	MatchedReplies   int64
 	UnmatchedReplies int64
 	RejectedReplies  int64
 
-	// ProbesReachedSeq[i] counts probes that successfully completed seqNum=i.
-	// Size up to 256: practical RequestCount is small. A probe that finishes
-	// seqNum=15 increments both ProbesReachedSeq[0..15]. Lets you spot whether
-	// probes die mostly at the first seq (host unreachable) or mid-sequence
-	// (ICMP rate-limiting). Sized at init() from RequestCount.
 	ProbesReachedSeq []int64
 )
 

@@ -13,46 +13,28 @@ import (
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
-// Sender owns one AF_PACKET raw socket bound to a single egress interface and
-// the pre-built 14-byte Ethernet header prepended to every frame.
 type Sender struct {
 	IP        net.IP
 	EthHeader []byte
 	Fd        int
 	Addr      syscall.SockaddrLinklayer
 
-	// mu serialises writes on this socket. sendmsg on an AF_PACKET socket is not
-	// guaranteed safe for concurrent callers, and we additionally build the
-	// frame into a reusable buffer, so a per-sender lock is required.
 	mu  sync.Mutex
 	buf []byte
 }
 
-// SenderA and SenderB are the two egress sockets. Requests are striped across
-// them by sequence-number parity to roughly double send throughput. Owned by
-// this package.
 var (
 	SenderA *Sender
 	SenderB *Sender
 )
 
-// ErrStopped is returned by Send if the rate limiter was stopped (shutdown).
 var ErrStopped = errors.New("sender: rate limiter stopped")
 
 // Send transmits a single L3 packet by prepending the cached Ethernet header.
-//
-// The previous implementation did `append(l2.EthHeader, packet...)`, which
-// mutated/aliased the shared EthHeader backing array and was a data race under
-// concurrency. We instead copy into a per-sender reusable buffer under a lock,
-// avoiding both the race and a per-packet heap allocation.
-//
-// Send blocks on the global rate limiter before transmitting, so the configured
-// bandwidth/pps cap is enforced regardless of how many goroutines call Send.
 func (s *Sender) Send(packet []byte) error {
 	total := len(s.EthHeader) + len(packet)
 
-	// Throttle BEFORE we acquire the per-sender lock so a blocked rate-limit
-	// wait does not also block the other senders.
+	// Throttle before we acquire the per-sender lock so a blocked rate-limit wait does not also block the other senders.
 	if Limiter != nil {
 		if !Limiter.Acquire(total) {
 			return ErrStopped
@@ -160,7 +142,6 @@ func hToNs(i uint16) uint16 {
 	return (i<<8)&0xff00 | i>>8
 }
 
-// GetSender returns the egress socket for a request, striping by parity.
 func GetSender(seqNum uint16) *Sender {
 	if seqNum%2 == 0 {
 		return SenderA
@@ -168,8 +149,6 @@ func GetSender(seqNum uint16) *Sender {
 	return SenderB
 }
 
-// Close releases this sender's AF_PACKET file descriptor. Safe to call once;
-// further calls are no-ops because the kernel-managed fd is already closed.
 func (s *Sender) Close() {
 	if s == nil || s.Fd <= 0 {
 		return
@@ -178,7 +157,6 @@ func (s *Sender) Close() {
 	s.Fd = -1
 }
 
-// CloseSenders closes both egress sockets. Registered into measurement.CloseSenders.
 func CloseSenders() {
 	if SenderA != nil {
 		SenderA.Close()

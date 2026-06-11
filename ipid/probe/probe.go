@@ -18,16 +18,6 @@ import (
 	"github.com/alxweis/ipid-measure/ipid/stats"
 )
 
-// SampleState is the state of one request slot, mutated by atomic ops so the
-// prober (writes SentTime + advances state to Sent) and the receiver (reads
-// state, writes ReceiveTime/IpID, CASes to Received) synchronise without locks.
-//
-// Order:
-//
-//	Empty -> Sent       (prober, after writing SentTime, before send())
-//	Sent  -> Received   (receiver, via CompareAndSwap; one winner only)
-//
-// Any other transition is rejected.
 type SampleState int32
 
 const (
@@ -36,19 +26,11 @@ const (
 	SampleReceived SampleState = 2
 )
 
-// Probe is one target's full set of request/response samples. Samples is a fixed
-// slice indexed by sequence number; the receiver fills slot[seqNum] atomically.
 type Probe struct {
 	Target  net.IP
 	Samples []Sample
 }
 
-// Sample records one request and its (possible) matching reply.
-//
-// Concurrency: the prober writes SentTime, then publishes via atomic.Store on
-// state (Empty->Sent). The receiver reads state (must be Sent), writes IpID and
-// ReceiveTime, then CASes Sent->Received. The atomic state acts as a release/
-// acquire barrier so the non-atomic field writes are safely visible.
 type Sample struct {
 	state atomic.Int32 // SampleState
 
@@ -57,18 +39,11 @@ type Sample struct {
 	IpID        uint16
 }
 
-// MarkSent must be called by the prober immediately before transmitting the
-// frame for sample seq. It records SentTime and advances Empty -> Sent.
 func (s *Sample) MarkSent(now int64) {
 	s.SentTime = now
 	s.state.Store(int32(SampleSent))
 }
 
-// TryFill is called by the receiver upon a validated reply. It writes the
-// reply's IpID and ReceiveTime and atomically advances Sent -> Received.
-// Returns true exactly once per sample (the winner of the CAS). A failed CAS
-// means either the sample was not yet sent or another receiver already filled
-// it (duplicate reply).
 func (s *Sample) TryFill(ipID uint16, receiveTime int64) bool {
 	if SampleState(s.state.Load()) != SampleSent {
 		return false
@@ -78,24 +53,16 @@ func (s *Sample) TryFill(ipID uint16, receiveTime int64) bool {
 	return s.state.CompareAndSwap(int32(SampleSent), int32(SampleReceived))
 }
 
-// IsReceived reports whether the sample has been filled with a valid reply.
 func (s *Sample) IsReceived() bool {
 	return SampleState(s.state.Load()) == SampleReceived
 }
 
-// SaveProbesChannel carries successful probes to the parquet writer. Owned here.
 var SaveProbesChannel chan *Probe
 
 // sentinelAnySeq marks an InflightEntry as accepting any seq in [0, RequestCount).
 const sentinelAnySeq uint32 = 0xFFFFFFFF
 
-// Measure probes a single target end-to-end. It is the only function the prober
-// goroutines run. Reply matching and sample filling are done in the receiver
-// path via the shared inflight registry; this function never touches a reply
-// channel and therefore CANNOT lose replies due to channel backpressure.
-//
-// scratch is a per-goroutine, reused slice of built packets so the hot path
-// allocates no per-target memory for packet construction.
+// Measure probes a single target end-to-end.
 func Measure(target net.IP, scratch []packet.Packet) bool {
 	target4 := target.To4()
 	if target4 == nil {
@@ -117,8 +84,7 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	var targetKey [4]byte
 	copy(targetKey[:], target4)
 
-	// Cache sender IPs (4-byte form) for the receiver-side validation that runs
-	// out of the InflightEntry, so the receiver does no global lookups.
+	// Cache sender IP addresses for the receiver-side validation that runs out of the InflightEntry
 	var sa, sb [4]byte
 	copy(sa[:], sender.SenderA.IP.To4())
 	copy(sb[:], sender.SenderB.IP.To4())
@@ -133,9 +99,9 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	}
 }
 
-// measureRTBased: one outstanding request at a time. For each seqNum we
-// register a one-shot inflight entry, mark+send, then wait for it or timeout.
-// On timeout/duplicate/invalid the probe aborts (the original semantics).
+// measureRTBased: one outstanding request at a time.
+// For each seqNum we register a one-shot inflight entry, mark+send, then wait for it or timeout.
+// On timeout/duplicate/invalid the probe aborts.
 func measureRTBased(
 	probe *Probe,
 	targetKey [4]byte,
@@ -150,11 +116,7 @@ func measureRTBased(
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		req := &scratch[seqNum]
 
-		// Pick the flag expectation for this seqNum. TCP with EstablishConnection
-		// expects the SYN-ACK on the first request of each connection (the start
-		// of a connection's seqNum range), and PSH-ACK on the data requests
-		// thereafter. Non-TCP and non-EstablishConnection use the protocol's
-		// configured default reply flags.
+		// Pick the flag expectation for this seqNum.
 		flagMode := FlagsDefault
 		if measurement.TcpEstablishConnection {
 			if seqnum.GetConnectionIndex(seqNum) == 0 {
@@ -164,29 +126,29 @@ func measureRTBased(
 			}
 		}
 
+		expectedPort := port.GetSrcPort(seqNum, basePort)
+
 		entry := &InflightEntry{
 			Probe:         probe,
 			expectedCount: 1,
 			expectedSeq:   uint32(seqNum),
 			FlagMode:      flagMode,
 			done:          make(chan struct{}),
-			minPort:       basePort,
-			maxPort:       basePort + measurement.Config.ConnectionCount - 1,
+			minPort:       expectedPort,
+			maxPort:       expectedPort,
 			senderA:       sa,
 			senderB:       sb,
 		}
 		Inflight.Register(targetKey, entry)
 
-		// MarkSent publishes SentTime BEFORE the send so any reply that arrives
-		// immediately after send already sees a valid SentTime.
+		// MarkSent publishes SentTime before the sending.
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 
 		if err := req.Sender.Send(req.Bytes); err != nil {
 			Inflight.Deregister(targetKey, entry)
 			return false
 		}
-		// Update sent counters incrementally so stats reflect traffic in
-		// flight even for probes that ultimately time out.
+		// Update sent counters incrementally.
 		atomic.AddInt64(&stats.SentBytes, int64(len(req.Bytes)))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
@@ -201,17 +163,12 @@ func measureRTBased(
 
 		select {
 		case <-entry.done:
-			// Sample filled by the receiver. Validate that THIS seqNum is the
-			// one that got filled (a duplicate-target safety net).
+			// Sample filled by the receiver.
 			Inflight.Deregister(targetKey, entry)
 			if !probe.Samples[seqNum].IsReceived() {
 				return false
 			}
 			atomic.AddInt64(&stats.ProbesReachedSeq[seqNum], 1)
-			// In RT-based mode the TCP handshake special case (EstablishConnection)
-			// is implicit: we always wait for exactly one reply for each seq, and
-			// the expected SYN-ACK flags are validated by the receiver via the
-			// payload validator + expFlags.
 
 		case <-timer.C:
 			Inflight.Deregister(targetKey, entry)
@@ -228,9 +185,9 @@ func measureRTBased(
 	return true
 }
 
-// measureFixedInterval: send all requests spaced by request_interval, then
-// collect replies for up to MaximumToleratedRTT. The probe is kept iff the
-// reply rate meets MinimumReplyRate.
+// measureFixedInterval: send all requests spaced by request_interval
+// Collect replies for up to MaximumToleratedRTT.
+// The probe is kept iff the reply rate meets MinimumReplyRate.
 func measureFixedInterval(
 	probe *Probe,
 	targetKey [4]byte,
@@ -249,7 +206,6 @@ func measureFixedInterval(
 		senderB:       sb,
 	}
 	Inflight.Register(targetKey, entry)
-	// Ensure the registry is cleaned up no matter how we exit.
 	defer Inflight.Deregister(targetKey, entry)
 
 	interval := measurement.Config.FixedIntervalConfig.RequestInterval
@@ -268,9 +224,7 @@ func measureFixedInterval(
 		}
 	}
 
-	// Wait for all expected replies or for the MaximumToleratedRTT to elapse
-	// after the LAST send (which is when the last reply could legitimately
-	// arrive). A reusable timer is fine here since each prober has its own.
+	// Wait for all expected replies or for the MaximumToleratedRTT to elapse.
 	timer := time.NewTimer(measurement.Config.MaximumToleratedRTT)
 	defer timer.Stop()
 
@@ -281,8 +235,7 @@ func measureFixedInterval(
 		return false
 	}
 
-	// Count finally received samples (the receiver may have filled some after
-	// the timeout fired but before we returned; that is fine).
+	// Count finally received samples.
 	received := 0
 	for i := range probe.Samples {
 		if probe.Samples[i].IsReceived() {
@@ -300,20 +253,7 @@ func measureFixedInterval(
 	return true
 }
 
-// FulfillReply is called by the receiver for every captured reply. It looks the
-// reply up in the inflight registry, validates it against that entry's expected
-// parameters, fills the matching sample, and signals the waiter if the entry's
-// completion condition is reached. Returns true if the reply matched and was
-// recorded; false otherwise (including for replies that arrive for targets we
-// are not currently probing, which is normal and not an error).
-//
-// This function runs on the receiver goroutines, so it is the hot path's
-// validation step. It performs no allocations and only one shard-map lookup.
-//
-// replyFlags is the set of protocol flags carried by the reply (TCP flags for
-// TCP, DNS flags for UDP/DNS, zero for ICMP). FulfillReply compares it against
-// the entry's FlagMode so the TCP handshake special case (expect SYN+ACK on
-// the first reply when EstablishConnection is set) is preserved.
+// FulfillReply is called by the receiver for every captured reply.
 func FulfillReply(
 	srcIP4 [4]byte,
 	dstIP4 [4]byte,
@@ -328,26 +268,29 @@ func FulfillReply(
 		return false
 	}
 
+	// TODO: RateLimiter never interrupts a measurement of a target
+	// TODO: Parameterize all constants
+
 	// Destination IP must be one of our senders.
 	if dstIP4 != entry.senderA && dstIP4 != entry.senderB {
 		return false
 	}
 
-	// Destination port must be within this probe's connection range. ICMP has
-	// no L4 ports, so the port check is skipped for ICMP.
-	if payload.Active.ProtocolID != layers.IPProtocolICMPv4 {
+	// TODO: In RT-based mode, Destination IP has to match exactly.
+
+	// Destination port must be within this probe's connection range.
+	if measurement.HasPorts {
 		if dstPort < entry.minPort || dstPort > entry.maxPort {
 			return false
 		}
 	}
 
-	// Flag-mode check (preserves the TCP handshake / EstablishConnection
-	// semantics that used to live in probe.go).
+	// Flag-mode check
 	if !flagsMatch(entry.FlagMode, replyFlags) {
 		return false
 	}
 
-	// In RT-based mode a specific seqNum is expected.
+	// In RT-based mode, a specific seqNum is expected.
 	if entry.expectedSeq != sentinelAnySeq && uint32(recoveredSeq) != entry.expectedSeq {
 		return false
 	}
@@ -357,7 +300,7 @@ func FulfillReply(
 	}
 	sample := &entry.Probe.Samples[recoveredSeq]
 
-	// Late reply: RTT exceeds tolerance, reject so RTT statistics stay clean.
+	// Late reply: reject if RTT exceeds tolerance.
 	if receiveTime-sample.SentTime > measurement.Config.MaximumToleratedRTT.Microseconds() {
 		return false
 	}
@@ -374,9 +317,6 @@ func FulfillReply(
 	return true
 }
 
-// flagsMatch returns true iff replyFlags satisfy entry's FlagMode. For
-// FlagsDefault the configured ReplyFlags (TCP) or DNS QR (UDP/DNS) apply; ICMP
-// has no flags and always matches.
 func flagsMatch(mode FlagExpectation, replyFlags sets.Set[string]) bool {
 	switch mode {
 	case FlagsSynAck:
@@ -390,9 +330,7 @@ func flagsMatch(mode FlagExpectation, replyFlags sets.Set[string]) bool {
 	return false
 }
 
-// defaultFlagsMatch implements the protocol-default flag check (formerly
-// reply.ExpFlags). Centralised here so the receiver path doesn't depend on the
-// reply package.
+// defaultFlagsMatch implements the protocol-default flag check.
 func defaultFlagsMatch(replyFlags sets.Set[string]) bool {
 	switch payload.Active.ProtocolID {
 	case layers.IPProtocolTCP:
@@ -405,7 +343,7 @@ func defaultFlagsMatch(replyFlags sets.Set[string]) bool {
 	case layers.IPProtocolUDP:
 		return replyFlags.Equal(sets.New(types.DNSFlagQR))
 	case layers.IPProtocolICMPv4:
-		return true // ICMP has no flag set; existence of valid echo reply is enough.
+		return true // ICMP has no flag set.
 	}
 	return false
 }

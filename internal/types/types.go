@@ -29,14 +29,6 @@ const (
 type TCPFlagSet = sets.Set[TCPFlag]
 type DNSFlagSet = sets.Set[DNSFlag]
 
-type ValidationStatus string
-
-const (
-	ValidationStatusFail   ValidationStatus = "fail"
-	ValidationStatusPass   ValidationStatus = "pass"
-	ValidationStatusIgnore ValidationStatus = "ignore"
-)
-
 type MeasurementMode string
 
 const (
@@ -46,7 +38,7 @@ const (
 
 type Payload string
 
-// Payloads are composed of BPF-compatible protocol tokens joined by '-'
+// Payloads are composed of BPF-compatible protocol tokens joined by '-'.
 const (
 	PayloadICMP   Payload = "icmp"
 	PayloadTCP    Payload = "tcp"

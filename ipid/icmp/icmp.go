@@ -15,7 +15,7 @@ func Layer(seqNum uint16) gopacket.SerializableLayer {
 }
 
 func SetChecksum(packet []byte) {
-	// set checksum 0
+	// Set checksum 0
 	binary.BigEndian.PutUint16(packet[22:24], 0)
 
 	icmpData := packet[20:]

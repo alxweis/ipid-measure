@@ -44,22 +44,22 @@ func Layer(seqNum uint16, overwriteRequestFlags types.TCPFlagSet) gopacket.Seria
 }
 
 func SetChecksum(packet []byte) {
-	// set checksum 0
+	// Set checksum 0
 	binary.BigEndian.PutUint16(packet[36:38], 0)
 
 	ipSrc := packet[12:16]
 	ipDst := packet[16:20]
-	tcpData := packet[20:] // tcp header + replies
+	tcpData := packet[20:] // TCP header + replies
 
-	// create pseudo-header
+	// Create pseudo-header
 	pseudoHeader := make([]byte, 12)
 	copy(pseudoHeader[0:4], ipSrc)
 	copy(pseudoHeader[4:8], ipDst)
-	pseudoHeader[8] = 0 // zero
-	pseudoHeader[9] = 6 // tcp protocol
+	pseudoHeader[8] = 0 // Zero
+	pseudoHeader[9] = 6 // TCP Protocol
 	binary.BigEndian.PutUint16(pseudoHeader[10:12], uint16(len(tcpData)))
 
-	// combine pseudo-header + tcp replies
+	// Combine pseudo-header + TCP replies
 	checksumData := append(pseudoHeader, tcpData...)
 	cs := checksum.Compute(checksumData)
 	binary.BigEndian.PutUint16(packet[36:38], cs)

@@ -5,8 +5,7 @@ import (
 	"log"
 )
 
-// printConfig logs the effective configuration once at startup so every run is
-// self-documenting in its log output.
+// printConfig logs the effective configuration.
 func printConfig() {
 	c := Config
 
@@ -38,7 +37,7 @@ func printConfig() {
 
 	log.Printf("bandwidth (bit/s)     = %s", c.Bandwidth.String())
 	log.Printf("packets_per_second    = %s", c.PacketsPerSecond.String())
-	log.Printf("concurrency           = %d", c.Concurrency)
+	log.Printf("number_of_inflight_probes = %d", c.NumberOfInflightProbes)
 
 	log.Printf("interface_a           = %s (%s)", c.Interfaces.A.Name, c.Interfaces.A.IP)
 	log.Printf("interface_b           = %s (%s)", c.Interfaces.B.Name, c.Interfaces.B.IP)

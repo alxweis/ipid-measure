@@ -4,43 +4,27 @@ import (
 	"encoding/binary"
 	"net"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
-
 	"github.com/alxweis/ipid-measure/ipid/checksum"
 	"github.com/alxweis/ipid-measure/ipid/ip"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/port"
 	"github.com/alxweis/ipid-measure/ipid/sender"
+	"github.com/google/gopacket"
 )
 
 var opts = gopacket.SerializeOptions{ComputeChecksums: false, FixLengths: true}
 
-// Packet is a ready-to-send request. SenderIP is cached alongside the *Sender so
-// the hot path can build the ExpDstIPIs validator without dereferencing.
 type Packet struct {
-	Sender   *sender.Sender
-	SenderIP net.IP
-	SrcPort  uint16
-	Bytes    []byte
+	Sender *sender.Sender
+	//SenderIP net.IP
+	//SrcPort  uint16
+	Bytes []byte
 }
 
-// RawPackets holds, per sequence number, the fully serialized template packet
-// (Ethernet-less L3 frame) with a zero destination IP. These are built once and
-// only patched (dst IP, src port, checksums) per target. Owned by this package.
 var RawPackets [][]byte
 
-// hasPorts is cached once: whether the active protocol carries L4 ports.
-var hasPorts bool
-
-// Setup builds the immutable raw packet templates. Registered into
-// measurement.SetupRawPackets and run once before any worker starts.
-//
-// Pre-conditions (enforced explicitly so a future ordering mistake produces a
-// clear error instead of a nil-deref panic):
-//   - payload.Active must be populated   (set by payload.Setup)
-//   - sender.SenderA / sender.SenderB must be populated (set by sender.Setup)
+// Setup builds the immutable raw packet templates.
 func Setup() {
 	if payload.Active == nil {
 		panic("packet.Setup: payload.Active is nil; SetupPayload must run first")
@@ -53,8 +37,6 @@ func Setup() {
 	RawPackets = make([][]byte, n)
 
 	protocol := payload.Active.ProtocolID
-	hasPorts = protocol == layers.IPProtocolTCP || protocol == layers.IPProtocolUDP
-
 	packetBuf := gopacket.NewSerializeBuffer()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
@@ -81,11 +63,7 @@ func Setup() {
 	}
 }
 
-// BuildPacketsInto fills the caller-provided scratch slice (length RequestCount)
-// with per-target request packets, reusing the caller's byte buffers so the hot
-// path performs ZERO heap allocations per probe. The previous BuildPackets
-// allocated a fresh []*Packet plus a new byte slice for every request on every
-// target — prohibitive at 500M targets.
+// BuildPacketsInto fills the scratch slice with dst IP, src port and checksum per-target
 func BuildPacketsInto(scratch []Packet, dstIP net.IP, basePort uint16) {
 	dst4 := dstIP.To4()
 
@@ -94,8 +72,7 @@ func BuildPacketsInto(scratch []Packet, dstIP net.IP, basePort uint16) {
 
 		p := &scratch[seqNum]
 
-		// Reuse the per-slot byte buffer; grow only if needed (never, in practice
-		// after the first probe, since all templates share a length per seqNum).
+		// Reuse the per-slot byte buffer; grow only if needed.
 		if cap(p.Bytes) < len(raw) {
 			p.Bytes = make([]byte, len(raw))
 		}
@@ -114,7 +91,7 @@ func BuildPacketsInto(scratch []Packet, dstIP net.IP, basePort uint16) {
 		binary.BigEndian.PutUint16(b[10:12], checksum.Compute(b[:20]))
 
 		// Patch L4 source port if applicable.
-		if hasPorts {
+		if measurement.HasPorts {
 			binary.BigEndian.PutUint16(b[20:22], srcPort)
 		}
 
