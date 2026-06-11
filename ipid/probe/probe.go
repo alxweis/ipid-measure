@@ -39,6 +39,8 @@ type Sample struct {
 	IpID        uint16
 }
 
+var TotalBytes int
+
 func (s *Sample) MarkSent(now int64) {
 	s.SentTime = now
 	s.state.Store(int32(SampleSent))
@@ -59,11 +61,8 @@ func (s *Sample) IsReceived() bool {
 
 var SaveProbesChannel chan *Probe
 
-// sentinelAnySeq marks an InflightEntry as accepting any seq in [0, RequestCount).
-const sentinelAnySeq uint32 = 0xFFFFFFFF
-
 // Measure probes a single target end-to-end.
-func Measure(target net.IP, scratch []packet.Packet) bool {
+func Measure(target net.IP, packets [][]byte) bool {
 	target4 := target.To4()
 	if target4 == nil {
 		return false
@@ -74,7 +73,14 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	defer atomic.AddInt64(&stats.InFlightProbes, -1)
 
 	basePort := port.Next()
-	packet.BuildPacketsInto(scratch, target4, basePort)
+	packet.BuildPacketsInto(packets, target4, basePort)
+
+	// Rate-limiting
+	if sender.Limiter != nil {
+		if !sender.Limiter.Acquire(TotalBytes) {
+			return false
+		}
+	}
 
 	probe := &Probe{
 		Target:  target4,
@@ -84,16 +90,11 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 	var targetKey [4]byte
 	copy(targetKey[:], target4)
 
-	// Cache sender IP addresses for the receiver-side validation that runs out of the InflightEntry
-	var sa, sb [4]byte
-	copy(sa[:], sender.SenderA.IP.To4())
-	copy(sb[:], sender.SenderB.IP.To4())
-
 	switch measurement.Config.MeasurementMode {
 	case types.MeasurementModeRTBased:
-		return measureRTBased(probe, targetKey, scratch, basePort, sa, sb)
+		return measureRTBased(probe, targetKey, packets, basePort)
 	case types.MeasurementModeFixedInterval:
-		return measureFixedInterval(probe, targetKey, scratch, basePort, sa, sb)
+		return measureFixedInterval(probe, targetKey, packets, basePort)
 	default:
 		return false
 	}
@@ -105,51 +106,51 @@ func Measure(target net.IP, scratch []packet.Packet) bool {
 func measureRTBased(
 	probe *Probe,
 	targetKey [4]byte,
-	scratch []packet.Packet,
+	packets [][]byte,
 	basePort uint16,
-	sa, sb [4]byte,
 ) bool {
 	rtt := measurement.Config.MaximumToleratedRTT
 	timer := time.NewTimer(rtt)
 	defer timer.Stop()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
-		req := &scratch[seqNum]
+		pkt := packets[seqNum]
 
 		// Pick the flag expectation for this seqNum.
-		flagMode := FlagsDefault
+		expectedFlags := FlagsDefault
 		if measurement.TcpEstablishConnection {
 			if seqnum.GetConnectionIndex(seqNum) == 0 {
-				flagMode = FlagsSynAck
+				expectedFlags = FlagsSynAck
 			} else {
-				flagMode = FlagsPshAck
+				expectedFlags = FlagsPshAck
 			}
 		}
 
+		expectedSender := sender.GetSender(seqNum).IPBytes
 		expectedPort := port.GetSrcPort(seqNum, basePort)
 
 		entry := &InflightEntry{
-			Probe:         probe,
-			expectedCount: 1,
-			expectedSeq:   uint32(seqNum),
-			FlagMode:      flagMode,
-			done:          make(chan struct{}),
-			minPort:       expectedPort,
-			maxPort:       expectedPort,
-			senderA:       sa,
-			senderB:       sb,
+			Probe:           probe,
+			expectedCount:   1,
+			expectedSenders: sets.New(expectedSender),
+			expectedMinPort: expectedPort,
+			expectedMaxPort: expectedPort,
+			expectedFlags:   expectedFlags,
+			expectedMinSeq:  seqNum,
+			expectedMaxSeq:  seqNum,
+			done:            make(chan struct{}),
 		}
 		Inflight.Register(targetKey, entry)
 
 		// MarkSent publishes SentTime before the sending.
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 
-		if err := req.Sender.Send(req.Bytes); err != nil {
+		if err := sender.GetSender(seqNum).Send(pkt); err != nil {
 			Inflight.Deregister(targetKey, entry)
 			return false
 		}
 		// Update sent counters incrementally.
-		atomic.AddInt64(&stats.SentBytes, int64(len(req.Bytes)))
+		atomic.AddInt64(&stats.SentBytes, int64(len(pkt)))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
 		// Reset and reuse the per-target timer to avoid per-seqNum allocation.
@@ -191,19 +192,18 @@ func measureRTBased(
 func measureFixedInterval(
 	probe *Probe,
 	targetKey [4]byte,
-	scratch []packet.Packet,
+	packets [][]byte,
 	basePort uint16,
-	sa, sb [4]byte,
 ) bool {
 	entry := &InflightEntry{
-		Probe:         probe,
-		expectedCount: uint32(measurement.RequestCount),
-		expectedSeq:   sentinelAnySeq,
-		done:          make(chan struct{}),
-		minPort:       basePort,
-		maxPort:       basePort + measurement.Config.ConnectionCount - 1,
-		senderA:       sa,
-		senderB:       sb,
+		Probe:           probe,
+		expectedCount:   measurement.RequestCount,
+		expectedSenders: sets.New(sender.SenderA.IPBytes, sender.SenderB.IPBytes),
+		expectedMinPort: basePort,
+		expectedMaxPort: basePort + measurement.Config.ConnectionCount - 1,
+		expectedMinSeq:  0,
+		expectedMaxSeq:  measurement.RequestCount - 1,
+		done:            make(chan struct{}),
 	}
 	Inflight.Register(targetKey, entry)
 	defer Inflight.Deregister(targetKey, entry)
@@ -211,12 +211,13 @@ func measureFixedInterval(
 	interval := measurement.Config.FixedIntervalConfig.RequestInterval
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
-		req := &scratch[seqNum]
+		pkt := packets[seqNum]
+
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
-		if err := req.Sender.Send(req.Bytes); err != nil {
+		if err := sender.GetSender(seqNum).Send(pkt); err != nil {
 			return false
 		}
-		atomic.AddInt64(&stats.SentBytes, int64(len(req.Bytes)))
+		atomic.AddInt64(&stats.SentBytes, int64(len(pkt)))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
@@ -268,36 +269,28 @@ func FulfillReply(
 		return false
 	}
 
-	// TODO: RateLimiter never interrupts a measurement of a target
-	// TODO: Parameterize all constants
-
-	// Destination IP must be one of our senders.
-	if dstIP4 != entry.senderA && dstIP4 != entry.senderB {
+	// Destination IP must be one of the expectedSenders.
+	if entry.expectedSenders.Contains(dstIP4) {
 		return false
 	}
 
-	// TODO: In RT-based mode, Destination IP has to match exactly.
-
 	// Destination port must be within this probe's connection range.
 	if measurement.HasPorts {
-		if dstPort < entry.minPort || dstPort > entry.maxPort {
+		if dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort {
 			return false
 		}
 	}
 
 	// Flag-mode check
-	if !flagsMatch(entry.FlagMode, replyFlags) {
+	if !flagsMatch(entry.expectedFlags, replyFlags) {
 		return false
 	}
 
-	// In RT-based mode, a specific seqNum is expected.
-	if entry.expectedSeq != sentinelAnySeq && uint32(recoveredSeq) != entry.expectedSeq {
+	// seqNum must bw within probe's seqNum range.
+	if recoveredSeq < entry.expectedMinSeq || recoveredSeq > entry.expectedMaxSeq {
 		return false
 	}
 
-	if int(recoveredSeq) >= len(entry.Probe.Samples) {
-		return false
-	}
 	sample := &entry.Probe.Samples[recoveredSeq]
 
 	// Late reply: reject if RTT exceeds tolerance.
@@ -311,7 +304,7 @@ func FulfillReply(
 	}
 
 	// Update the completion counter and signal if we have hit the target.
-	if entry.validCount.Add(1) >= entry.expectedCount {
+	if entry.validCount.Add(1) >= uint32(entry.expectedCount) {
 		entry.markDone()
 	}
 	return true

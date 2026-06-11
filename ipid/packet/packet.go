@@ -2,6 +2,7 @@ package packet
 
 import (
 	"encoding/binary"
+	"github.com/alxweis/ipid-measure/ipid/probe"
 	"net"
 
 	"github.com/alxweis/ipid-measure/ipid/checksum"
@@ -17,9 +18,7 @@ var opts = gopacket.SerializeOptions{ComputeChecksums: false, FixLengths: true}
 
 type Packet struct {
 	Sender *sender.Sender
-	//SenderIP net.IP
-	//SrcPort  uint16
-	Bytes []byte
+	Bytes  []byte
 }
 
 var RawPackets [][]byte
@@ -35,16 +34,15 @@ func Setup() {
 
 	n := int(measurement.RequestCount)
 	RawPackets = make([][]byte, n)
+	probe.TotalBytes = 0
 
 	protocol := payload.Active.ProtocolID
 	packetBuf := gopacket.NewSerializeBuffer()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
-		s := sender.GetSender(seqNum)
-
 		ipID := measurement.Config.RequestIPIDs[int(seqNum)%len(measurement.Config.RequestIPIDs)]
 
-		ipLayer := ip.Layer(ipID, s.IP, protocol)
+		ipLayer := ip.Layer(ipID, sender.GetSender(seqNum).IP, protocol)
 		payloadLayers := payload.Active.Layer(seqNum)
 
 		packetLayers := make([]gopacket.SerializableLayer, 0, 1+len(payloadLayers))
@@ -58,29 +56,27 @@ func Setup() {
 			panic(err)
 		}
 
-		// Copy out: the serialize buffer is reused on the next iteration.
+		probe.TotalBytes += len(packetBuf.Bytes())
 		RawPackets[seqNum] = append([]byte(nil), packetBuf.Bytes()...)
 	}
 }
 
-// BuildPacketsInto fills the scratch slice with dst IP, src port and checksum per-target
-func BuildPacketsInto(scratch []Packet, dstIP net.IP, basePort uint16) {
+// BuildPacketsInto fills the packet slice with dst IP, src port and checksum per-target
+func BuildPacketsInto(packets [][]byte, dstIP net.IP, basePort uint16) {
 	dst4 := dstIP.To4()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		raw := RawPackets[seqNum]
-
-		p := &scratch[seqNum]
+		packet := packets[seqNum]
 
 		// Reuse the per-slot byte buffer; grow only if needed.
-		if cap(p.Bytes) < len(raw) {
-			p.Bytes = make([]byte, len(raw))
+		if cap(packet) < len(raw) {
+			packet = make([]byte, len(raw))
 		}
-		p.Bytes = p.Bytes[:len(raw)]
-		copy(p.Bytes, raw)
-		b := p.Bytes
+		packet = packet[:len(raw)]
+		copy(packet, raw)
+		b := packet
 
-		s := sender.GetSender(seqNum)
 		srcPort := port.GetSrcPort(seqNum, basePort)
 
 		// Patch destination IP.
@@ -97,10 +93,6 @@ func BuildPacketsInto(scratch []Packet, dstIP net.IP, basePort uint16) {
 
 		// Recompute the L4/ICMP checksum.
 		payload.Active.SetChecksum(b)
-
-		p.Sender = s
-		p.SenderIP = s.IP
-		p.SrcPort = srcPort
 	}
 }
 

@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"github.com/alxweis/ipid-measure/internal/sets"
 	"sync"
 	"sync/atomic"
 
@@ -10,24 +11,25 @@ import (
 type InflightEntry struct {
 	Probe *Probe
 
-	expectedCount uint32
+	expectedCount uint16
+
+	expectedSenders sets.Set[[4]byte]
+
+	expectedMinPort uint16
+	expectedMaxPort uint16
+
+	expectedFlags FlagExpectation
+
+	expectedMinSeq uint16
+	expectedMaxSeq uint16
 
 	validCount atomic.Uint32
 
-	expectedSeq uint32
-
-	FlagMode FlagExpectation
-
 	done     chan struct{}
 	doneOnce sync.Once
-
-	minPort uint16
-	maxPort uint16
-
-	senderA, senderB [4]byte
 }
 
-type FlagExpectation int32
+type FlagExpectation uint8
 
 const (
 	FlagsDefault FlagExpectation = 0

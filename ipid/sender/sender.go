@@ -15,6 +15,7 @@ import (
 
 type Sender struct {
 	IP        net.IP
+	IPBytes   [4]byte
 	EthHeader []byte
 	Fd        int
 	Addr      syscall.SockaddrLinklayer
@@ -28,19 +29,12 @@ var (
 	SenderB *Sender
 )
 
+// TODO: Call this error
 var ErrStopped = errors.New("sender: rate limiter stopped")
 
 // Send transmits a single L3 packet by prepending the cached Ethernet header.
 func (s *Sender) Send(packet []byte) error {
 	total := len(s.EthHeader) + len(packet)
-
-	// Throttle before we acquire the per-sender lock so a blocked rate-limit wait does not also block the other senders.
-	if Limiter != nil {
-		if !Limiter.Acquire(total) {
-			return ErrStopped
-		}
-	}
-
 	s.mu.Lock()
 	if cap(s.buf) < total {
 		s.buf = make([]byte, total)
@@ -102,8 +96,13 @@ func setupOne(iface config.Interface) *Sender {
 		0x08, 0x00, // EtherType IPv4
 	}
 
+	ip := net.ParseIP(iface.IP)
+	var ipBytes [4]byte
+	copy(ipBytes[:], ip.To4())
+
 	return &Sender{
-		IP:        net.ParseIP(iface.IP),
+		IP:        ip,
+		IPBytes:   ipBytes,
 		EthHeader: ethHeader,
 		Addr:      addr,
 		Fd:        fd,
