@@ -29,9 +29,6 @@ var (
 	SenderB *Sender
 )
 
-// TODO: Call this error
-var ErrStopped = errors.New("sender: rate limiter stopped")
-
 // Send transmits a single L3 packet by prepending the cached Ethernet header.
 func (s *Sender) Send(packet []byte) error {
 	total := len(s.EthHeader) + len(packet)

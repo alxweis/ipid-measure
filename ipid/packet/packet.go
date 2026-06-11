@@ -16,11 +16,6 @@ import (
 
 var opts = gopacket.SerializeOptions{ComputeChecksums: false, FixLengths: true}
 
-type Packet struct {
-	Sender *sender.Sender
-	Bytes  []byte
-}
-
 var RawPackets [][]byte
 
 // Setup builds the immutable raw packet templates.

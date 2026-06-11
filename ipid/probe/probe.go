@@ -68,19 +68,19 @@ func Measure(target net.IP, packets [][]byte) bool {
 		return false
 	}
 
-	atomic.AddInt64(&stats.ProbeCount, 1)
-	atomic.AddInt64(&stats.InFlightProbes, 1)
-	defer atomic.AddInt64(&stats.InFlightProbes, -1)
-
-	basePort := port.Next()
-	packet.BuildPacketsInto(packets, target4, basePort)
-
 	// Rate-limiting
 	if sender.Limiter != nil {
 		if !sender.Limiter.Acquire(TotalBytes) {
 			return false
 		}
 	}
+
+	atomic.AddInt64(&stats.ProbeCount, 1)
+	atomic.AddInt64(&stats.InFlightProbes, 1)
+	defer atomic.AddInt64(&stats.InFlightProbes, -1)
+
+	basePort := port.Next()
+	packet.BuildPacketsInto(packets, target4, basePort)
 
 	probe := &Probe{
 		Target:  target4,
