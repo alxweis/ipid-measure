@@ -233,7 +233,7 @@ func reportStats(ctx context.Context, written, duplicates *atomic.Uint64, done c
 			last = cur
 			elapsed := time.Since(start).Truncate(time.Second)
 			runtime.ReadMemStats(&ms)
-			log.Printf("zmap: unique=%d (+%d/s) duplicates=%d heap=%dMB goroutines=%d elapsed=%s",
+			log.Printf("zmap: unique=%d (+%d) duplicates=%d heap=%dMB goroutines=%d elapsed=%s",
 				cur, delta, dups, ms.HeapAlloc>>20, runtime.NumGoroutine(), elapsed)
 		}
 	}

@@ -171,7 +171,8 @@ func Log() {
 					"sent_mbps=[%.0f] "+
 					"sent_pps=[%.0f] "+
 					"heap=[%dMB] "+
-					"in_flight=[%d]\n"+
+					"in_flight=[%d] "+
+					"goroutines=[%d]\n"+
 					"replies[matched=%d %s] "+
 					"probes[%s] ",
 				timeLeft,
@@ -183,6 +184,7 @@ func Log() {
 				sentPps,
 				ms.HeapAlloc>>20,
 				inFlight,
+				runtime.NumGoroutine(),
 				matched, replyDrops,
 				probeDrops,
 			)

@@ -365,7 +365,7 @@ func reportOSStats(ctx context.Context, m *merger, w *Writer, done <-chan struct
 			dropped := m.totalDropped.Load()
 			elapsed := time.Since(start).Truncate(time.Second)
 			runtime.ReadMemStats(&ms)
-			log.Printf("os: emitted=%d (+%d/s) dropped=%d merger_in=%d (zgrab2=%d zdns=%d snmp=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
+			log.Printf("os: emitted=%d (+%d) dropped=%d merger_in=%d (zgrab2=%d zdns=%d snmp=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
 				cur, delta, dropped, received,
 				m.rxZGrab2.Load(), m.rxZDNS.Load(), m.rxSNMP.Load(),
 				w.Written(), ms.HeapAlloc>>20, runtime.NumGoroutine(), elapsed)
