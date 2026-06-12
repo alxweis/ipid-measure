@@ -40,8 +40,6 @@ type Sample struct {
 	IpID        uint16
 }
 
-var TotalBytes int
-
 func (s *Sample) MarkSent(now int64) {
 	s.SentTime = now
 	s.state.Store(int32(SampleSent))
@@ -72,7 +70,7 @@ func Measure(target net.IP, packets [][]byte) bool {
 
 	// Rate-limiting
 	if sender.Limiter != nil {
-		if !sender.Limiter.Acquire(TotalBytes) {
+		if !sender.Limiter.Acquire(packet.RawPacketsTotalBytes) {
 			return false
 		}
 	}

@@ -2,7 +2,6 @@ package packet
 
 import (
 	"encoding/binary"
-	"github.com/alxweis/ipid-measure/ipid/probe"
 	"net"
 
 	"github.com/alxweis/ipid-measure/ipid/checksum"
@@ -16,7 +15,10 @@ import (
 
 var opts = gopacket.SerializeOptions{ComputeChecksums: false, FixLengths: true}
 
-var RawPackets [][]byte
+var (
+	RawPacketsTotalBytes int
+	rawPackets           [][]byte
+)
 
 // Setup builds the immutable raw packet templates.
 func Setup() {
@@ -28,8 +30,8 @@ func Setup() {
 	}
 
 	n := int(measurement.RequestCount)
-	RawPackets = make([][]byte, n)
-	probe.TotalBytes = 0
+	rawPackets = make([][]byte, n)
+	RawPacketsTotalBytes = 0
 
 	protocol := payload.Active.ProtocolID
 	packetBuf := gopacket.NewSerializeBuffer()
@@ -52,8 +54,8 @@ func Setup() {
 			panic(err)
 		}
 
-		probe.TotalBytes += len(sndr.EthHeader) + len(packetBuf.Bytes())
-		RawPackets[seqNum] = append([]byte(nil), packetBuf.Bytes()...)
+		RawPacketsTotalBytes += len(sndr.EthHeader) + len(packetBuf.Bytes())
+		rawPackets[seqNum] = append([]byte(nil), packetBuf.Bytes()...)
 	}
 }
 
@@ -62,7 +64,7 @@ func BuildPacketsInto(packets [][]byte, dstIP net.IP, basePort uint16) {
 	dst4 := dstIP.To4()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
-		raw := RawPackets[seqNum]
+		raw := rawPackets[seqNum]
 		packet := packets[seqNum]
 
 		// Reuse the per-slot byte buffer; grow only if needed.
