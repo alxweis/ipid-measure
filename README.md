@@ -109,3 +109,9 @@ Sends `connection_count × requests_per_connection` raw probes per target across
 ```bash
 sudo ./bin/measure-ipid
 ```
+
+# TODO
+
+- Add FIN-ACK Message to finalize connection
+- Hide estimated_time_left until ready
+- Add workflow to push measurements to a remote S3 server
