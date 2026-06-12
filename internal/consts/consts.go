@@ -16,7 +16,7 @@ const (
 	ZMapStdoutReadBufferBytes = 4 << 20
 
 	IPIDSaveChannelSize    = 1 << 18
-	IPIDSaveFileBufferSize = 8 * 1024 * 1024
+	IPIDSaveFileBufferSize = 8 << 20
 
-	SoSndBuf = 32 * 1024 * 1024
+	IPIDSocketSendBufferBytes = 32 << 20
 )

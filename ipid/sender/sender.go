@@ -77,7 +77,7 @@ func setupOne(iface config.Interface) *Sender {
 	}
 
 	// Enlarge the kernel send buffer so high-rate bursts are not dropped locally.
-	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF, consts.SoSndBuf)
+	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF, consts.IPIDSocketSendBufferBytes)
 
 	addr := syscall.SockaddrLinklayer{
 		Ifindex: ifc.Index,
