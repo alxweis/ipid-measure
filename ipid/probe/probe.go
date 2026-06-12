@@ -65,12 +65,14 @@ var SaveProbesChannel chan *Probe
 func Measure(target net.IP, packets [][]byte) bool {
 	target4 := target.To4()
 	if target4 == nil {
+		atomic.AddInt64(&stats.DropBadTarget, 1)
 		return false
 	}
 
 	// Rate-limiting
 	if sender.Limiter != nil {
 		if !sender.Limiter.Acquire(packet.RawPacketsTotalBytes) {
+			atomic.AddInt64(&stats.DropLimiterStop, 1)
 			return false
 		}
 	}
@@ -147,6 +149,7 @@ func measureRTBased(
 
 		if err := sndr.Send(pkt); err != nil {
 			Inflight.Deregister(targetKey, entry)
+			atomic.AddInt64(&stats.DropSendErr, 1)
 			return false
 		}
 		// Update sent counters incrementally.
@@ -167,16 +170,19 @@ func measureRTBased(
 			// Sample filled by the receiver.
 			Inflight.Deregister(targetKey, entry)
 			if !probe.Samples[seqNum].IsReceived() {
+				atomic.AddInt64(&stats.DropNotRecv, 1)
 				return false
 			}
 			atomic.AddInt64(&stats.ProbesReachedSeq[seqNum], 1)
 
 		case <-timer.C:
 			Inflight.Deregister(targetKey, entry)
+			atomic.AddInt64(&stats.DropTimeout, 1)
 			return false
 
 		case <-measurement.StopSignal:
 			Inflight.Deregister(targetKey, entry)
+			atomic.AddInt64(&stats.DropInterrupt, 1)
 			return false
 		}
 	}
@@ -216,6 +222,7 @@ func measureFixedInterval(
 
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 		if err := sndr.Send(pkt); err != nil {
+			atomic.AddInt64(&stats.DropSendErr, 1)
 			return false
 		}
 		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(pkt)))
@@ -234,6 +241,7 @@ func measureFixedInterval(
 	case <-entry.done:
 	case <-timer.C:
 	case <-measurement.StopSignal:
+		atomic.AddInt64(&stats.DropInterrupt, 1)
 		return false
 	}
 
@@ -247,6 +255,7 @@ func measureFixedInterval(
 
 	rate := float64(received) / float64(measurement.RequestCount)
 	if rate < measurement.Config.FixedIntervalConfig.MinimumReplyRate {
+		atomic.AddInt64(&stats.DropRateLow, 1)
 		return false
 	}
 
@@ -267,28 +276,33 @@ func FulfillReply(
 ) bool {
 	entry := Inflight.Lookup(srcIP4)
 	if entry == nil {
+		atomic.AddInt64(&stats.DropNoEntry, 1)
 		return false
 	}
 
 	// Destination IP must be one of the expectedDsts.
 	if dstIP4 != entry.expectedDsts[0] && dstIP4 != entry.expectedDsts[1] {
+		atomic.AddInt64(&stats.DropBadDst, 1)
 		return false
 	}
 
 	// Destination port must be within this probe's connection range.
 	if measurement.HasPorts {
 		if dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort {
+			atomic.AddInt64(&stats.DropBadPort, 1)
 			return false
 		}
 	}
 
-	// Flag-mode check
+	// Flag-mode check.
 	if !flagsMatch(entry.expectedFlags, replyFlags) {
+		atomic.AddInt64(&stats.DropBadFlags, 1)
 		return false
 	}
 
 	// seqNum must be within probe's seqNum range.
 	if recoveredSeq < entry.expectedMinSeq || recoveredSeq > entry.expectedMaxSeq {
+		atomic.AddInt64(&stats.DropSeqOOR, 1)
 		return false
 	}
 
@@ -296,11 +310,13 @@ func FulfillReply(
 
 	// Late reply: reject if RTT exceeds tolerance.
 	if receiveTime-sample.SentTime > measurement.Config.MaximumToleratedRTT.Microseconds() {
+		atomic.AddInt64(&stats.DropLate, 1)
 		return false
 	}
 
 	if !sample.TryFill(ipID, receiveTime) {
 		// Duplicate reply or sample not in Sent state.
+		atomic.AddInt64(&stats.DropDup, 1)
 		return false
 	}
 
@@ -308,6 +324,7 @@ func FulfillReply(
 	if entry.validCount.Add(1) >= uint32(entry.expectedCount) {
 		entry.markDone()
 	}
+	atomic.AddInt64(&stats.MatchedReplies, 1)
 	return true
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -20,9 +21,25 @@ var (
 	SentBytes      int64
 	SentPackets    int64
 
-	MatchedReplies   int64
-	UnmatchedReplies int64
-	RejectedReplies  int64
+	MatchedReplies int64
+
+	DropDecode   int64 // DecodeLayers failed: truncated or malformed
+	DropProto    int64 // L4 extraction failed: layer missing, wrong type, ZMap-port mismatch
+	DropNoEntry  int64 // No in-flight entry for srcIP (late reply / not our probe)
+	DropBadDst   int64 // dstIP not one of our expected sender IPs
+	DropBadPort  int64 // dstPort outside the probe's connection range
+	DropBadFlags int64 // TCP/DNS flag set does not match expectation
+	DropSeqOOR   int64 // recovered seqNum outside the probe's expected range
+	DropLate     int64 // reply arrived after MaximumToleratedRTT
+	DropDup      int64 // sample already filled (duplicate reply)
+
+	DropBadTarget   int64 // target IP did not parse as v4
+	DropLimiterStop int64 // rate limiter returned stopped (shutdown)
+	DropSendErr     int64 // syscall.Sendmsg failed
+	DropTimeout     int64 // probe abandoned at RTT timer
+	DropInterrupt   int64 // StopSignal observed mid-probe
+	DropNotRecv     int64 // RT-based: entry.done fired but IsReceived was false
+	DropRateLow     int64 // FixedInterval: received/total < MinimumReplyRate
 
 	ProbesReachedSeq []int64
 )
@@ -121,35 +138,27 @@ func Log() {
 			}
 
 			matched := atomic.LoadInt64(&MatchedReplies)
-			unmatched := atomic.LoadInt64(&UnmatchedReplies)
-			rejected := atomic.LoadInt64(&RejectedReplies)
 
-			// Per-seq histogram. For small RequestCount (typical) show every
-			// seq; otherwise show 5 quantile positions.
-			//n := len(ProbesReachedSeq)
-			//var seqHist string
-			//if n > 0 {
-			//	if n <= 32 {
-			//		var sb strings.Builder
-			//		sb.WriteString("reached_seq=[")
-			//		for i := 0; i < n; i++ {
-			//			if i > 0 {
-			//				sb.WriteByte(' ')
-			//			}
-			//			fmt.Fprintf(&sb, "%d", atomic.LoadInt64(&ProbesReachedSeq[i]))
-			//		}
-			//		sb.WriteByte(']')
-			//		seqHist = sb.String()
-			//	} else {
-			//		seqHist = fmt.Sprintf("reached_seq[0=%d, q1=%d, q2=%d, q3=%d, last=%d]",
-			//			atomic.LoadInt64(&ProbesReachedSeq[0]),
-			//			atomic.LoadInt64(&ProbesReachedSeq[n/4]),
-			//			atomic.LoadInt64(&ProbesReachedSeq[n/2]),
-			//			atomic.LoadInt64(&ProbesReachedSeq[3*n/4]),
-			//			atomic.LoadInt64(&ProbesReachedSeq[n-1]),
-			//		)
-			//	}
-			//}
+			replyDrops := joinNonZero(
+				kv{"decode", atomic.LoadInt64(&DropDecode)},
+				kv{"proto", atomic.LoadInt64(&DropProto)},
+				kv{"no_entry", atomic.LoadInt64(&DropNoEntry)},
+				kv{"bad_dst", atomic.LoadInt64(&DropBadDst)},
+				kv{"bad_port", atomic.LoadInt64(&DropBadPort)},
+				kv{"bad_flags", atomic.LoadInt64(&DropBadFlags)},
+				kv{"seq_oor", atomic.LoadInt64(&DropSeqOOR)},
+				kv{"late", atomic.LoadInt64(&DropLate)},
+				kv{"dup", atomic.LoadInt64(&DropDup)},
+			)
+			probeDrops := joinNonZero(
+				kv{"bad_target", atomic.LoadInt64(&DropBadTarget)},
+				kv{"limiter_stop", atomic.LoadInt64(&DropLimiterStop)},
+				kv{"send_err", atomic.LoadInt64(&DropSendErr)},
+				kv{"timeout", atomic.LoadInt64(&DropTimeout)},
+				kv{"interrupt", atomic.LoadInt64(&DropInterrupt)},
+				kv{"not_recv", atomic.LoadInt64(&DropNotRecv)},
+				kv{"rate_low", atomic.LoadInt64(&DropRateLow)},
+			)
 
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
@@ -161,7 +170,8 @@ func Log() {
 					"valid_probes=[+%d, %.2f%%] "+
 					"sent_mbps=[%.0f] "+
 					"sent_pps=[%.0f] "+
-					"replies[matched=%d unmatched=%d rejected=%d] "+
+					"replies[matched=%d %s] "+
+					"probes[%s] "+
 					"heap=[%dMB] "+
 					"in_flight=[%d]",
 				timeLeft,
@@ -171,7 +181,8 @@ func Log() {
 				validProbeCountPercentage,
 				sentMbps,
 				sentPps,
-				matched, unmatched, rejected,
+				matched, replyDrops,
+				probeDrops,
 				ms.HeapAlloc>>20,
 				inFlight,
 			)
@@ -186,4 +197,27 @@ func Log() {
 
 func init() {
 	measurement.StartStats = func() { go Log() }
+	measurement.GetRecordCount = func() int64 { return atomic.LoadInt64(&ValidProbes) }
+}
+
+type kv struct {
+	name string
+	val  int64
+}
+
+func joinNonZero(items ...kv) string {
+	var sb strings.Builder
+	for _, it := range items {
+		if it.val == 0 {
+			continue
+		}
+		if sb.Len() > 0 {
+			sb.WriteByte(' ')
+		}
+		fmt.Fprintf(&sb, "%s=%d", it.name, it.val)
+	}
+	if sb.Len() == 0 {
+		return "none"
+	}
+	return sb.String()
 }

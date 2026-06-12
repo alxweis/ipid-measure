@@ -112,7 +112,7 @@ func Receive(iface config.Interface) {
 
 		if perr := parser.DecodeLayers(data, &decoded); perr != nil {
 			// Truncated/malformed packet; count it and move on, never panic.
-			atomic.AddInt64(&stats.RejectedReplies, 1)
+			atomic.AddInt64(&stats.DropDecode, 1)
 			continue
 		}
 
@@ -137,16 +137,12 @@ func Receive(iface config.Interface) {
 			seqNum, dstPort, replyFlgs, ok = extractICMP(&icmpL, decoded)
 		}
 		if !ok {
-			atomic.AddInt64(&stats.RejectedReplies, 1)
+			atomic.AddInt64(&stats.DropProto, 1)
 			continue
 		}
 
 		now := time.Now().UnixMicro()
-		if probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, ipv4.Id, replyFlgs, now) {
-			atomic.AddInt64(&stats.MatchedReplies, 1)
-		} else {
-			atomic.AddInt64(&stats.UnmatchedReplies, 1)
-		}
+		probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, ipv4.Id, replyFlgs, now)
 	}
 }
 
