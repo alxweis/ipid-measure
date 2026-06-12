@@ -65,32 +65,34 @@ func BuildPacketsInto(packets [][]byte, dstIP net.IP, basePort uint16) {
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		raw := rawPackets[seqNum]
-		packet := packets[seqNum]
+		pkt := packets[seqNum]
 
 		// Reuse the per-slot byte buffer; grow only if needed.
-		if cap(packet) < len(raw) {
-			packet = make([]byte, len(raw))
+		if cap(pkt) < len(raw) {
+			pkt = make([]byte, len(raw))
 		}
-		packet = packet[:len(raw)]
-		copy(packet, raw)
-		b := packet
+		pkt = pkt[:len(raw)]
+		copy(pkt, raw)
 
 		srcPort := port.GetSrcPort(seqNum, basePort)
 
 		// Patch destination IP.
-		copy(b[16:20], dst4)
+		copy(pkt[16:20], dst4)
 
-		// Recompute IPv4 header checksum over the 20-byte header.
-		binary.BigEndian.PutUint16(b[10:12], 0)
-		binary.BigEndian.PutUint16(b[10:12], checksum.Compute(b[:20]))
+		// Recompute IPv4 header checksum.
+		binary.BigEndian.PutUint16(pkt[10:12], 0)
+		binary.BigEndian.PutUint16(pkt[10:12], checksum.Compute(pkt[:20]))
 
 		// Patch L4 source port if applicable.
 		if measurement.HasPorts {
-			binary.BigEndian.PutUint16(b[20:22], srcPort)
+			binary.BigEndian.PutUint16(pkt[20:22], srcPort)
 		}
 
 		// Recompute the L4/ICMP checksum.
-		payload.Active.SetChecksum(b)
+		payload.Active.SetChecksum(pkt)
+
+		// Commit the buffer back into the caller slice.
+		packets[seqNum] = pkt
 	}
 }
 
