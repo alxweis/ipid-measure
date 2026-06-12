@@ -126,13 +126,13 @@ func measureRTBased(
 			}
 		}
 
-		expectedSender := sender.GetSender(seqNum).IPBytes
+		sndr := sender.GetSender(seqNum)
 		expectedPort := port.GetSrcPort(seqNum, basePort)
 
 		entry := &InflightEntry{
 			Probe:           probe,
 			expectedCount:   1,
-			expectedSenders: sets.New(expectedSender),
+			expectedDsts:    [2][4]byte{sndr.IPBytes, sndr.IPBytes},
 			expectedMinPort: expectedPort,
 			expectedMaxPort: expectedPort,
 			expectedFlags:   expectedFlags,
@@ -145,7 +145,7 @@ func measureRTBased(
 		// MarkSent publishes SentTime before the sending.
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 
-		if err := sender.GetSender(seqNum).Send(pkt); err != nil {
+		if err := sndr.Send(pkt); err != nil {
 			Inflight.Deregister(targetKey, entry)
 			return false
 		}
@@ -198,7 +198,7 @@ func measureFixedInterval(
 	entry := &InflightEntry{
 		Probe:           probe,
 		expectedCount:   measurement.RequestCount,
-		expectedSenders: sets.New(sender.SenderA.IPBytes, sender.SenderB.IPBytes),
+		expectedDsts:    [2][4]byte{sender.SenderA.IPBytes, sender.SenderB.IPBytes},
 		expectedMinPort: basePort,
 		expectedMaxPort: basePort + measurement.Config.ConnectionCount - 1,
 		expectedMinSeq:  0,
@@ -269,8 +269,8 @@ func FulfillReply(
 		return false
 	}
 
-	// Destination IP must be one of the expectedSenders.
-	if entry.expectedSenders.Contains(dstIP4) {
+	// Destination IP must be one of the expectedDsts.
+	if dstIP4 != entry.expectedDsts[0] && dstIP4 != entry.expectedDsts[1] {
 		return false
 	}
 
@@ -286,7 +286,7 @@ func FulfillReply(
 		return false
 	}
 
-	// seqNum must bw within probe's seqNum range.
+	// seqNum must be within probe's seqNum range.
 	if recoveredSeq < entry.expectedMinSeq || recoveredSeq > entry.expectedMaxSeq {
 		return false
 	}

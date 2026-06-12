@@ -1,7 +1,6 @@
 package probe
 
 import (
-	"github.com/alxweis/ipid-measure/internal/sets"
 	"sync"
 	"sync/atomic"
 
@@ -13,7 +12,7 @@ type InflightEntry struct {
 
 	expectedCount uint16
 
-	expectedSenders sets.Set[[4]byte]
+	expectedDsts [2][4]byte
 
 	expectedMinPort uint16
 	expectedMaxPort uint16

@@ -35,9 +35,10 @@ func Setup() {
 	packetBuf := gopacket.NewSerializeBuffer()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
+		sndr := sender.GetSender(seqNum)
 		ipID := measurement.Config.RequestIPIDs[int(seqNum)%len(measurement.Config.RequestIPIDs)]
 
-		ipLayer := ip.Layer(ipID, sender.GetSender(seqNum).IP, protocol)
+		ipLayer := ip.Layer(ipID, sndr.IP, protocol)
 		payloadLayers := payload.Active.Layer(seqNum)
 
 		packetLayers := make([]gopacket.SerializableLayer, 0, 1+len(payloadLayers))
@@ -51,7 +52,7 @@ func Setup() {
 			panic(err)
 		}
 
-		probe.TotalBytes += len(packetBuf.Bytes())
+		probe.TotalBytes += len(sndr.EthHeader) + len(packetBuf.Bytes())
 		RawPackets[seqNum] = append([]byte(nil), packetBuf.Bytes()...)
 	}
 }
