@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
-	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
 // ZGrab2Result is the per-IP outcome of the multimodule ZGrab2 scan.
@@ -139,7 +138,7 @@ func (r *ZGrab2Runner) Shutdown() error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(consts.OSShutdownGraceSeconds * time.Second):
+	case <-time.After(ShutdownGraceSeconds * time.Second):
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		return <-done
 	}
@@ -147,7 +146,7 @@ func (r *ZGrab2Runner) Shutdown() error {
 
 // ParseZGrab2Stream consumes ZGrab2's JSON-lines stdout and emits ZGrab2Result.
 func ParseZGrab2Stream(r io.Reader, out chan<- ZGrab2Result) error {
-	br := bufio.NewReaderSize(r, consts.OSStdoutReadBufferBytes)
+	br := bufio.NewReaderSize(r, StdoutReadBufferBytes)
 	for {
 		line, err := br.ReadString('\n')
 		if len(line) > 0 {

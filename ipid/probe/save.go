@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	batchSize          = 20000
-	maxRowsPerRowGroup = 2_000_000
-	pageBufferSize     = 1 * 1024 * 1024
-	valueSeparator     = ','
-	invalidSymbol      = '-'
+	ParquetWriteBatchSize     = 20_000
+	ParquetMaxRowsPerRowGroup = 2_000_000
+	ParquetPageBufferBytes    = 1 << 20
+	ValueSeparator            = ','
+	InvalidSymbol             = '-'
 )
 
 func SetupSaveChannel() {
@@ -49,11 +49,11 @@ func Save() {
 
 	writer := parquet.NewGenericWriter[records.IPIDRecord](bw,
 		parquet.Compression(&snappy.Codec{}),
-		parquet.PageBufferSize(pageBufferSize),
-		parquet.MaxRowsPerRowGroup(maxRowsPerRowGroup),
+		parquet.PageBufferSize(ParquetPageBufferBytes),
+		parquet.MaxRowsPerRowGroup(ParquetMaxRowsPerRowGroup),
 	)
 
-	batch := make([]records.IPIDRecord, 0, batchSize)
+	batch := make([]records.IPIDRecord, 0, ParquetWriteBatchSize)
 
 	flush := func() {
 		if len(batch) == 0 {
@@ -77,7 +77,7 @@ func Save() {
 			continue
 		}
 		batch = append(batch, rec)
-		if len(batch) >= batchSize {
+		if len(batch) >= ParquetWriteBatchSize {
 			flush()
 		}
 	}
@@ -115,9 +115,9 @@ func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 		}
 
 		if seqNum > 0 {
-			ipIds.WriteByte(valueSeparator)
-			sent.WriteByte(valueSeparator)
-			recv.WriteByte(valueSeparator)
+			ipIds.WriteByte(ValueSeparator)
+			sent.WriteByte(ValueSeparator)
+			recv.WriteByte(ValueSeparator)
 		}
 
 		if received {
@@ -125,9 +125,9 @@ func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 			sent.WriteString(strconv.FormatInt(r.SentTime, 10))
 			recv.WriteString(strconv.FormatInt(r.ReceiveTime, 10))
 		} else {
-			ipIds.WriteByte(invalidSymbol)
-			sent.WriteByte(invalidSymbol)
-			recv.WriteByte(invalidSymbol)
+			ipIds.WriteByte(InvalidSymbol)
+			sent.WriteByte(InvalidSymbol)
+			recv.WriteByte(InvalidSymbol)
 		}
 	}
 

@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	ZGrab2Binary     = "zgrab2"
-	ZDNSBinary       = "zdns"
-	ResultBufferSize = 100_000
+	ZGrab2Binary          = "zgrab2"
+	ZDNSBinary            = "zdns"
+	ResultBufferSize      = 100_000
+	ShutdownGraceSeconds  = 5
+	StdoutReadBufferBytes = 1 << 20
 )
 
 // runPipeline reads IPs from zmap.pq, fans out to the three scanners,

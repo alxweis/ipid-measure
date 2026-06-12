@@ -11,8 +11,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/alxweis/ipid-measure/internal/consts"
 )
 
 // ZDNSResult is the per-IP outcome of CHAOS-class DNS queries against
@@ -88,7 +86,7 @@ func (r *ZDNSRunner) Shutdown() error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(consts.OSShutdownGraceSeconds * time.Second):
+	case <-time.After(ShutdownGraceSeconds * time.Second):
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		return <-done
 	}
@@ -98,7 +96,7 @@ func (r *ZDNSRunner) Shutdown() error {
 // hostname.bind) and emits exactly one ZDNSResult per IP -- contract required
 // by the merger to avoid pending-entry leaks.
 func ParseZDNSStream(r io.Reader, out chan<- ZDNSResult) error {
-	br := bufio.NewReaderSize(r, consts.OSStdoutReadBufferBytes)
+	br := bufio.NewReaderSize(r, ShutdownGraceSeconds)
 
 	// Per-IP merge state. Two queries expected per IP.
 	type partial struct {
