@@ -2,6 +2,7 @@ package measurement
 
 import (
 	"context"
+	"github.com/alxweis/ipid-measure/ipid/iptables"
 	"log"
 	"math"
 	"math/rand/v2"
@@ -81,6 +82,18 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	SetupPortPool()
 	SetupRateLimiter()
 	SetupSaveChannel()
+
+	// Drop RSTs
+	if TcpEstablishConnection {
+		if err := iptables.Setup(*c.ZMapPort, c.Interfaces.A.IP, c.Interfaces.B.IP); err != nil {
+			log.Fatalf("iptables setup: %v", err)
+		}
+		defer func() {
+			if err := iptables.Teardown(*c.ZMapPort, c.Interfaces.A.IP, c.Interfaces.B.IP); err != nil {
+				log.Printf("iptables teardown: %v", err)
+			}
+		}()
+	}
 
 	// Allow Ctrl+C to trigger a graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
