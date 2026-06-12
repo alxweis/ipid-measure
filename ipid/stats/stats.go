@@ -170,10 +170,10 @@ func Log() {
 					"valid_probes=[+%d, %.2f%%] "+
 					"sent_mbps=[%.0f] "+
 					"sent_pps=[%.0f] "+
-					"replies[matched=%d %s] "+
-					"probes[%s] "+
 					"heap=[%dMB] "+
-					"in_flight=[%d]",
+					"in_flight=[%d]\n"+
+					"replies[matched=%d %s] "+
+					"probes[%s] ",
 				timeLeft,
 				deltaProbeCount,
 				probeCountPercentage,
@@ -181,10 +181,10 @@ func Log() {
 				validProbeCountPercentage,
 				sentMbps,
 				sentPps,
-				matched, replyDrops,
-				probeDrops,
 				ms.HeapAlloc>>20,
 				inFlight,
+				matched, replyDrops,
+				probeDrops,
 			)
 
 			lastProbeCount = probeCount
