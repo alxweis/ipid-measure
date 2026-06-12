@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"log"
 	"net"
 	"sync/atomic"
 	"time"
@@ -71,6 +72,7 @@ func Measure(target net.IP, packets [][]byte) bool {
 	// Rate-limiting
 	if sender.Limiter != nil {
 		if !sender.Limiter.Acquire(packet.RawPacketsTotalBytes) {
+			log.Println("measurement pending due to rate limit")
 			return false
 		}
 	}
