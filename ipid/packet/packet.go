@@ -2,6 +2,7 @@ package packet
 
 import (
 	"encoding/binary"
+	"log"
 	"net"
 
 	"github.com/alxweis/ipid-measure/ipid/checksum"
@@ -57,6 +58,9 @@ func Setup() {
 		RawPacketsTotalBytes += len(sndr.EthHeader) + len(packetBuf.Bytes())
 		rawPackets[seqNum] = append([]byte(nil), packetBuf.Bytes()...)
 	}
+
+	// TODO: Remove later
+	log.Println(RawPacketsTotalBytes)
 }
 
 // BuildPacketsInto fills the packet slice with dst IP, src port and checksum per-target
