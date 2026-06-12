@@ -8,8 +8,13 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
+)
+
+const (
+	ParquetWriteBatchSize     = 10_000
+	ParquetMaxRowsPerRowGroup = 2_000_000
+	ParquetPageBufferBytes    = 1 << 20
 )
 
 // Writer is the parquet sink for OS-fingerprint results. Behaves identically
@@ -28,17 +33,17 @@ func NewWriter(outPath string) (*Writer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create parquet: %w", err)
 	}
-	bw := bufio.NewWriterSize(f, consts.OSParquetPageBufferBytes)
+	bw := bufio.NewWriterSize(f, ParquetPageBufferBytes)
 	pq := parquet.NewGenericWriter[records.OSRecord](bw,
 		parquet.Compression(&snappy.Codec{}),
-		parquet.PageBufferSize(consts.OSParquetPageBufferBytes),
-		parquet.MaxRowsPerRowGroup(consts.OSParquetMaxRowsPerRowGroup),
+		parquet.PageBufferSize(ParquetPageBufferBytes),
+		parquet.MaxRowsPerRowGroup(ParquetMaxRowsPerRowGroup),
 	)
 	return &Writer{
 		file:     f,
 		buffered: bw,
 		pq:       pq,
-		batch:    make([]records.OSRecord, 0, consts.OSParquetWriteBatchSize),
+		batch:    make([]records.OSRecord, 0, ParquetWriteBatchSize),
 	}, nil
 }
 
@@ -50,7 +55,7 @@ func (w *Writer) Append(r records.OSRecord) error {
 		return nil
 	}
 	w.batch = append(w.batch, r)
-	if len(w.batch) >= consts.OSParquetWriteBatchSize {
+	if len(w.batch) >= ParquetWriteBatchSize {
 		return w.flush()
 	}
 	return nil

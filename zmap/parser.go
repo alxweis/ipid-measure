@@ -3,11 +3,11 @@ package zmap
 import (
 	"bufio"
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/consts"
 	"io"
 	"strconv"
 	"strings"
 
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 

@@ -5,30 +5,18 @@ import (
 )
 
 const (
-	TimestampFormat    = "2006-01-02_15-04-05"
-	ZMapReadBufferSize = 10_000
-	LogUpdateInterval  = 1 * time.Second
-	DnsSld             = "example.com"
+	LogUpdateInterval = 1 * time.Second
 )
 
-const (
-	ZMapBinary                    = "zmap"
-	ZMapOutputFields              = "saddr,timestamp-ts,timestamp-us"
-	ZMapOutputFormat              = "csv"
-	ZMapParquetWriteBatchSize     = 10_000
-	ZMapStdoutReadBufferBytes     = 1 << 20
-	ZMapParquetMaxRowsPerRowGroup = 2_000_000
-	ZMapParquetPageBufferBytes    = 1 << 20
-	ZMapShutdownGraceSeconds      = 5
-)
+// --- SPEEDUP ----------------------------------------------------------------
 
 const (
-	OSZGrab2Binary              = "zgrab2"
-	OSZDNSBinary                = "zdns"
-	OSResultBufferSize          = 100_000
-	OSParquetWriteBatchSize     = 10_000
-	OSParquetMaxRowsPerRowGroup = 2_000_000
-	OSParquetPageBufferBytes    = 1 << 20
-	OSStdoutReadBufferBytes     = 1 << 20
-	OSShutdownGraceSeconds      = 5
+	ZMapReadBufferSize        = 50_000
+	ZMapParquetWriteBatchSize = 50_000
+	ZMapStdoutReadBufferBytes = 4 << 20
+
+	IPIDSaveChannelSize    = 1 << 18
+	IPIDSaveFileBufferSize = 8 * 1024 * 1024
+
+	SoSndBuf = 32 * 1024 * 1024
 )

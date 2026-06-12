@@ -1,13 +1,14 @@
 package dns
 
 import (
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"strconv"
 )
+
+const Sld = "example.com"
 
 func Layer(seqNum uint16) gopacket.SerializableLayer {
 	return &layers.DNS{
@@ -17,7 +18,7 @@ func Layer(seqNum uint16) gopacket.SerializableLayer {
 		QDCount: 1,
 		Questions: []layers.DNSQuestion{
 			{
-				Name:  []byte(strconv.FormatUint(uint64(seqNum), 10) + "." + consts.DnsSld),
+				Name:  []byte(strconv.FormatUint(uint64(seqNum), 10) + "." + Sld),
 				Type:  layers.DNSTypeA,
 				Class: layers.DNSClassIN,
 			},

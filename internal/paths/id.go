@@ -2,7 +2,6 @@ package paths
 
 import (
 	"fmt"
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"strconv"
 	"strings"
@@ -14,6 +13,8 @@ import (
 // tcp-80_YYYY-MM-DD_HH-MM-SS
 // udp-dns-53_YYYY-MM-DD_HH-MM-SS
 
+const TimestampFormat = "2006-01-02_15-04-05"
+
 func GetMeasurementID(payload types.Payload, port *uint16, timestamp time.Time) string {
 	extendedPayload := string(payload)
 
@@ -21,7 +22,7 @@ func GetMeasurementID(payload types.Payload, port *uint16, timestamp time.Time) 
 		extendedPayload = fmt.Sprintf("%s-%d", extendedPayload, *port)
 	}
 
-	return fmt.Sprintf("%s_%s", extendedPayload, timestamp.Format(consts.TimestampFormat))
+	return fmt.Sprintf("%s_%s", extendedPayload, timestamp.Format(TimestampFormat))
 }
 
 func ParseMeasurementID(measurementID string) (types.Payload, *uint16, time.Time, error) {
@@ -33,7 +34,7 @@ func ParseMeasurementID(measurementID string) (types.Payload, *uint16, time.Time
 	extendedPayload := parts[0]
 	timestampStr := parts[1]
 
-	timestamp, err := time.Parse(consts.TimestampFormat, timestampStr)
+	timestamp, err := time.Parse(TimestampFormat, timestampStr)
 	if err != nil {
 		return "", nil, time.Time{}, fmt.Errorf("invalid timestamp: %w", err)
 	}

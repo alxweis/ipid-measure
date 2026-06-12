@@ -3,12 +3,12 @@ package zmap
 import (
 	"bufio"
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/consts"
 	"os"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
@@ -21,6 +21,11 @@ type Writer struct {
 	written  uint64
 }
 
+const (
+	ParquetMaxRowsPerRowGroup = 2_000_000
+	ParquetPageBufferBytes    = 1 << 20
+)
+
 // NewWriter creates a parquet file at outPath.
 func NewWriter(outPath string) (*Writer, error) {
 	f, err := os.Create(outPath)
@@ -28,11 +33,11 @@ func NewWriter(outPath string) (*Writer, error) {
 		return nil, fmt.Errorf("create parquet: %w", err)
 	}
 
-	bw := bufio.NewWriterSize(f, consts.ZMapParquetPageBufferBytes)
+	bw := bufio.NewWriterSize(f, ParquetPageBufferBytes)
 	pq := parquet.NewGenericWriter[records.ZMap](bw,
 		parquet.Compression(&snappy.Codec{}),
-		parquet.PageBufferSize(consts.ZMapParquetPageBufferBytes),
-		parquet.MaxRowsPerRowGroup(consts.ZMapParquetMaxRowsPerRowGroup),
+		parquet.PageBufferSize(ParquetPageBufferBytes),
+		parquet.MaxRowsPerRowGroup(ParquetMaxRowsPerRowGroup),
 	)
 
 	return &Writer{

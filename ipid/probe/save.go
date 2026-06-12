@@ -2,6 +2,7 @@ package probe
 
 import (
 	"bufio"
+	"github.com/alxweis/ipid-measure/internal/consts"
 	"log"
 	"os"
 	"strconv"
@@ -17,16 +18,14 @@ import (
 
 const (
 	batchSize          = 20000
-	fileBufferSize     = 8 * 1024 * 1024
 	maxRowsPerRowGroup = 2_000_000
 	pageBufferSize     = 1 * 1024 * 1024
 	valueSeparator     = ','
 	invalidSymbol      = '-'
-	saveChannelSize    = 1 << 16
 )
 
 func SetupSaveChannel() {
-	SaveProbesChannel = make(chan *Probe, saveChannelSize)
+	SaveProbesChannel = make(chan *Probe, consts.IPIDSaveChannelSize)
 }
 
 func CloseSaveChannel() {
@@ -46,7 +45,7 @@ func Save() {
 		}
 	}()
 
-	bw := bufio.NewWriterSize(f, fileBufferSize)
+	bw := bufio.NewWriterSize(f, consts.IPIDSaveFileBufferSize)
 
 	writer := parquet.NewGenericWriter[records.IPIDRecord](bw,
 		parquet.Compression(&snappy.Codec{}),

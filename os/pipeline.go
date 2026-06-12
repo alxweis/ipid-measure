@@ -17,6 +17,12 @@ import (
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
+const (
+	ZGrab2Binary     = "zgrab2"
+	ZDNSBinary       = "zdns"
+	ResultBufferSize = 100_000
+)
+
 // runPipeline reads IPs from zmap.pq, fans out to the three scanners,
 // merges per-IP results, fingerprints, and writes to os.pq.
 func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputPath string) (uint64, error) {
@@ -51,7 +57,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		}
 	}()
 
-	outRecords := make(chan records.OSRecord, consts.OSResultBufferSize)
+	outRecords := make(chan records.OSRecord, ResultBufferSize)
 	m := newMerger(c.Modules, outRecords)
 
 	// Writer goroutine: drains outRecords -> parquet.
@@ -68,11 +74,11 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	}()
 
 	// Resolve subprocess binary paths; default falls back to PATH lookup.
-	zgrab2Binary := consts.OSZGrab2Binary
+	zgrab2Binary := ZGrab2Binary
 	if c.ZGrab2Binary != nil {
 		zgrab2Binary = *c.ZGrab2Binary
 	}
-	zdnsBinary := consts.OSZDNSBinary
+	zdnsBinary := ZDNSBinary
 	if c.ZDNSBinary != nil {
 		zdnsBinary = *c.ZDNSBinary
 	}

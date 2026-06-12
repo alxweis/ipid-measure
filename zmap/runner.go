@@ -10,16 +10,22 @@ import (
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/types"
+)
+
+const (
+	Binary               = "zmap"
+	OutputFields         = "saddr,timestamp-ts,timestamp-us"
+	OutputFormat         = "csv"
+	ShutdownGraceSeconds = 5
 )
 
 // BuildArgs translates a validated ZMapConfig into a zmap argument vector.
 func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 	args := []string{
 		"-C", "/dev/null", // ignore the global /etc/zmap/zmap.conf
-		"-O", consts.ZMapOutputFormat,
-		"-f", consts.ZMapOutputFields,
+		"-O", OutputFormat,
+		"-f", OutputFields,
 	}
 
 	// Module / port mapping
@@ -78,7 +84,7 @@ func Start(ctx context.Context, args []string) (*Runner, error) {
 	finalArgs = append(finalArgs, args...)
 	finalArgs = append(finalArgs, "-o", "-")
 
-	cmd := exec.CommandContext(ctx, consts.ZMapBinary, finalArgs...)
+	cmd := exec.CommandContext(ctx, Binary, finalArgs...)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -93,7 +99,7 @@ func Start(ctx context.Context, args []string) (*Runner, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", consts.ZMapBinary, err)
+		return nil, fmt.Errorf("start %s: %w", Binary, err)
 	}
 
 	return &Runner{
@@ -130,7 +136,7 @@ func (r *Runner) Shutdown() error {
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(consts.ZMapShutdownGraceSeconds * time.Second):
+	case <-time.After(ShutdownGraceSeconds * time.Second):
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		return <-done
 	}

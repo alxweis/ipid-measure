@@ -3,6 +3,7 @@ package sender
 import (
 	"errors"
 	"fmt"
+	"github.com/alxweis/ipid-measure/internal/consts"
 	"net"
 	"os/exec"
 	"strings"
@@ -76,7 +77,7 @@ func setupOne(iface config.Interface) *Sender {
 	}
 
 	// Enlarge the kernel send buffer so high-rate bursts are not dropped locally.
-	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF, 8*1024*1024)
+	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF, consts.SoSndBuf)
 
 	addr := syscall.SockaddrLinklayer{
 		Ifindex: ifc.Index,
