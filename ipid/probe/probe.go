@@ -24,6 +24,7 @@ const (
 	SampleEmpty    SampleState = 0
 	SampleSent     SampleState = 1
 	SampleReceived SampleState = 2
+	SamplePending  SampleState = 3
 )
 
 type Probe struct {
@@ -47,12 +48,13 @@ func (s *Sample) MarkSent(now int64) {
 }
 
 func (s *Sample) TryFill(ipID uint16, receiveTime int64) bool {
-	if SampleState(s.state.Load()) != SampleSent {
+	if !s.state.CompareAndSwap(int32(SampleSent), int32(SamplePending)) {
 		return false
 	}
 	s.IpID = ipID
 	s.ReceiveTime = receiveTime
-	return s.state.CompareAndSwap(int32(SampleSent), int32(SampleReceived))
+	s.state.Store(int32(SampleReceived))
+	return true
 }
 
 func (s *Sample) IsReceived() bool {
@@ -150,7 +152,7 @@ func measureRTBased(
 			return false
 		}
 		// Update sent counters incrementally.
-		atomic.AddInt64(&stats.SentBytes, int64(len(pkt)))
+		atomic.AddInt64(&stats.SentBytes, int64(TotalBytes))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
 		// Reset and reuse the per-target timer to avoid per-seqNum allocation.
@@ -217,7 +219,7 @@ func measureFixedInterval(
 		if err := sender.GetSender(seqNum).Send(pkt); err != nil {
 			return false
 		}
-		atomic.AddInt64(&stats.SentBytes, int64(len(pkt)))
+		atomic.AddInt64(&stats.SentBytes, int64(TotalBytes))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
@@ -313,9 +315,9 @@ func FulfillReply(
 func flagsMatch(mode FlagExpectation, replyFlags sets.Set[string]) bool {
 	switch mode {
 	case FlagsSynAck:
-		return replyFlags.Equal(sets.New(types.TCPFlagSYN, types.TCPFlagACK))
+		return replyFlags.Equal(types.SynAckFlagSet)
 	case FlagsPshAck:
-		return replyFlags.Equal(sets.New(types.TCPFlagPSH, types.TCPFlagACK))
+		return replyFlags.Equal(types.PshAckFlagSet)
 	case FlagsDefault:
 		// Defer to the configured payload-specific flag set selection.
 		return defaultFlagsMatch(replyFlags)
@@ -334,7 +336,7 @@ func defaultFlagsMatch(replyFlags sets.Set[string]) bool {
 		}
 		return false
 	case layers.IPProtocolUDP:
-		return replyFlags.Equal(sets.New(types.DNSFlagQR))
+		return replyFlags.Equal(types.DnsQRFlagSet)
 	case layers.IPProtocolICMPv4:
 		return true // ICMP has no flag set.
 	}

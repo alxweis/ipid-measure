@@ -25,6 +25,13 @@ func (s ScaledNumber) Uint64() uint64 {
 	return uint64(s)
 }
 
+func (s *ScaledNumber) String() string {
+	if s == nil {
+		return "(unset)"
+	}
+	return fmt.Sprintf("%d", uint64(*s))
+}
+
 func ParseScaledNumber(value string) (uint64, error) {
 	value = strings.TrimSpace(strings.ToUpper(value))
 	if value == "" {
@@ -85,11 +92,4 @@ func ParseScaledNumber(value string) (uint64, error) {
 	}
 
 	return uint64(result), nil
-}
-
-func (s *ScaledNumber) String() string {
-	if s == nil {
-		return "(unset)"
-	}
-	return fmt.Sprintf("%d", uint64(*s))
 }

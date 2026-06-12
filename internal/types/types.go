@@ -29,6 +29,12 @@ const (
 type TCPFlagSet = sets.Set[TCPFlag]
 type DNSFlagSet = sets.Set[DNSFlag]
 
+var (
+	SynAckFlagSet = sets.New(TCPFlagSYN, TCPFlagACK)
+	PshAckFlagSet = sets.New(TCPFlagPSH, TCPFlagACK)
+	DnsQRFlagSet  = sets.New(DNSFlagQR)
+)
+
 type MeasurementMode string
 
 const (
