@@ -78,7 +78,7 @@ Joins `zgrab2` (TCP banners), in-process SNMP probes, and `zdns` (DNS CHAOS-clas
 sudo ./bin/measure-os
 ```
 
-### ipid — IP-ID counter sampling
+### ipid — IP-ID behavior sampling
 
 Sends `connection_count × requests_per_connection` raw probes per target across two source interfaces, records the IP-ID field of each reply. The configured `zmap` measurement is the input.
 
