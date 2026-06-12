@@ -96,7 +96,7 @@ func (r *ZDNSRunner) Shutdown() error {
 // hostname.bind) and emits exactly one ZDNSResult per IP -- contract required
 // by the merger to avoid pending-entry leaks.
 func ParseZDNSStream(r io.Reader, out chan<- ZDNSResult) error {
-	br := bufio.NewReaderSize(r, ShutdownGraceSeconds)
+	br := bufio.NewReaderSize(r, StdoutReadBufferBytes)
 
 	// Per-IP merge state. Two queries expected per IP.
 	type partial struct {
