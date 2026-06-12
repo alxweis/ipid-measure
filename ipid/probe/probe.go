@@ -152,7 +152,7 @@ func measureRTBased(
 			return false
 		}
 		// Update sent counters incrementally.
-		atomic.AddInt64(&stats.SentBytes, int64(TotalBytes))
+		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(pkt)))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
 		// Reset and reuse the per-target timer to avoid per-seqNum allocation.
@@ -213,13 +213,14 @@ func measureFixedInterval(
 	interval := measurement.Config.FixedIntervalConfig.RequestInterval
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
+		sndr := sender.GetSender(seqNum)
 		pkt := packets[seqNum]
 
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
-		if err := sender.GetSender(seqNum).Send(pkt); err != nil {
+		if err := sndr.Send(pkt); err != nil {
 			return false
 		}
-		atomic.AddInt64(&stats.SentBytes, int64(TotalBytes))
+		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(pkt)))
 		atomic.AddInt64(&stats.SentPackets, 1)
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
