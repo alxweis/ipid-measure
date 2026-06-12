@@ -2,7 +2,7 @@
 
 ## About
 
-A high-throughput active measurement toolkit for IPv4: discover responsive hosts with **zmap**, fingerprint their operating system with **os**, and record their IP-ID counter dynamics with **ipid**.
+A high-throughput active measurement toolkit for IPv4: discover responsive hosts with **zmap**, fingerprint their operating system with **os**, and record their IP-ID selection behavior with **ipid**.
 
 ## Requirements
 
