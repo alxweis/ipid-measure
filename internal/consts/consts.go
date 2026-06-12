@@ -8,7 +8,7 @@ const (
 	TimestampFormat    = "2006-01-02_15-04-05"
 	ZMapReadBufferSize = 10_000
 	LogUpdateInterval  = 1 * time.Second
-	DnsSuffix          = "example.com"
+	DnsSld             = "example.com"
 )
 
 const (

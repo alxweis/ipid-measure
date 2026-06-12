@@ -21,6 +21,7 @@ func NewOSMeasurement(payload types.Payload, port *uint16, timestamp time.Time) 
 				MeasurementFilePath: filepath.Join(path, files.OSMeasurementFile),
 				MetadataFilePath:    filepath.Join(path, files.OSMetadataFile),
 				ConfigSnapshotPath:  filepath.Join(path, files.OSConfigSnapshotFile),
+				LogFilePath:         filepath.Join(path, files.OSLogFile),
 			},
 			ZMapLinkPath: filepath.Join(path, files.ZMapLink),
 		},

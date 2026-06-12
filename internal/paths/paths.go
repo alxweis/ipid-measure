@@ -12,6 +12,7 @@ type Measurement struct {
 	MeasurementFilePath string
 	MetadataFilePath    string
 	ConfigSnapshotPath  string
+	LogFilePath         string
 }
 
 type ZMapLinkedMeasurement struct {

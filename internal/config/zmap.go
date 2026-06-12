@@ -22,6 +22,8 @@ type ZMapConfig struct {
 	Dryrun        bool    `yaml:"dryrun"`
 	BlacklistFile *string `yaml:"blacklist_file"`
 	WhitelistFile *string `yaml:"whitelist_file"`
+
+	LogToFile bool `yaml:"log_to_file"`
 }
 
 func LoadZMapConfig(path string) (*ZMapConfig, error) {

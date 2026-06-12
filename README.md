@@ -1,110 +1,111 @@
 # ipid-measure
 
-High-throughput active IP-ID measurement toolkit. Given a list of target IPv4
-addresses (the output of a ZMap-style scan, stored as a Parquet file), it sends
-a configurable burst of probes (ICMP echo, TCP, or UDP/DNS) to each target,
-collects the replies, and records the observed IP identification field sequence
-together with send/receive timestamps. It is built to stream hundreds of
-millions of targets over multi-day runs.
+## About
 
-## Architecture
+A high-throughput active measurement toolkit for IPv4: discover responsive hosts with **zmap**, fingerprint their operating system with **os**, and record their IP-ID counter dynamics with **ipid**.
 
-Send and receive are fully decoupled. A global token-bucket rate limiter
-governs the send rate (bandwidth and/or pps), and a flat pool of "prober"
-goroutines pulls targets from a single shared channel — there is no per-worker
-sharding of replies. Each prober registers its in-flight probe in a sharded
-**inflight registry** keyed by the target IP, then sends and waits. Two
-receiver goroutines (one per egress interface) capture replies with zero-copy
-reads and a kernel BPF prefilter, decode the headers, look up the matching
-probe in the registry, and atomically fill the corresponding sample slot. The
-prober is woken by a one-shot `done` channel once its completion criterion is
-satisfied (RT-based: one reply; FixedInterval: all replies or RTT elapsed).
+## Requirements
 
-This design has two important properties for very large measurements:
-
-* **No silent reply loss.** There are no bounded per-worker reply channels and
-  no non-blocking sends — every captured reply runs through the registry, and
-  outcomes (matched / unmatched / rejected) are counted and logged.
-* **Throughput is decoupled from RTT.** The old worker-per-RTT-slot model
-  capped throughput at `WorkerCount / RTT`, which at 500 M targets and 2 s RTT
-  meant days lost to timeouts. The new model is bounded by the configured
-  bandwidth, with the number_of_inflight_probes knob only sized to cover `bandwidth × RTT`.
-
-```
-cmd/                entry points: measure-ipid, measure-os, measure-zmap
-config/             example YAML configuration files
-internal/           config loading, path/ID helpers, shared types, records
-ipid/
-  measurement/      dependency-free state + Run orchestration (composition root)
-  worker/           prober pool, parquet target streaming, fast IPv4 parser
-  probe/            Measure(), inflight registry, atomic sample state machine
-  receiver/         zero-copy capture + DecodingLayerParser + registry fulfilment
-  sender/           AF_PACKET raw sockets, global token-bucket rate limiter
-  packet/           one-time raw packet templates + zero-alloc per-target patching
-  payload/          protocol selection (icmp / tcp / udp-dns)
-  ip,tcp,udp,dns,icmp,checksum,port,seqnum,reply,stats   protocol + support code
-```
-
-`ipid/measurement` is a dependency leaf: it imports no other `ipid/*` package
-and holds only configuration, lifecycle signals, and the `Run` orchestration.
-Each sub-package registers its setup/start behaviour into `measurement` through
-hook variables in `init()`, and `cmd/measure-ipid` blank-imports the top-level
-stages to trigger registration. This keeps the import graph acyclic.
+- Linux with `AF_PACKET` raw-socket support (root or `CAP_NET_RAW`)
+- Go 1.22+
+- External binaries on `$PATH` for the **os** tool: `zmap`, `zgrab2`, `zdns`
 
 ## Build
 
-Requires Go (>= 1.24.9) and the libpcap development headers:
-
-```
-sudo apt-get install libpcap-dev
-make            # builds bin/measure-ipid, bin/measure-os, bin/measure-zmap
-make vet
-make test       # runs unit tests under -race
+```bash
+make
 ```
 
-The binaries use AF_PACKET raw sockets, so run them as root or grant
-`CAP_NET_RAW`:
+Produces `bin/measure-zmap`, `bin/measure-os`, `bin/measure-ipid`.
 
+## Measure
+
+Each tool reads its config from `config/<tool>.yaml` and writes its output (parquet, log, config snapshot) under `<tool>/raw/<measurement-id>/`.
+
+### zmap — host discovery
+
+Wrapper around the `zmap` binary that streams `(saddr, timestamp)` tuples into a parquet file.
+
+**Configure** (`config/zmap.yaml`):
+
+| Key | Type | Description |
+|---|---|---|
+| `payload` | enum | `icmp`, `tcp`, `udp-dns` — selects the zmap probe module |
+| `port` | uint16 / null | destination port; `null` for icmp, `53` for udp-dns |
+| `number_of_target_ip_addresses` | scaled-int / null | stop after N responsive hosts; `null` = full IPv4 space. Suffixes `K`, `M`, `G` |
+| `bandwidth` | scaled-bits / null | wire-rate cap (e.g. `30M` = 30 Mbps); `null` disables |
+| `packets_per_second` | scaled-int / null | pps cap; `null` disables |
+| `sender_threads` | scaled-int | zmap send-thread count |
+| `interface.name` | string | egress interface (e.g. `eth0`) |
+| `interface.ip` | string | source IPv4 |
+| `dryrun` | bool | run zmap without sending packets (validation) |
+| `blacklist_file` | path / null | optional blocklist; `null` = zmap default |
+| `whitelist_file` | path / null | optional inclusion list |
+| `log_to_file` | bool | also write logs to `<measurement_dir>/zmap.log` |
+
+**Run:**
+
+```bash
+sudo ./bin/measure-zmap
 ```
-sudo setcap cap_net_raw+ep ./bin/measure-ipid
+
+### os — banner-based OS fingerprinting
+
+Joins `zgrab2` (TCP banners), in-process SNMP probes, and `zdns` (DNS CHAOS-class). The configured `zmap` measurement is the input.
+
+**Configure** (`config/os.yaml`):
+
+| Key | Type | Description |
+|---|---|---|
+| `zmap` | measurement-id | id of the zmap run to scan (e.g. `tcp-80_2026-06-03_00-13-06`) |
+| `modules.{ssh,smb,http,https,snmp,smtp,mssql,pop3,imap,ftp,telnet,dns_chaos}` | bool | enable per banner-grab module |
+| `zgrab2_senders` | scaled-int | concurrent zgrab2 connections |
+| `zdns_threads` | scaled-int | concurrent zdns resolvers |
+| `snmp_workers` | scaled-int | in-process SNMP worker goroutines |
+| `interface.name` | string | egress interface |
+| `interface.ip` | string | source IPv4 |
+| `connect_timeout` | duration | TCP connect timeout (`3s`) |
+| `read_timeout` | duration | banner-read timeout |
+| `snmp_timeout` | duration | per-target SNMP UDP timeout |
+| `snmp_community` | string | SNMPv2c community string |
+| `zgrab2_binary` | path / null | override zgrab2 binary path |
+| `zdns_binary` | path / null | override zdns binary path |
+| `log_to_file` | bool | also write logs to `<measurement_dir>/os.log` |
+
+**Run:**
+
+```bash
+sudo ./bin/measure-os
 ```
 
-## Configure
+### ipid — IP-ID counter sampling
 
-Copy an example and edit it:
+Sends `connection_count × requests_per_connection` raw probes per target across two source interfaces, records the IP-ID field of each reply. The configured `zmap` measurement is the input.
 
-```
-cp config/ipid.yaml.example config/ipid.yaml
-```
+**Configure** (`config/ipid.yaml`):
 
-Key fields (see `config/ipid.yaml.example` for the full set):
+| Key | Type | Description |
+|---|---|---|
+| `zmap` | measurement-id | id of the zmap run providing the targets |
+| `connection_count` | uint16 | distinct connections (= source-port slots) per target |
+| `requests_per_connection` | uint16 | probes per connection. Total probes per target = product of both |
+| `measurement_mode` | enum | `rt-based` (one in flight at a time, accept on reply) or `fixed-interval` (burst, accept if reply-rate ≥ threshold) |
+| `fixed_interval.request_interval` | duration | gap between probes in `fixed-interval` mode |
+| `fixed_interval.minimum_reply_rate` | float | drop probe if received/total below this (0..1) |
+| `tcp.establish_connection` | bool | full SYN→SYN-ACK→PSH-ACK handshake instead of stateless SYN |
+| `tcp.request_flags` | TCP-flag string | flags to set on outbound TCP (e.g. `S` = SYN) |
+| `tcp.reply_flags` | list of flag strings | accept any of these as a valid reply (e.g. `SA`, `RA`, `R`) |
+| `request_ip_ids` | list of uint16 | IP-ID values placed on outbound packets (cycled by seqNum) |
+| `maximum_tolerated_rtt` | duration | per-probe RTT timeout |
+| `bandwidth` | scaled-bits / null | global send-rate cap |
+| `packets_per_second` | scaled-int / null | global pps cap |
+| `number_of_inflight_probes` | scaled-int | semaphore size for concurrent in-flight probes |
+| `interfaces.a.name` / `interfaces.a.ip` | string | first egress interface and source IP |
+| `interfaces.b.name` / `interfaces.b.ip` | string | second egress interface (used to vary L3 routing per seqNum) |
+| `log_to_file` | bool | also write logs to `<measurement_dir>/ipid.log` |
 
-* `zmap` — reference identifying the input scan
-* `measurement_mode` — `rt-based` or `fixed-interval`
-* `bandwidth` / `packets_per_second` — global send caps (token bucket); at
-  least one must be > 0
-* `number_of_inflight_probes` — size of the prober pool (default: `worker_count`). Pick big
-  enough to cover `bandwidth × MaximumToleratedRTT`. 25 000 is reasonable at
-  1 Gbit/s with 200 ms RTT.
-* `maximum_tolerated_rtt` — late replies are rejected
-* `interfaces` — the two egress interfaces
+**Run:**
 
-## Run
-
-```
+```bash
 sudo ./bin/measure-ipid
 ```
-
-Press Ctrl+C to stop gracefully: target feeding halts, the rate limiter is
-released so all blocked sends exit, in-flight probes finish, and the buffered
-parquet writer is fully flushed before exit. Once per second the run logs:
-
-```
-estimated_time_left=[1d04h32m] probed_ip_addresses=[12345678, 2.47%] \
-valid_probes=[18432, 9876543/12345678=79.99%] sent_mbps=[842.31] sent_pps=[71250] \
-replies[matched=98765 unmatched=123 rejected=4] number_of_inflight_probes=[25000]
-```
-
-`matched` is the number of replies that filled a sample. `unmatched` are
-validly decoded replies that did not match an in-flight probe (typical for
-late stragglers). `rejected` are replies that could not be decoded.

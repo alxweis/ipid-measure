@@ -3,10 +3,12 @@ package main
 import (
 	"log"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
+	"github.com/alxweis/ipid-measure/internal/logger"
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 
@@ -22,6 +24,8 @@ import (
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	configFilePath, err := filepath.Abs(files.IPIDConfigFilePath)
 	if err != nil {
 		log.Fatalf("resolve config path: %v", err)
@@ -32,22 +36,24 @@ func main() {
 		log.Fatalf("load ipid config: %v", err)
 	}
 
-	m := paths.NewIPIDMeasurement(
-		c.ZMapPayload,
-		c.ZMapPort,
-		time.Now(),
-	)
+	m := paths.NewIPIDMeasurement(c.ZMapPayload, c.ZMapPort, time.Now())
 
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
 	}
-
 	if err := m.CreateZMapLink(c.ZMapFilePath); err != nil {
 		log.Fatalf("create zmap symlink: %v", err)
 	}
-
 	if err := m.CreateConfigSnapshot(configFilePath); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
+	}
+
+	if c.LogToFile {
+		closer, err := logger.SetupFile(m.LogFilePath)
+		if err != nil {
+			log.Fatalf("setup log file: %v", err)
+		}
+		defer closer()
 	}
 
 	records, err := measurement.Run(c, m)

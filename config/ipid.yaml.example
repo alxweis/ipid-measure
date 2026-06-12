@@ -1,6 +1,6 @@
 # --- GENERAL -----------------------------------------------------------------
 
-zmap: tcp-80_2006-01-02_15-04-05
+zmap: tcp-80_YYYY-MM-DD_HH-MM-SS
 
 connection_count: 4
 requests_per_connection: 4
@@ -47,3 +47,7 @@ interfaces:
   b:
     name: eth1
     ip: 123.45.67.90
+
+# --- LOGGING -----------------------------------------------------------------
+
+log_to_file: false

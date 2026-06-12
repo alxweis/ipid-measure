@@ -20,6 +20,7 @@ func NewZMapMeasurement(payload types.Payload, port *uint16, timestamp time.Time
 			MeasurementFilePath: filepath.Join(path, files.ZMapMeasurementFile),
 			MetadataFilePath:    filepath.Join(path, files.ZMapMetadataFile),
 			ConfigSnapshotPath:  filepath.Join(path, files.ZMapConfigSnapshotFile),
+			LogFilePath:         filepath.Join(path, files.ZMapLogFile),
 		},
 	}
 }

@@ -3,15 +3,19 @@ package main
 import (
 	"log"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
+	"github.com/alxweis/ipid-measure/internal/logger"
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"github.com/alxweis/ipid-measure/zmap"
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	configFilePath, err := filepath.Abs(files.ZMapConfigFilePath)
 	if err != nil {
 		log.Fatalf("resolve config path: %v", err)
@@ -30,6 +34,14 @@ func main() {
 	}
 	if err := m.CreateConfigSnapshot(configFilePath); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
+	}
+
+	if c.LogToFile {
+		closer, err := logger.SetupFile(m.LogFilePath)
+		if err != nil {
+			log.Fatalf("setup log file: %v", err)
+		}
+		defer closer()
 	}
 
 	written, err := zmap.Run(c, m)

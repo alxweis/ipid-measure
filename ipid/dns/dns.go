@@ -17,7 +17,7 @@ func Layer(seqNum uint16) gopacket.SerializableLayer {
 		QDCount: 1,
 		Questions: []layers.DNSQuestion{
 			{
-				Name:  []byte(strconv.FormatUint(uint64(seqNum), 10) + "." + consts.DnsSuffix),
+				Name:  []byte(strconv.FormatUint(uint64(seqNum), 10) + "." + consts.DnsSld),
 				Type:  layers.DNSTypeA,
 				Class: layers.DNSClassIN,
 			},

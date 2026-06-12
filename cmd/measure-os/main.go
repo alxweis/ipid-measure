@@ -3,15 +3,19 @@ package main
 import (
 	"log"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
+	"github.com/alxweis/ipid-measure/internal/logger"
 	"github.com/alxweis/ipid-measure/internal/paths"
 	osmod "github.com/alxweis/ipid-measure/os"
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	configFilePath, err := filepath.Abs(files.OSConfigFilePath)
 	if err != nil {
 		log.Fatalf("resolve config path: %v", err)
@@ -33,6 +37,14 @@ func main() {
 	}
 	if err := m.CreateConfigSnapshot(configFilePath); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
+	}
+
+	if c.LogToFile {
+		closer, err := logger.SetupFile(m.LogFilePath)
+		if err != nil {
+			log.Fatalf("setup log file: %v", err)
+		}
+		defer closer()
 	}
 
 	written, err := osmod.Run(c, m)

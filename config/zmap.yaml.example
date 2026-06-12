@@ -38,3 +38,5 @@ dryrun: false
 
 # Path to a ZMap whitelist file. Targets are restricted to this set.
 # whitelist_file: /etc/zmap/whitelist.conf
+
+log_to_file: false

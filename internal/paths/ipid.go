@@ -21,6 +21,7 @@ func NewIPIDMeasurement(payload types.Payload, port *uint16, timestamp time.Time
 				MeasurementFilePath: filepath.Join(path, files.IPIDMeasurementFile),
 				MetadataFilePath:    filepath.Join(path, files.IPIDMetadataFile),
 				ConfigSnapshotPath:  filepath.Join(path, files.IPIDConfigSnapshotFile),
+				LogFilePath:         filepath.Join(path, files.IPIDLogFile),
 			},
 			ZMapLinkPath: filepath.Join(path, files.ZMapLink),
 		},

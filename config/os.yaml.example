@@ -1,6 +1,6 @@
 # --- GENERAL -----------------------------------------------------------------
 
-zmap: tcp-80_2026-06-03_00-13-06
+zmap: tcp-80_YYYY-MM-DD_HH-MM-SS
 
 modules:
   ssh: true  # SSH banner
@@ -39,3 +39,5 @@ snmp_community: public
 
 # zgrab2_binary: /usr/local/bin/zgrab2
 # zdns_binary: /usr/local/bin/zdns
+
+log_to_file: false

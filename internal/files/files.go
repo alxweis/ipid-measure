@@ -13,6 +13,7 @@ const (
 	ConfigExtension         = ".yaml"
 	ConfigSnapshotExtension = ".snapshot" + ConfigExtension
 	MetadataExtension       = ".json"
+	LogExtension            = ".log"
 )
 
 const (
@@ -31,6 +32,10 @@ const (
 	ZMapMetadataFile = "zmap" + MetadataExtension
 	OSMetadataFile   = "os" + MetadataExtension
 	IPIDMetadataFile = "ipid" + MetadataExtension
+
+	ZMapLogFile = "zmap" + LogExtension
+	OSLogFile   = "os" + LogExtension
+	IPIDLogFile = "ipid" + LogExtension
 
 	ZMapLink = "zmap"
 )

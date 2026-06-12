@@ -26,6 +26,8 @@ type OSConfig struct {
 
 	ZGrab2Binary *string `yaml:"zgrab2_binary"`
 	ZDNSBinary   *string `yaml:"zdns_binary"`
+
+	LogToFile bool `yaml:"log_to_file"`
 }
 
 func LoadOSConfig(path string) (*OSConfig, error) {

@@ -25,6 +25,8 @@ type IPIDConfig struct {
 	NumberOfInflightProbes ScaledNumber  `yaml:"number_of_inflight_probes"`
 
 	Interfaces InterfacePair `yaml:"interfaces"`
+
+	LogToFile bool `yaml:"log_to_file"`
 }
 
 type FixedIntervalConfig struct {
