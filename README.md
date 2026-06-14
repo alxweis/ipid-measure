@@ -20,7 +20,7 @@ Produces `bin/measure-zmap`, `bin/measure-os`, `bin/measure-ipid`.
 
 ## Measure
 
-Each tool reads its config from `config/<tool>.yaml` and writes its output (parquet, log, config snapshot) under `<tool>/raw/<measurement-id>/`.
+Each module reads its config from `config/<module>.yaml` and writes its output (parquet, log, config snapshot) under `<module>/raw/<measurement-id>/`.
 
 ### zmap — host discovery
 
