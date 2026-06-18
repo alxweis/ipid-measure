@@ -20,7 +20,9 @@ Produces `bin/measure-zmap`, `bin/measure-os`, `bin/measure-ipid`.
 
 ## Measure
 
-Each module reads its config from `config/<module>.yaml` and writes its output (parquet, log, config snapshot) under `<module>/raw/<measurement-id>/`.
+Each tool reads its config from `config/<tool>.yaml` and writes its output under `<tool>/raw/<measurement-id>/`.
+In `config/`, you can find the template configuration files marked with the `.yaml.example` extension.
+Adapt them as needed and rename them to `.yaml`.
 
 ### zmap — host discovery
 
@@ -80,7 +82,7 @@ sudo ./bin/measure-os
 
 ### ipid — IP-ID behavior sampling
 
-Sends `connection_count × requests_per_connection` raw probes per target across two source interfaces, records the IP-ID field of each reply. The configured `zmap` measurement is the input.
+Sends `connection_count × requests_per_connection` requests per target across two source interfaces, records the IP-ID field of each reply. The configured `zmap` measurement is the input.
 
 **Configure** (`config/ipid.yaml`):
 
