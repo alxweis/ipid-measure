@@ -41,3 +41,10 @@ snmp_community: public
 # zdns_binary: /usr/local/bin/zdns
 
 log_to_file: false
+
+# --- UPLOAD ------------------------------------------------------------------
+
+upload:
+  enable: true
+  s3_destination: s3://bucket/prefix/
+  delete_local: false

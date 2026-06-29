@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/alxweis/ipid-measure/internal/upload"
 	"log"
 	"path/filepath"
 	"runtime"
@@ -26,8 +27,7 @@ func main() {
 		log.Fatalf("load os config: %v", err)
 	}
 
-	now := time.Now()
-	m := paths.NewOSMeasurement(c.ZMapPayload, c.ZMapPort, now)
+	m := paths.NewOSMeasurement(c.ZMapPayload, c.ZMapPort, time.Now())
 
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
@@ -53,4 +53,8 @@ func main() {
 	}
 
 	log.Printf("os measurement completed: %s (records=%d)", m.Path, written)
+
+	if err = upload.Upload(c.UploadConfig, m.Measurement); err != nil {
+		log.Fatalf("upload measurement: %v", err)
+	}
 }

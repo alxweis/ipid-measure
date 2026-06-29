@@ -28,6 +28,8 @@ type OSConfig struct {
 	ZDNSBinary   *string `yaml:"zdns_binary"`
 
 	LogToFile bool `yaml:"log_to_file"`
+
+	UploadConfig UploadConfig `yaml:"upload"`
 }
 
 func LoadOSConfig(path string) (*OSConfig, error) {
@@ -125,6 +127,12 @@ func validateOSConfig(config *OSConfig) error {
 		if err := files.IsFile(*config.ZDNSBinary, "zdns_binary", "*"); err != nil {
 			return err
 		}
+	}
+
+	// --- UPLOAD ------------------------------------------------------------------
+
+	if err := validateUpload(config.UploadConfig); err != nil {
+		return err
 	}
 
 	return nil

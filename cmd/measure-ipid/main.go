@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/alxweis/ipid-measure/internal/upload"
 	"log"
 	"path/filepath"
 	"runtime"
@@ -62,4 +63,8 @@ func main() {
 	}
 
 	log.Printf("ipid measurement completed: %s (records=%d)", m.Path, records)
+
+	if err = upload.Upload(c.UploadConfig, m.Measurement); err != nil {
+		log.Fatalf("upload measurement: %v", err)
+	}
 }

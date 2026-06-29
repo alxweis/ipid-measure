@@ -51,3 +51,10 @@ interfaces:
 # --- LOGGING -----------------------------------------------------------------
 
 log_to_file: false
+
+# --- UPLOAD ------------------------------------------------------------------
+
+upload:
+  enable: true
+  s3_destination: s3://bucket/prefix/
+  delete_local: false

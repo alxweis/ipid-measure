@@ -3,10 +3,9 @@ package config
 import (
 	"fmt"
 	"github.com/alxweis/ipid-measure/internal/files"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"gopkg.in/yaml.v3"
 	"os"
-
-	"github.com/alxweis/ipid-measure/internal/types"
 )
 
 type ZMapConfig struct {
@@ -24,6 +23,8 @@ type ZMapConfig struct {
 	WhitelistFile *string `yaml:"whitelist_file"`
 
 	LogToFile bool `yaml:"log_to_file"`
+
+	UploadConfig UploadConfig `yaml:"upload"`
 }
 
 func LoadZMapConfig(path string) (*ZMapConfig, error) {
@@ -122,6 +123,12 @@ func validateZMapConfig(config *ZMapConfig) error {
 		if err := files.IsFile(*config.WhitelistFile, "whitelist_file", "*.*"); err != nil {
 			return err
 		}
+	}
+
+	// --- UPLOAD ------------------------------------------------------------------
+
+	if err := validateUpload(config.UploadConfig); err != nil {
+		return err
 	}
 
 	return nil

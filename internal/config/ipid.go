@@ -27,6 +27,8 @@ type IPIDConfig struct {
 	Interfaces InterfacePair `yaml:"interfaces"`
 
 	LogToFile bool `yaml:"log_to_file"`
+
+	UploadConfig UploadConfig `yaml:"upload"`
 }
 
 type FixedIntervalConfig struct {
@@ -210,6 +212,12 @@ func validateIPIDConfig(config *IPIDConfig) error {
 		false,
 		true,
 	); err != nil {
+		return err
+	}
+
+	// --- UPLOAD ------------------------------------------------------------------
+
+	if err := validateUpload(config.UploadConfig); err != nil {
 		return err
 	}
 
