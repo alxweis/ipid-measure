@@ -2,11 +2,12 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"time"
+
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"gopkg.in/yaml.v3"
-	"os"
-	"time"
 )
 
 type IPIDConfig struct {
@@ -173,6 +174,10 @@ func validateIPIDConfig(config *IPIDConfig) error {
 
 	// --- SPEED -------------------------------------------------------------------
 
+	if (config.Bandwidth == nil) == (config.PacketsPerSecond == nil) {
+		return fmt.Errorf("set exactly one of bandwidth or packets_per_second")
+	}
+
 	if config.Bandwidth != nil {
 		bandwidth := uint64(*config.Bandwidth)
 		if bandwidth < 1_000 || bandwidth > 5_000_000_000 {
@@ -185,10 +190,6 @@ func validateIPIDConfig(config *IPIDConfig) error {
 		if pps < 1 || pps > 100_000_000 {
 			return fmt.Errorf("packets_per_second must be in [1, 100M]")
 		}
-	}
-
-	if config.Bandwidth == nil && config.PacketsPerSecond == nil {
-		return fmt.Errorf("either bandwidth or packets_per_second must be set")
 	}
 
 	if config.NumberOfInflightProbes < 1 || config.NumberOfInflightProbes > 1_000_000 {

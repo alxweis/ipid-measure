@@ -1,11 +1,15 @@
 # --- GENERAL -----------------------------------------------------------------
 
 # Determine the ZMap module used.
-# (icmp -> icmp_echoscan, tcp -> tcp_synscan, udp-dns -> udp).
+# (icmp -> icmp_echoscan, tcp -> tcp_synscan, udp-dns -> dns).
 payload: tcp
 
 # Destination port for the scan. Must be null for icmp and 53 for udp-dns.
 port: 80
+
+# Probe args for the dns module (udp-dns only). Format: <qtype>,<domain>.
+# E.g. A,www.example.com
+probe_args: null
 
 # Stop after this many responsive IP addresses.
 # Use null to scan the entire IPv4 space. Supports scaled suffixes: K, M, G.
@@ -13,14 +17,15 @@ number_of_target_ip_addresses: 100K
 
 # --- SPEED -------------------------------------------------------------------
 
-# Bandwidth cap. null disables. Supports scaled suffixes: K, M, G.
+# Bandwidth cap in bits/s. Supports scaled suffixes: K, M, G.
 bandwidth: 30M
 
-# pps cap. null disables. Supports scaled suffixes: K, M, G.
+# pps cap. Supports scaled suffixes: K, M, G.
 # packets_per_second: 500K
 
-# Number of ZMap send threads. Supports scaled suffixes: K, M, G.
-sender_threads: 1
+# Number of ZMap send threads. null lets ZMap auto-detect min(4, cores-1).
+# Supports K, M, G.
+# sender_threads: 1
 
 # --- INTERFACE ---------------------------------------------------------------
 
@@ -30,10 +35,10 @@ interface:
 
 # --- ADDITIONAL --------------------------------------------------------------
 
-# Test ZMap configuration without actually sending any packets
+# Test ZMap configuration without actually sending any packets.
 dryrun: false
 
-# Path to a ZMap blacklist file. null lets ZMap use default blocklist.
+# Path to a ZMap blacklist file. null lets ZMap use its default blocklist.
 # blacklist_file: /etc/zmap/blocklist.conf
 
 # Path to a ZMap whitelist file. Targets are restricted to this set.

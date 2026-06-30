@@ -2,21 +2,23 @@ package config
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/alxweis/ipid-measure/internal/files"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"gopkg.in/yaml.v3"
-	"os"
 )
 
 type ZMapConfig struct {
 	Payload                   types.Payload `yaml:"payload"`
 	Port                      *uint16       `yaml:"port"`
+	ProbeArgs                 *string       `yaml:"probe_args"`
 	Interface                 Interface     `yaml:"interface"`
 	NumberOfTargetIPAddresses *ScaledNumber `yaml:"number_of_target_ip_addresses"`
 
 	Bandwidth        *ScaledNumber `yaml:"bandwidth"`
 	PacketsPerSecond *ScaledNumber `yaml:"packets_per_second"`
-	SenderThreads    ScaledNumber  `yaml:"sender_threads"`
+	SenderThreads    *ScaledNumber `yaml:"sender_threads"`
 
 	Dryrun        bool    `yaml:"dryrun"`
 	BlacklistFile *string `yaml:"blacklist_file"`
@@ -46,9 +48,7 @@ func validateZMapConfig(config *ZMapConfig) error {
 	// --- GENERAL -----------------------------------------------------------------
 
 	switch config.Payload {
-	case types.PayloadICMP:
-	case types.PayloadTCP:
-	case types.PayloadUDPDNS:
+	case types.PayloadICMP, types.PayloadTCP, types.PayloadUDPDNS:
 	default:
 		return fmt.Errorf("invalid payload: %s", config.Payload)
 	}
@@ -57,12 +57,10 @@ func validateZMapConfig(config *ZMapConfig) error {
 		if config.Port != nil {
 			return fmt.Errorf("port must be nil for ICMP")
 		}
-
 	} else {
 		if config.Port == nil {
 			return fmt.Errorf("port must not be nil")
 		}
-
 		if *config.Port == 0 {
 			return fmt.Errorf("port must be in [1, 65535]")
 		}
@@ -70,6 +68,16 @@ func validateZMapConfig(config *ZMapConfig) error {
 
 	if config.Payload == types.PayloadUDPDNS && *config.Port != 53 {
 		return fmt.Errorf("udp-dns payload requires port 53")
+	}
+
+	if config.Payload == types.PayloadUDPDNS {
+		if config.ProbeArgs == nil {
+			return fmt.Errorf("probe_args cannot be null for the udp-dns payload")
+		} else if *config.ProbeArgs == "" {
+			return fmt.Errorf("probe_args cannot be empty for the udp-dns payload")
+		}
+	} else if config.ProbeArgs != nil {
+		return fmt.Errorf("probe_args must be null")
 	}
 
 	if err := validateInterface(
@@ -90,6 +98,10 @@ func validateZMapConfig(config *ZMapConfig) error {
 
 	// --- SPEED -------------------------------------------------------------------
 
+	if (config.Bandwidth == nil) == (config.PacketsPerSecond == nil) {
+		return fmt.Errorf("set exactly one of bandwidth or packets_per_second")
+	}
+
 	if config.Bandwidth != nil {
 		bandwidth := uint64(*config.Bandwidth)
 		if bandwidth < 1_000 || bandwidth > 5_000_000_000 {
@@ -104,12 +116,11 @@ func validateZMapConfig(config *ZMapConfig) error {
 		}
 	}
 
-	if config.Bandwidth == nil && config.PacketsPerSecond == nil {
-		return fmt.Errorf("either bandwidth or packets_per_second must be set")
-	}
-
-	if config.SenderThreads < 1 || config.SenderThreads > 1_000 {
-		return fmt.Errorf("sender_threads must be in [1, 1K]")
+	if config.SenderThreads != nil {
+		threads := uint64(*config.SenderThreads)
+		if threads < 1 || threads > 1_000 {
+			return fmt.Errorf("sender_threads must be in [1, 1K] or null")
+		}
 	}
 
 	// --- ADDITIONAL --------------------------------------------------------------
