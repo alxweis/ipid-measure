@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/alxweis/ipid-measure/internal/upload"
 	"log"
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/alxweis/ipid-measure/internal/upload"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
@@ -13,12 +14,6 @@ import (
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 
-	// Blank imports register each sub-package's orchestration hooks into the
-	// measurement package via their init() functions. measurement itself imports
-	// no sub-package (so the import graph stays acyclic), which is why the wiring
-	// is done here at the composition root. Importing the top-level stages pulls
-	// in their transitive dependencies (packet, payload, port, sender, probe...),
-	// so every hook is registered.
 	_ "github.com/alxweis/ipid-measure/ipid/receiver"
 	_ "github.com/alxweis/ipid-measure/ipid/stats"
 	_ "github.com/alxweis/ipid-measure/ipid/worker"
