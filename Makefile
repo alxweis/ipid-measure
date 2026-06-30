@@ -36,7 +36,9 @@ $(CMDS):
 
 # Builds, then re-applies file capabilities (needs sudo; prompts once).
 setcap: build
-	sudo setcap $(CAPS) $(addprefix $(BIN_DIR)/,$(CAP_CMDS))
+	for bin in $(addprefix $(BIN_DIR)/,$(CAP_CMDS)); do \
+		sudo setcap $(CAPS) "$$bin"; \
+	done
 
 vet:
 	$(GO) vet ./...
