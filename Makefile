@@ -6,6 +6,10 @@
 #
 # The binaries open AF_PACKET raw sockets and therefore must run as root or with
 # CAP_NET_RAW (e.g. `sudo setcap cap_net_raw+ep ./bin/measure-ipid`).
+#
+# `make setcap` builds and (re)applies the file capabilities in one step. Run it
+# instead of a bare `make` whenever you intend to run a measurement afterwards,
+# since `go build` writes a fresh file and drops the capability each time.
 
 GO      ?= go
 BIN_DIR ?= bin
@@ -16,7 +20,11 @@ BUILD_FLAGS ?= -trimpath -ldflags="-s -w"
 
 CMDS := measure-ipid measure-os measure-zmap
 
-.PHONY: all build $(CMDS) vet test tidy clean
+# Binaries that open raw sockets and need CAP_NET_RAW / CAP_NET_ADMIN.
+CAP_CMDS := measure-ipid measure-zmap
+CAPS     := cap_net_raw,cap_net_admin+ep
+
+.PHONY: all build setcap $(CMDS) vet test tidy clean
 
 all: build
 
@@ -25,6 +33,10 @@ build: $(CMDS)
 $(CMDS):
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/$@ ./cmd/$@
+
+# Builds, then re-applies file capabilities (needs sudo; prompts once).
+setcap: build
+	sudo setcap $(CAPS) $(addprefix $(BIN_DIR)/,$(CAP_CMDS))
 
 vet:
 	$(GO) vet ./...
