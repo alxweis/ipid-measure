@@ -65,9 +65,6 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 		args = append(args, "-T", strconv.FormatUint(uint64(*c.SenderThreads), 10))
 	}
 
-	// Deduplication
-	args = append(args, "--dedup-method", "full")
-
 	// Additional
 	if c.Dryrun {
 		args = append(args, "--dryrun")
