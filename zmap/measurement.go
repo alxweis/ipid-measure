@@ -34,7 +34,7 @@ func Run(c *config.ZMapConfig, m *paths.ZMapMeasurement) (uint64, error) {
 		return 0, err
 	}
 
-	// Forward ZMap's stderr to our log, line by line.
+	// Forward ZMap's stderr to our log.
 	var stderrWg sync.WaitGroup
 	stderrWg.Add(1)
 	go func() {
@@ -81,11 +81,9 @@ func Run(c *config.ZMapConfig, m *paths.ZMapMeasurement) (uint64, error) {
 	return total, nil
 }
 
-// streamRows pulls rows from the parser, deduplicates by source IP, and appends  unique rows to the writer until
+// streamRows pulls rows from the parser and appends them to the writer until
 // io.EOF or context cancellation.
 func streamRows(ctx context.Context, p *Parser, w *Writer, written *atomic.Uint64) error {
-	dedup := newIPv4Dedup() // 512 MiB, full IPv4 uniqueness guarantee
-
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -99,70 +97,11 @@ func streamRows(ctx context.Context, p *Parser, w *Writer, written *atomic.Uint6
 			return err
 		}
 
-		key, ok := parseIPv4(row.IPAddress)
-		if !ok {
-			continue // not a dotted-quad saddr; skip defensively
-		}
-		if dedup.seenOrAdd(key) {
-			continue // already written
-		}
-
 		if err := w.Append(ToRecord(row)); err != nil {
 			return err
 		}
 		written.Add(1)
 	}
-}
-
-// ipv4Dedup is a 512 MiB bitmap over the entire IPv4 space.
-type ipv4Dedup struct {
-	bits []uint64
-}
-
-func newIPv4Dedup() *ipv4Dedup {
-	// 2^32 bits / 64 bits-per-word = 2^26 words = 67,108,864 * 8 B = 512 MiB.
-	return &ipv4Dedup{bits: make([]uint64, 1<<26)}
-}
-
-// seenOrAdd reports whether key was already recorded; if not, it records it.
-func (d *ipv4Dedup) seenOrAdd(key uint32) bool {
-	word := key >> 6
-	mask := uint64(1) << (key & 63)
-	if d.bits[word]&mask != 0 {
-		return true
-	}
-	d.bits[word] |= mask
-	return false
-}
-
-// parseIPv4 parses a dotted-quad string into a uint32 without allocating.
-func parseIPv4(s string) (uint32, bool) {
-	var ip, octet uint32
-	var digits, parts int
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '.' {
-			if digits == 0 {
-				return 0, false
-			}
-			ip = ip<<8 | octet
-			octet, digits = 0, 0
-			parts++
-			continue
-		}
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		octet = octet*10 + uint32(c-'0')
-		if octet > 255 {
-			return 0, false
-		}
-		digits++
-	}
-	if digits == 0 || parts != 3 {
-		return 0, false
-	}
-	return ip<<8 | octet, true
 }
 
 // drainStderr forwards ZMap's stderr to our own log, one line at a time.

@@ -3,61 +3,53 @@ package zmap
 import (
 	"bufio"
 	"fmt"
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"io"
-	"strconv"
 	"strings"
 
+	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
-// ParsedRow is one ZMap result row, normalised into the form the writer wants.
+// ParsedRow is one ZMap result row.
 type ParsedRow struct {
-	IPAddress   string
-	TimestampUS int64
+	IPAddress string
+	ReplyType string // zmap "classification"; for TCP synack/rst, empty if absent
 }
 
 // Parser consumes ZMap's CSV stdout incrementally and emits ParsedRow values.
 type Parser struct {
-	r          *bufio.Reader
-	colIP      int // column index of "saddr"
-	colTsSec   int // column index of "timestamp-ts"
-	colTsUsec  int // column index of "timestamp-us"
-	headerSeen bool
-	numCols    int
+	r            *bufio.Reader
+	colIP        int // column index of "saddr"
+	colReplyType int // column index of "classification" (-1 if not present)
+	headerSeen   bool
 }
 
 // NewParser constructs a parser from an io.Reader (typically ZMap's stdout).
 func NewParser(r io.Reader) *Parser {
 	return &Parser{
-		r:         bufio.NewReaderSize(r, consts.ZMapStdoutReadBufferBytes),
-		colIP:     -1,
-		colTsSec:  -1,
-		colTsUsec: -1,
+		r:            bufio.NewReaderSize(r, consts.ZMapStdoutReadBufferBytes),
+		colIP:        -1,
+		colReplyType: -1,
 	}
 }
 
-// readHeader reads the first CSV line.
+// readHeader reads the first CSV line and locates the columns we care about.
 func (p *Parser) readHeader() error {
 	line, err := p.readLine()
 	if err != nil {
 		return err
 	}
-	cols := strings.Split(line, ",")
-	for i, c := range cols {
+	for i, c := range strings.Split(line, ",") {
 		switch strings.TrimSpace(c) {
 		case "saddr":
 			p.colIP = i
-		case "timestamp-ts":
-			p.colTsSec = i
-		case "timestamp-us":
-			p.colTsUsec = i
+		case "classification":
+			p.colReplyType = i
 		}
 	}
 	if p.colIP < 0 {
 		return fmt.Errorf("zmap parser: required column 'saddr' missing from header %q", line)
 	}
-	p.numCols = len(cols)
 	p.headerSeen = true
 	return nil
 }
@@ -78,24 +70,20 @@ func (p *Parser) Next() (ParsedRow, error) {
 		if line == "" {
 			continue
 		}
-
-		row, ok := p.parseRow(line)
-		if !ok {
-			// Malformed row: skip and keep going
-			continue
+		if row, ok := p.parseRow(line); ok {
+			return row, nil
 		}
-		return row, nil
+		// Malformed row: skip and keep going.
 	}
 }
 
 // parseRow extracts the row fields from one CSV line.
 func (p *Parser) parseRow(line string) (ParsedRow, bool) {
 	var (
-		ip    string
-		tsSec int64
-		tsUs  int64
-		col   int
-		start int
+		ip        string
+		replyType string
+		col       int
+		start     int
 	)
 	for i := 0; i <= len(line); i++ {
 		if i == len(line) || line[i] == ',' {
@@ -103,14 +91,8 @@ func (p *Parser) parseRow(line string) (ParsedRow, bool) {
 			switch col {
 			case p.colIP:
 				ip = field
-			case p.colTsSec:
-				if v, err := strconv.ParseInt(field, 10, 64); err == nil {
-					tsSec = v
-				}
-			case p.colTsUsec:
-				if v, err := strconv.ParseInt(field, 10, 64); err == nil {
-					tsUs = v
-				}
+			case p.colReplyType:
+				replyType = field
 			}
 			col++
 			start = i + 1
@@ -120,12 +102,7 @@ func (p *Parser) parseRow(line string) (ParsedRow, bool) {
 	if ip == "" {
 		return ParsedRow{}, false
 	}
-
-	// Combine seconds + microseconds into a single µs timestamp
-	return ParsedRow{
-		IPAddress:   ip,
-		TimestampUS: tsSec*1_000_000 + tsUs,
-	}, true
+	return ParsedRow{IPAddress: ip, ReplyType: replyType}, true
 }
 
 // readLine reads one line, stripping CR/LF.
@@ -149,7 +126,7 @@ func (p *Parser) readLine() (string, error) {
 // ToRecord converts a ParsedRow into the parquet schema used by records.ZMap.
 func ToRecord(row ParsedRow) records.ZMap {
 	return records.ZMap{
-		IPAddress:   row.IPAddress,
-		TimestampUS: row.TimestampUS,
+		IPAddress: row.IPAddress,
+		ReplyType: row.ReplyType,
 	}
 }

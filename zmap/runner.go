@@ -16,20 +16,26 @@ import (
 
 const (
 	Binary       = "zmap"
-	OutputFields = "saddr,timestamp-ts,timestamp-us"
 	OutputFormat = "csv"
 	OutputFilter = "success = 1 && repeat = 0"
+	DedupMethod  = "full"
 
 	ShutdownGraceSeconds = 5
 )
 
 // BuildArgs translates a validated ZMapConfig into a zmap argument vector.
 func BuildArgs(c *config.ZMapConfig) ([]string, error) {
+	fields := "saddr"
+	if c.Payload == types.PayloadTCP {
+		fields = "saddr,classification"
+	}
+
 	args := []string{
 		"-C", "/dev/null", // ignore the global /etc/zmap/zmap.conf
 		"-O", OutputFormat,
-		"-f", OutputFields,
+		"-f", fields,
 		"--output-filter", OutputFilter,
+		"--dedup-method", DedupMethod,
 	}
 
 	// Module / port / probe-args mapping

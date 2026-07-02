@@ -1,21 +1,23 @@
 package main
 
 import (
-	"github.com/alxweis/ipid-measure/internal/upload"
 	"log"
 	"path/filepath"
-	"runtime"
+	"runtime/debug"
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
 	"github.com/alxweis/ipid-measure/internal/logger"
 	"github.com/alxweis/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/internal/upload"
 	"github.com/alxweis/ipid-measure/zmap"
 )
 
+const GoMemLimitBytes = 256 << 20 // 256 MiB
+
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	debug.SetMemoryLimit(GoMemLimitBytes)
 
 	configFilePath, err := filepath.Abs(files.ZMapConfigFilePath)
 	if err != nil {

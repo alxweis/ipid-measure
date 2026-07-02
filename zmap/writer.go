@@ -3,12 +3,12 @@ package zmap
 import (
 	"bufio"
 	"fmt"
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"os"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
+	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
@@ -18,11 +18,10 @@ type Writer struct {
 	buffered *bufio.Writer
 	pq       *parquet.GenericWriter[records.ZMap]
 	batch    []records.ZMap
-	written  uint64
 }
 
 const (
-	ParquetMaxRowsPerRowGroup = 2_000_000
+	ParquetMaxRowsPerRowGroup = 500_000
 	ParquetPageBufferBytes    = 1 << 20
 )
 
@@ -48,7 +47,7 @@ func NewWriter(outPath string) (*Writer, error) {
 	}, nil
 }
 
-// Append queues one record.
+// Append queues one record, flushing the batch to the parquet writer when full.
 func (w *Writer) Append(r records.ZMap) error {
 	w.batch = append(w.batch, r)
 	if len(w.batch) >= consts.ZMapParquetWriteBatchSize {
@@ -65,13 +64,9 @@ func (w *Writer) flush() error {
 	if _, err := w.pq.Write(w.batch); err != nil {
 		return fmt.Errorf("parquet write: %w", err)
 	}
-	w.written += uint64(len(w.batch))
 	w.batch = w.batch[:0]
 	return nil
 }
-
-// Written reports the total number of records appended and persisted so far.
-func (w *Writer) Written() uint64 { return w.written }
 
 // Close flushes any remaining records, finalises the parquet footer, flushes
 // the buffered file writer and closes the underlying file.

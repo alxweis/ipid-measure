@@ -1,8 +1,8 @@
 package records
 
 type ZMap struct {
-	IPAddress   string `parquet:"IP_ADDR"`
-	TimestampUS int64  `parquet:"TIMESTAMP_US"`
+	IPAddress string `parquet:"IP_ADDR,plain"`
+	ReplyType string `parquet:"REPLY_TYPE"`
 }
 
 type OSRecord struct {
