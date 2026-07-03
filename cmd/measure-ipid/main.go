@@ -30,6 +30,8 @@ func main() {
 
 	configFlag := flag.String("config", files.IPIDConfigFilePath, "path to the ipid config file")
 	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
+	connectionCountFlag := flag.Int("connection_count", 0, "override connection_count (even, [2,16]); 0 keeps the configured value")
+	requestsPerConnFlag := flag.Int("requests_per_connection", 0, "override requests_per_connection ([1,10]); 0 keeps the configured value")
 	measurementModeFlag := flag.String("measurement_mode", "", "override measurement_mode (fixed-interval|rt-based)")
 	requestIntervalFlag := flag.Duration("fixed_interval.request_interval", -1, "override fixed_interval.request_interval (e.g. 20ms); negative keeps the configured value")
 	minReplyRateFlag := flag.Float64("fixed_interval.minimum_reply_rate", -1, "override fixed_interval.minimum_reply_rate [0.0,1.0]; negative keeps the configured value")
@@ -52,7 +54,16 @@ func main() {
 	}
 
 	c, err := config.LoadIPIDConfig(configFilePath, func(c *config.IPIDConfig) {
-		applyIPIDFlags(c, *zmapFlag, *measurementModeFlag, *requestIntervalFlag, *minReplyRateFlag, establishConn)
+		applyIPIDFlags(
+			c,
+			*zmapFlag,
+			*connectionCountFlag,
+			*requestsPerConnFlag,
+			*measurementModeFlag,
+			*requestIntervalFlag,
+			*minReplyRateFlag,
+			establishConn,
+		)
 	})
 	if err != nil {
 		log.Fatalf("load ipid config: %v", err)
@@ -95,6 +106,8 @@ func main() {
 func applyIPIDFlags(
 	c *config.IPIDConfig,
 	zmapID string,
+	connectionCount int,
+	requestsPerConnection int,
 	measurementMode string,
 	requestInterval time.Duration,
 	minReplyRate float64,
@@ -102,6 +115,12 @@ func applyIPIDFlags(
 ) {
 	if zmapID != "" {
 		c.ZMapID = zmapID
+	}
+	if connectionCount > 0 {
+		c.ConnectionCount = uint16(connectionCount)
+	}
+	if requestsPerConnection > 0 {
+		c.RequestsPerConnection = uint16(requestsPerConnection)
 	}
 	if measurementMode != "" {
 		c.MeasurementMode = types.MeasurementMode(measurementMode)

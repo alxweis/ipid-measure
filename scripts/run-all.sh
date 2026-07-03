@@ -1,43 +1,83 @@
 #!/usr/bin/env bash
 #
-# run-all.sh -- one full IPID measurement sweep across all three protocols.
+# Full IPID measurement sweep (what the weekly systemd timer calls).
 #
-# For each protocol it runs the pipeline without any manual YAML editing:
-#   1. measure-zmap  (per-protocol deltas passed as flags)  -> prints the run id
-#   2. measure-os    --zmap <id>   (common config/os.yaml)
-#   3. measure-ipid  --zmap <id> -config config/ipid/<proto>.yaml
-#
-# The zmap run id is threaded through with --zmap, so os.yaml/ipid.yaml never
-# need the timestamp pasted in. `set -e` aborts the protocol if measure-zmap
-# fails, so os/ipid never run against a stale zmap result.
-#
-# Prerequisites: the binaries must already be built and capped:
-#   make setcap
-# and the real config files must exist (config/zmap.yaml, config/os.yaml,
-# config/ipid/{icmp,tcp-80,udp-dns-53}.yaml). This script does NOT build.
+# Phase 1 -- once per protocol: measure-zmap -> capture id -> measure-os.
+# Phase 2 -- ipid sweep, reusing the phase-1 zmap run via --zmap
 
 set -euo pipefail
-
 cd "$(dirname "$0")/.."
 
-run() {
-	local proto="$1"
-	shift # remaining args are measure-zmap flags for this protocol
+# --- swept ipid parameterisations --------------------------------------------
+RT_CONNECTION_COUNT=4;   RT_REQUESTS_PER_CON=4
+FI_CONNECTION_COUNT_1=4; FI_REQUESTS_PER_CON_1=4;  FI_REQUEST_INTERVAL_1=20ms; FI_MIN_REPLY_RATE_1=1.0
+FI_CONNECTION_COUNT_2=10; FI_REQUESTS_PER_CON_2=10; FI_REQUEST_INTERVAL_2=20ms; FI_MIN_REPLY_RATE_2=0.8
 
-	echo "=== ${proto}: zmap ==="
-	local id
-	id="$(./bin/measure-zmap "$@" --print-id | tail -n1)"
-	echo "=== ${proto}: zmap id = ${id} ==="
+# spec fields: mode:connection_count:requests_per_connection:request_interval:minimum_reply_rate
+MODES=(
+    "rt-based:${RT_CONNECTION_COUNT}:${RT_REQUESTS_PER_CON}::"
+    "fixed-interval:${FI_CONNECTION_COUNT_1}:${FI_REQUESTS_PER_CON_1}:${FI_REQUEST_INTERVAL_1}:${FI_MIN_REPLY_RATE_1}"
+    "fixed-interval:${FI_CONNECTION_COUNT_2}:${FI_REQUESTS_PER_CON_2}:${FI_REQUEST_INTERVAL_2}:${FI_MIN_REPLY_RATE_2}"
+)
 
-	echo "=== ${proto}: os ==="
-	./bin/measure-os --zmap "${id}"
+DNS_PROBE="A,www.example.com"
 
-	echo "=== ${proto}: ipid ==="
-	./bin/measure-ipid --zmap "${id}" -config "config/ipid/${proto}.yaml"
+PROTOS=(icmp tcp-80 udp-dns-53)
+
+declare -A ZMAP
+
+zmap_flags() {
+    case "$1" in
+        icmp)       echo "--payload icmp" ;;
+        tcp-80)     echo "--payload tcp --port 80" ;;
+        udp-dns-53) echo "--payload udp-dns --port 53 --probe-args ${DNS_PROBE}" ;;
+        *) echo "unknown proto: $1" >&2; return 1 ;;
+    esac
 }
 
-run icmp        --payload icmp
-run tcp-80      --payload tcp     --port 80
-run udp-dns-53  --payload udp-dns --port 53 --probe-args "A,www.example.com"
+# --- Phase 1: zmap + os per protocol -----------------------------------------
+for proto in "${PROTOS[@]}"; do
+    echo "=== [$proto] zmap ==="
+    # shellcheck disable=SC2046
+    id=$(./bin/measure-zmap $(zmap_flags "$proto") --print-id | tail -n1)
+    ZMAP[$proto]=$id
+    echo "=== [$proto] zmap id = $id ==="
 
-echo "=== all protocols done ==="
+    echo "=== [$proto] os ==="
+    ./bin/measure-os --zmap "$id"
+done
+
+# --- Phase 2: ipid parameter sweep -------------------------------------------
+for proto in "${PROTOS[@]}"; do
+    id=${ZMAP[$proto]}
+
+    # establish_connection only varies for tcp/80
+    if [[ "$proto" == "tcp-80" ]]; then
+        tcp_establish_con_values=(false true)
+    else
+        tcp_establish_con_values=(false)
+    fi
+
+    for tcp_establish_con in "${tcp_establish_con_values[@]}"; do
+        for spec in "${MODES[@]}"; do
+            IFS=: read -r mode con_count reqs_per_con fi_request_interval fi_minimum_reply_rate <<< "$spec"
+
+            args=(--config "config/ipid.yaml"
+                  --zmap "$id"
+                  --connection_count "$con_count"
+                  --requests_per_connection "$reqs_per_con"
+                  --measurement_mode "$mode"
+                  --tcp.establish_connection "$tcp_establish_con")
+
+            if [[ "$mode" == "fixed-interval" ]]; then
+                args+=(--fixed_interval.request_interval "$fi_request_interval"
+                       --fixed_interval.minimum_reply_rate "$fi_minimum_reply_rate")
+            fi
+
+            echo "=== [$proto] ipid: mode=$mode con=$con_count reqs=$reqs_per_con establish=$tcp_establish_con ${fi_request_interval:+interval=$fi_request_interval rate=$fi_minimum_reply_rate} ==="
+            ./bin/measure-ipid "${args[@]}"
+        done
+    done
+done
+
+echo "=== sweep complete ==="
