@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"path/filepath"
 	"runtime"
@@ -25,12 +26,20 @@ const GoMemLimitDefaultBytes = 700 << 20 // 700 MiB
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	configFilePath, err := filepath.Abs(files.IPIDConfigFilePath)
+	configFlag := flag.String("config", files.IPIDConfigFilePath, "path to the ipid config file")
+	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
+	flag.Parse()
+
+	configFilePath, err := filepath.Abs(*configFlag)
 	if err != nil {
 		log.Fatalf("resolve config path: %v", err)
 	}
 
-	c, err := config.LoadIPIDConfig(configFilePath)
+	c, err := config.LoadIPIDConfig(configFilePath, func(c *config.IPIDConfig) {
+		if *zmapFlag != "" {
+			c.ZMapID = *zmapFlag
+		}
+	})
 	if err != nil {
 		log.Fatalf("load ipid config: %v", err)
 	}

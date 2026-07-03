@@ -31,7 +31,7 @@ type ZMapConfig struct {
 	UploadConfig UploadConfig `yaml:"upload"`
 }
 
-func LoadZMapConfig(path string) (*ZMapConfig, error) {
+func LoadZMapConfig(path string, apply func(*ZMapConfig)) (*ZMapConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -39,6 +39,9 @@ func LoadZMapConfig(path string) (*ZMapConfig, error) {
 	var config ZMapConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
+	}
+	if apply != nil {
+		apply(&config)
 	}
 	if err := validateZMapConfig(&config); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)

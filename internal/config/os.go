@@ -35,7 +35,7 @@ type OSConfig struct {
 	UploadConfig UploadConfig `yaml:"upload"`
 }
 
-func LoadOSConfig(path string) (*OSConfig, error) {
+func LoadOSConfig(path string, apply func(*OSConfig)) (*OSConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -43,6 +43,9 @@ func LoadOSConfig(path string) (*OSConfig, error) {
 	var config OSConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
+	}
+	if apply != nil {
+		apply(&config)
 	}
 	if err := validateOSConfig(&config); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)

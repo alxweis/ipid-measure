@@ -78,7 +78,7 @@ func parseTCPFlagSet(s string) types.TCPFlagSet {
 	return set
 }
 
-func LoadIPIDConfig(path string) (*IPIDConfig, error) {
+func LoadIPIDConfig(path string, apply func(*IPIDConfig)) (*IPIDConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -88,6 +88,10 @@ func LoadIPIDConfig(path string) (*IPIDConfig, error) {
 
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
+	}
+
+	if apply != nil {
+		apply(&config)
 	}
 
 	if err := validateIPIDConfig(&config); err != nil {
