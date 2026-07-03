@@ -15,7 +15,7 @@ const (
 	ZMapParquetWriteBatchSize = 50_000
 	ZMapStdoutReadBufferBytes = 4 << 20
 
-	IPIDSaveChannelSize    = 1 << 18
+	IPIDSaveChannelSize    = 1 << 16
 	IPIDSaveFileBufferSize = 8 << 20
 
 	IPIDSocketSendBufferBytes = 32 << 20

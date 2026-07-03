@@ -2,11 +2,12 @@ package probe
 
 import (
 	"bufio"
-	"github.com/alxweis/ipid-measure/internal/consts"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/alxweis/ipid-measure/internal/consts"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
@@ -17,8 +18,8 @@ import (
 )
 
 const (
-	ParquetWriteBatchSize     = 20_000
-	ParquetMaxRowsPerRowGroup = 2_000_000
+	ParquetWriteBatchSize     = 10_000
+	ParquetMaxRowsPerRowGroup = 50_000
 	ParquetPageBufferBytes    = 1 << 20
 	ValueSeparator            = ','
 	InvalidSymbol             = '-'

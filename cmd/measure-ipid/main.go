@@ -4,6 +4,7 @@ import (
 	"log"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/upload"
@@ -19,8 +20,11 @@ import (
 	_ "github.com/alxweis/ipid-measure/ipid/worker"
 )
 
+const GoMemLimitBytes = 700 << 20 // 700 MiB
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	debug.SetMemoryLimit(GoMemLimitBytes)
 
 	configFilePath, err := filepath.Abs(files.IPIDConfigFilePath)
 	if err != nil {
@@ -52,12 +56,12 @@ func main() {
 		defer closer()
 	}
 
-	records, err := measurement.Run(c, m)
+	recordCount, err := measurement.Run(c, m)
 	if err != nil {
-		log.Fatalf("run measurement (wrote %d records before error): %v", records, err)
+		log.Fatalf("run measurement (wrote %d records before error): %v", recordCount, err)
 	}
 
-	log.Printf("ipid measurement completed: %s (records=%d)", m.Path, records)
+	log.Printf("ipid measurement completed: %s (records=%d)", m.Path, recordCount)
 
 	if err = upload.Upload(c.UploadConfig, m.Measurement); err != nil {
 		log.Fatalf("upload measurement: %v", err)

@@ -2,15 +2,15 @@ package measurement
 
 import (
 	"context"
-	"github.com/alxweis/ipid-measure/ipid/iptables"
 	"log"
 	"math"
 	"math/rand/v2"
 	"os"
 	"os/signal"
-	"runtime"
 	"sync"
 	"syscall"
+
+	"github.com/alxweis/ipid-measure/ipid/iptables"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/paths"
@@ -66,8 +66,6 @@ var (
 // Run wires the pipeline together and blocks until the whole
 // target stream has been probed (or an interrupt is received)
 func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
 	Config = c
 	Paths = m
 	RequestCount = Config.ConnectionCount * Config.RequestsPerConnection

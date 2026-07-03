@@ -13,7 +13,7 @@ import (
 
 const (
 	ParquetWriteBatchSize     = 10_000
-	ParquetMaxRowsPerRowGroup = 2_000_000
+	ParquetMaxRowsPerRowGroup = 200_000
 	ParquetPageBufferBytes    = 1 << 20
 )
 

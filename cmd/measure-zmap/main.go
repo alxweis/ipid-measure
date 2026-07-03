@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 const GoMemLimitBytes = 256 << 20 // 256 MiB
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	debug.SetMemoryLimit(GoMemLimitBytes)
 
 	configFilePath, err := filepath.Abs(files.ZMapConfigFilePath)

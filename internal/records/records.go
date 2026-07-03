@@ -6,31 +6,31 @@ type ZMap struct {
 }
 
 type OSRecord struct {
-	IPAddress        string `parquet:"IP_ADDR"`
+	IPAddress        string `parquet:"IP_ADDR,plain"`
 	TimestampUS      int64  `parquet:"TIMESTAMP_US"`
 	OSName           string `parquet:"OS_NAME"`
 	OSSource         string `parquet:"OS_SOURCE"`
-	SSHServerID      string `parquet:"SSH_SERVER_ID"`
-	SMBNativeOS      string `parquet:"SMB_NATIVE_OS"`
-	HTTPServer       string `parquet:"HTTP_SERVER"`
-	HTTPSServer      string `parquet:"HTTPS_SERVER"`
-	HTTPSCertIssuer  string `parquet:"HTTPS_CERT_ISSUER"`
-	HTTPSCertSubject string `parquet:"HTTPS_CERT_SUBJECT"`
-	SNMPSysDescr     string `parquet:"SNMP_SYS_DESCR"`
-	SMTPBanner       string `parquet:"SMTP_BANNER"`
-	SMTPEHLO         string `parquet:"SMTP_EHLO_RESPONSE"`
-	MSSQLVersion     string `parquet:"MSSQL_VERSION"`
-	POP3Banner       string `parquet:"POP3_BANNER"`
-	IMAPBanner       string `parquet:"IMAP_BANNER"`
-	FTPBanner        string `parquet:"FTP_BANNER"`
-	TelnetBanner     string `parquet:"TELNET_BANNER"`
-	DNSVersionBind   string `parquet:"DNS_VERSION_BIND"`
-	DNSHostnameBind  string `parquet:"DNS_HOSTNAME_BIND"`
+	SSHServerID      string `parquet:"SSH_SERVER_ID,plain"`
+	SMBNativeOS      string `parquet:"SMB_NATIVE_OS,plain"`
+	HTTPServer       string `parquet:"HTTP_SERVER,plain"`
+	HTTPSServer      string `parquet:"HTTPS_SERVER,plain"`
+	HTTPSCertIssuer  string `parquet:"HTTPS_CERT_ISSUER,plain"`
+	HTTPSCertSubject string `parquet:"HTTPS_CERT_SUBJECT,plain"`
+	SNMPSysDescr     string `parquet:"SNMP_SYS_DESCR,plain"`
+	SMTPBanner       string `parquet:"SMTP_BANNER,plain"`
+	SMTPEHLO         string `parquet:"SMTP_EHLO_RESPONSE,plain"`
+	MSSQLVersion     string `parquet:"MSSQL_VERSION,plain"`
+	POP3Banner       string `parquet:"POP3_BANNER,plain"`
+	IMAPBanner       string `parquet:"IMAP_BANNER,plain"`
+	FTPBanner        string `parquet:"FTP_BANNER,plain"`
+	TelnetBanner     string `parquet:"TELNET_BANNER,plain"`
+	DNSVersionBind   string `parquet:"DNS_VERSION_BIND,plain"`
+	DNSHostnameBind  string `parquet:"DNS_HOSTNAME_BIND,plain"`
 }
 
 type IPIDRecord struct {
-	IPAddress                string `parquet:"IP_ADDR"`
-	IPIDSequence             string `parquet:"IPID_SEQUENCE"`
-	SendTimestampSequence    string `parquet:"SEND_TIMESTAMP_SEQUENCE"`
-	ReceiveTimestampSequence string `parquet:"RECEIVE_TIMESTAMP_SEQUENCE"`
+	IPAddress                string `parquet:"IP_ADDR,plain"`
+	IPIDSequence             string `parquet:"IPID_SEQUENCE,plain"`
+	SendTimestampSequence    string `parquet:"SEND_TIMESTAMP_SEQUENCE,plain"`
+	ReceiveTimestampSequence string `parquet:"RECEIVE_TIMESTAMP_SEQUENCE,plain"`
 }
