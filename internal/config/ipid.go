@@ -29,6 +29,8 @@ type IPIDConfig struct {
 
 	LogToFile bool `yaml:"log_to_file"`
 
+	GoMemoryLimit *ScaledNumber `yaml:"go_memory_limit"`
+
 	UploadConfig UploadConfig `yaml:"upload"`
 }
 
@@ -213,6 +215,12 @@ func validateIPIDConfig(config *IPIDConfig) error {
 		false,
 		true,
 	); err != nil {
+		return err
+	}
+
+	// --- MEMORY ------------------------------------------------------------------
+
+	if err := validateGoMemoryLimit(config.GoMemoryLimit); err != nil {
 		return err
 	}
 

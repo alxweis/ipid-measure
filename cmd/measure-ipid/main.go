@@ -20,11 +20,10 @@ import (
 	_ "github.com/alxweis/ipid-measure/ipid/worker"
 )
 
-const GoMemLimitBytes = 700 << 20 // 700 MiB
+const GoMemLimitDefaultBytes = 700 << 20 // 700 MiB
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	debug.SetMemoryLimit(GoMemLimitBytes)
 
 	configFilePath, err := filepath.Abs(files.IPIDConfigFilePath)
 	if err != nil {
@@ -35,6 +34,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load ipid config: %v", err)
 	}
+
+	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 
 	m := paths.NewIPIDMeasurement(c.ZMapPayload, c.ZMapPort, time.Now())
 

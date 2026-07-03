@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
-	"github.com/alxweis/ipid-measure/internal/files"
 	"os"
 	"time"
+
+	"github.com/alxweis/ipid-measure/internal/files"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +29,8 @@ type OSConfig struct {
 	ZDNSBinary   *string `yaml:"zdns_binary"`
 
 	LogToFile bool `yaml:"log_to_file"`
+
+	GoMemoryLimit *ScaledNumber `yaml:"go_memory_limit"`
 
 	UploadConfig UploadConfig `yaml:"upload"`
 }
@@ -127,6 +130,12 @@ func validateOSConfig(config *OSConfig) error {
 		if err := files.IsFile(*config.ZDNSBinary, "zdns_binary", "*"); err != nil {
 			return err
 		}
+	}
+
+	// --- MEMORY ------------------------------------------------------------------
+
+	if err := validateGoMemoryLimit(config.GoMemoryLimit); err != nil {
+		return err
 	}
 
 	// --- UPLOAD ------------------------------------------------------------------

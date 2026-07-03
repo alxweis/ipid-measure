@@ -15,11 +15,10 @@ import (
 	osmod "github.com/alxweis/ipid-measure/os"
 )
 
-const GoMemLimitBytes = 384 << 20 // 384 MiB
+const GoMemLimitDefaultBytes = 384 << 20 // 384 MiB
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	debug.SetMemoryLimit(GoMemLimitBytes)
 
 	configFilePath, err := filepath.Abs(files.OSConfigFilePath)
 	if err != nil {
@@ -30,6 +29,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load os config: %v", err)
 	}
+
+	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 
 	m := paths.NewOSMeasurement(c.ZMapPayload, c.ZMapPort, time.Now())
 

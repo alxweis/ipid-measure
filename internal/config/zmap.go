@@ -26,6 +26,8 @@ type ZMapConfig struct {
 
 	LogToFile bool `yaml:"log_to_file"`
 
+	GoMemoryLimit *ScaledNumber `yaml:"go_memory_limit"`
+
 	UploadConfig UploadConfig `yaml:"upload"`
 }
 
@@ -121,6 +123,12 @@ func validateZMapConfig(config *ZMapConfig) error {
 		if threads < 1 || threads > 1_000 {
 			return fmt.Errorf("sender_threads must be in [1, 1K] or null")
 		}
+	}
+
+	// --- MEMORY ------------------------------------------------------------------
+
+	if err := validateGoMemoryLimit(config.GoMemoryLimit); err != nil {
+		return err
 	}
 
 	// --- ADDITIONAL --------------------------------------------------------------

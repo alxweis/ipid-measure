@@ -15,11 +15,10 @@ import (
 	"github.com/alxweis/ipid-measure/zmap"
 )
 
-const GoMemLimitBytes = 256 << 20 // 256 MiB
+const GoMemLimitDefaultBytes = 256 << 20 // 256 MiB
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	debug.SetMemoryLimit(GoMemLimitBytes)
 
 	configFilePath, err := filepath.Abs(files.ZMapConfigFilePath)
 	if err != nil {
@@ -30,6 +29,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load zmap config: %v", err)
 	}
+
+	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 
 	m := paths.NewZMapMeasurement(c.Payload, c.Port, time.Now())
 
