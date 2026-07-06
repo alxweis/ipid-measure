@@ -107,32 +107,6 @@ Sends `connection_count × requests_per_connection` requests per target across t
 sudo ./bin/measure-ipid
 ```
 
-## Full sweep (all protocols)
-
-Each binary takes a `-config <path>` flag (default `config/<tool>.yaml`). Beyond
-that, the values that differ per protocol are passed on the command line instead
-of being edited into YAML:
-
-- `measure-zmap --payload <icmp|tcp|udp-dns> [--port N] [--probe-args A,host]`
-  overrides the payload/port/probe_args, so one `config/zmap.yaml` covers all
-  three protocols. `--print-id` prints the run id to stdout on success.
-- `measure-os --zmap <id>` and `measure-ipid --zmap <id>` override the `zmap:`
-  reference, so the run id never has to be pasted into `os.yaml` / `ipid.yaml`.
-
-The `ipid` config genuinely differs per protocol (measurement mode, tcp flags,
-request IP-IDs, ...), so those live in per-protocol files selected with
-`-config config/ipid/<proto>.yaml`.
-
-`scripts/run-all.sh` wires this together for `[icmp, tcp-80, udp-dns-53]`:
-capture the zmap id, thread it into os and ipid, no YAML editing. Build and cap
-the binaries first (`make setcap`), create the real config files, then:
-
-```bash
-./scripts/run-all.sh
-```
-
-This script is the intended `ExecStart` target for a weekly systemd timer.
-
 # TODO
 
 - Add FIN-ACK Message to finalize connection
