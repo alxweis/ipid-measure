@@ -38,7 +38,7 @@ packets_per_second: null
 
 number_of_inflight_probes: 5K
 
-# --- INTERFACES --------------------------------------------------------------
+# --- INTERFACE ---------------------------------------------------------------
 
 interface:
   name: eth0
