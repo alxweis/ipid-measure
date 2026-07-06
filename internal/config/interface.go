@@ -11,9 +11,13 @@ type Interface struct {
 }
 
 type InterfacePair struct {
-	A Interface `yaml:"a"`
-	B Interface `yaml:"b"`
+	Name string `yaml:"name"`
+	IPA  string `yaml:"ip_a"`
+	IPB  string `yaml:"ip_b"`
 }
+
+func (p InterfacePair) A() Interface { return Interface{Name: p.Name, IP: p.IPA} }
+func (p InterfacePair) B() Interface { return Interface{Name: p.Name, IP: p.IPB} }
 
 func validateInterface(
 	iface Interface,

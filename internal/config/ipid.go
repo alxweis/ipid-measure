@@ -25,7 +25,7 @@ type IPIDConfig struct {
 	PacketsPerSecond       *ScaledNumber `yaml:"packets_per_second"`
 	NumberOfInflightProbes ScaledNumber  `yaml:"number_of_inflight_probes"`
 
-	Interfaces InterfacePair `yaml:"interfaces"`
+	Interfaces InterfacePair `yaml:"interface"`
 
 	LogToFile bool `yaml:"log_to_file"`
 
@@ -204,9 +204,13 @@ func validateIPIDConfig(config *IPIDConfig) error {
 
 	// --- INTERFACES --------------------------------------------------------------
 
+	if config.Interfaces.IPA == config.Interfaces.IPB {
+		return fmt.Errorf("interface.ip_a and interface.ip_b must differ")
+	}
+
 	if err := validateInterface(
-		config.Interfaces.A,
-		"interfaces.a",
+		config.Interfaces.A(),
+		"interface.ip_a",
 		true,
 		true,
 	); err != nil {
@@ -214,8 +218,8 @@ func validateIPIDConfig(config *IPIDConfig) error {
 	}
 
 	if err := validateInterface(
-		config.Interfaces.B,
-		"interfaces.b",
+		config.Interfaces.B(),
+		"interface.ip_b",
 		false,
 		true,
 	); err != nil {

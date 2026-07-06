@@ -48,8 +48,8 @@ func (s *Sender) Send(packet []byte) error {
 
 // Setup wires up both senders. Registered into measurement.SetupSenders.
 func Setup() {
-	SenderA = setupOne(measurement.Config.Interfaces.A)
-	SenderB = setupOne(measurement.Config.Interfaces.B)
+	SenderA = setupOne(measurement.Config.Interfaces.A())
+	SenderB = setupOne(measurement.Config.Interfaces.B())
 }
 
 func setupOne(iface config.Interface) *Sender {

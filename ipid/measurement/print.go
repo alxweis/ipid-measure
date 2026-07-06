@@ -39,8 +39,9 @@ func printConfig() {
 	log.Printf("packets_per_second    = %s", c.PacketsPerSecond.String())
 	log.Printf("number_of_inflight_probes = %d", c.NumberOfInflightProbes)
 
-	log.Printf("interface_a           = %s (%s)", c.Interfaces.A.Name, c.Interfaces.A.IP)
-	log.Printf("interface_b           = %s (%s)", c.Interfaces.B.Name, c.Interfaces.B.IP)
+	log.Printf("interface             = %s", c.Interfaces.Name)
+	log.Printf("interface_ip_a        = %s", c.Interfaces.IPA)
+	log.Printf("interface_ip_b        = %s", c.Interfaces.IPB)
 
 	log.Printf("output_path           = %s", Paths.Path)
 	log.Printf("======================================")

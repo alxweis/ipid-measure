@@ -83,11 +83,11 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 
 	// Drop RSTs
 	if TcpEstablishConnection {
-		if err := iptables.Setup(*c.ZMapPort, c.Interfaces.A.IP, c.Interfaces.B.IP); err != nil {
+		if err := iptables.Setup(*c.ZMapPort, c.Interfaces.IPA, c.Interfaces.IPB); err != nil {
 			log.Fatalf("iptables setup: %v", err)
 		}
 		defer func() {
-			if err := iptables.Teardown(*c.ZMapPort, c.Interfaces.A.IP, c.Interfaces.B.IP); err != nil {
+			if err := iptables.Teardown(*c.ZMapPort, c.Interfaces.IPA, c.Interfaces.IPB); err != nil {
 				log.Printf("iptables teardown: %v", err)
 			}
 		}()

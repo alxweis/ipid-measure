@@ -29,10 +29,10 @@ const receiveTimeoutMs = 200
 
 func StartAll() {
 	measurement.ReceiverWg.Add(1)
-	go Receive(measurement.Config.Interfaces.A)
+	go Receive(measurement.Config.Interfaces.A())
 
 	measurement.ReceiverWg.Add(1)
-	go Receive(measurement.Config.Interfaces.B)
+	go Receive(measurement.Config.Interfaces.B())
 }
 
 // Receive captures packets on one interface, decodes the L3/L4 headers, and
