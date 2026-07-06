@@ -36,7 +36,6 @@ interface:
 # --- ADDITIONAL --------------------------------------------------------------
 
 # Path to a ZMap blacklist file. null lets ZMap use its default blocklist.
-blocklist_file: netd-tud/active-measurements-blocklists@main:ipid-2024-01.txt
 # blacklist_file: /etc/zmap/blocklist.conf
 
 log_to_file: false
