@@ -33,7 +33,10 @@ interface:
   name: eth0
   ip: 123.45.67.89
 
-# --- LOGGING -----------------------------------------------------------------
+# --- ADDITIONAL --------------------------------------------------------------
+
+# Path to a ZMap blacklist file. null lets ZMap use its default blocklist.
+# blacklist_file: /etc/zmap/blocklist.conf
 
 log_to_file: false
 

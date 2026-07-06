@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Remove iptables rules installed by setup-iptables.sh.
-#
-# Usage
-# -----
-#   sudo ./scripts/teardown-iptables.sh <dst-port> <iface-a-ip> [<iface-b-ip>]
-#
-# The arguments must match what was passed to setup-iptables.sh, otherwise the
-# rule deletions will silently no-op (iptables -D only removes exact matches).
 
 set -euo pipefail
 

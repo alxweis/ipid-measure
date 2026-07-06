@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-#
-# Full IPID measurement sweep (what the weekly systemd timer calls).
-#
-# Phase 1 -- once per protocol: measure-zmap -> capture id -> measure-os.
-# Phase 2 -- ipid sweep, reusing the phase-1 zmap run via --zmap
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -1,27 +1,4 @@
 #!/usr/bin/env bash
-# Configure iptables to support ipid measurement with
-# `tcp.establish_connection: true`.
-#
-# Background
-# ----------
-# measure-ipid builds TCP packets directly via AF_PACKET, bypassing the kernel's
-# TCP stack. When establish_connection=true the kernel still sees incoming
-# SYN-ACKs from scan targets and, finding no matching socket, sends RST in
-# response. That RST aborts the connection before measure-ipid can send its
-# ACK + PSH-ACK requests for the remaining sequence numbers.
-#
-# These rules:
-#   1) bypass conntrack for scan packets to save memory/CPU at large scale;
-#   2) drop outbound RSTs that the kernel would generate for scan packets,
-#      preventing it from killing our handshake.
-#
-# Usage
-# -----
-#   sudo ./scripts/setup-iptables.sh <dst-port> <iface-a-ip> [<iface-b-ip>]
-#
-#   sudo ./scripts/setup-iptables.sh 80 141.76.94.12 141.76.94.15
-#
-# To remove the rules later, run scripts/teardown-iptables.sh with the same args.
 
 set -euo pipefail
 

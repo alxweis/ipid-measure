@@ -113,7 +113,7 @@ func validateIPIDConfig(config *IPIDConfig) error {
 	}
 
 	if config.RequestsPerConnection < 1 || config.RequestsPerConnection > 100 {
-		return fmt.Errorf("requests_per_port must be in [1, 100]")
+		return fmt.Errorf("requests_per_connection must be in [1, 100]")
 	}
 
 	requestCount := config.ConnectionCount * config.RequestsPerConnection
