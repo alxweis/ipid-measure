@@ -243,3 +243,7 @@ to keep results local only).
 | `make vet` / `test` / `tidy` / `clean` | Go housekeeping |
 | `scripts/run-all.sh` | full multi-protocol measurement sweep |
 | `scripts/setup-iptables.sh` / `teardown-iptables.sh` | manage the RST-drop rules for `establish_connection` mode |
+
+# TODO
+
+- Add FIN-ACK Message to finalize connection
