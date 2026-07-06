@@ -37,9 +37,6 @@ snmp_timeout: 2s
 
 snmp_community: public
 
-# zgrab2_binary: /usr/local/bin/zgrab2
-# zdns_binary: /usr/local/bin/zdns
-
 log_to_file: false
 
 # --- MEMORY ------------------------------------------------------------------

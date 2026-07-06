@@ -16,13 +16,11 @@ type ZMapConfig struct {
 	Interface                 Interface     `yaml:"interface"`
 	NumberOfTargetIPAddresses *ScaledNumber `yaml:"number_of_target_ip_addresses"`
 
+	BlacklistFile string `yaml:"blacklist_file"`
+
 	Bandwidth        *ScaledNumber `yaml:"bandwidth"`
 	PacketsPerSecond *ScaledNumber `yaml:"packets_per_second"`
 	SenderThreads    *ScaledNumber `yaml:"sender_threads"`
-
-	Dryrun        bool    `yaml:"dryrun"`
-	BlacklistFile *string `yaml:"blacklist_file"`
-	WhitelistFile *string `yaml:"whitelist_file"`
 
 	LogToFile bool `yaml:"log_to_file"`
 
@@ -101,6 +99,10 @@ func validateZMapConfig(config *ZMapConfig) error {
 		}
 	}
 
+	if err := files.IsFile(config.BlacklistFile, "blacklist_file", "*.*"); err != nil {
+		return err
+	}
+
 	// --- SPEED -------------------------------------------------------------------
 
 	if (config.Bandwidth == nil) == (config.PacketsPerSecond == nil) {
@@ -132,19 +134,6 @@ func validateZMapConfig(config *ZMapConfig) error {
 
 	if err := validateGoMemoryLimit(config.GoMemoryLimit); err != nil {
 		return err
-	}
-
-	// --- ADDITIONAL --------------------------------------------------------------
-
-	if config.BlacklistFile != nil {
-		if err := files.IsFile(*config.BlacklistFile, "blacklist_file", "*.*"); err != nil {
-			return err
-		}
-	}
-	if config.WhitelistFile != nil {
-		if err := files.IsFile(*config.WhitelistFile, "whitelist_file", "*.*"); err != nil {
-			return err
-		}
 	}
 
 	// --- UPLOAD ------------------------------------------------------------------

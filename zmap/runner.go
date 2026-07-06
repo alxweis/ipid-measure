@@ -54,6 +54,9 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 	// Interface
 	args = append(args, "-i", c.Interface.Name, "-S", c.Interface.IP)
 
+	// Blocklist
+	args = append(args, "-b", c.BlacklistFile)
+
 	// Result count
 	if c.NumberOfTargetIPAddresses != nil {
 		args = append(args, "-N", strconv.FormatUint(uint64(*c.NumberOfTargetIPAddresses), 10))
@@ -69,17 +72,6 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 
 	if c.SenderThreads != nil {
 		args = append(args, "-T", strconv.FormatUint(uint64(*c.SenderThreads), 10))
-	}
-
-	// Additional
-	if c.Dryrun {
-		args = append(args, "--dryrun")
-	}
-	if c.BlacklistFile != nil {
-		args = append(args, "-b", *c.BlacklistFile)
-	}
-	if c.WhitelistFile != nil {
-		args = append(args, "-w", *c.WhitelistFile)
 	}
 
 	return args, nil

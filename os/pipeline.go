@@ -75,16 +75,6 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		}
 	}()
 
-	// Resolve subprocess binary paths; default falls back to PATH lookup.
-	zgrab2Binary := ZGrab2Binary
-	if c.ZGrab2Binary != nil {
-		zgrab2Binary = *c.ZGrab2Binary
-	}
-	zdnsBinary := ZDNSBinary
-	if c.ZDNSBinary != nil {
-		zdnsBinary = *c.ZDNSBinary
-	}
-
 	// Start the three scanners
 	var (
 		zGrab2Runner *ZGrab2Runner
@@ -100,7 +90,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	scannerWg := sync.WaitGroup{}
 
 	if config.HasZGrab2Module(c.Modules) {
-		zGrab2Runner, err = StartZGrab2(ctx, zgrab2Binary, iniPath)
+		zGrab2Runner, err = StartZGrab2(ctx, ZGrab2Binary, iniPath)
 		if err != nil {
 			close(outRecords)
 			writerWg.Wait()
@@ -157,7 +147,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	}
 
 	if config.HasZDNSModule(c.Modules) {
-		zDnsRunner, err = StartZDNS(ctx, zdnsBinary, *c.ZDNSThreads, c.ReadTimeout)
+		zDnsRunner, err = StartZDNS(ctx, ZDNSBinary, *c.ZDNSThreads, c.ReadTimeout)
 		if err != nil {
 			close(outRecords)
 			writerWg.Wait()

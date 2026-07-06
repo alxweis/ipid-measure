@@ -24,7 +24,11 @@ CMDS := measure-ipid measure-os measure-zmap
 CAP_CMDS := measure-ipid measure-zmap
 CAPS     := cap_net_raw,cap_net_admin+ep
 
-.PHONY: all build setcap $(CMDS) vet test tidy clean
+# Blocklist repo
+BLOCKLIST_REPO ?= git@github.com:netd-tud/active-measurements-blocklists.git
+BLOCKLIST_DIR  ?= ../active-measurements-blocklists
+
+.PHONY: all build setcap pull-blocklist $(CMDS) vet test tidy clean
 
 all: build
 
@@ -37,6 +41,14 @@ $(CMDS):
 # Builds, then re-applies file capabilities (needs sudo; prompts once).
 setcap: build
 	sudo setcap $(foreach b,$(CAP_CMDS),$(CAPS) $(BIN_DIR)/$(b))
+
+# Refresh the zmap blocklist (self-bootstrapping clone).
+pull-blocklist:
+	@if [ -d "$(BLOCKLIST_DIR)/.git" ]; then \
+		git -C "$(BLOCKLIST_DIR)" pull --ff-only; \
+	else \
+		git clone --depth 1 "$(BLOCKLIST_REPO)" "$(BLOCKLIST_DIR)"; \
+	fi
 
 vet:
 	$(GO) vet ./...

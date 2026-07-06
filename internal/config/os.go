@@ -5,8 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/alxweis/ipid-measure/internal/files"
-
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,9 +22,6 @@ type OSConfig struct {
 	SNMPTimeout    time.Duration `yaml:"snmp_timeout"`
 
 	SNMPCommunity string `yaml:"snmp_community"`
-
-	ZGrab2Binary *string `yaml:"zgrab2_binary"`
-	ZDNSBinary   *string `yaml:"zdns_binary"`
 
 	LogToFile bool `yaml:"log_to_file"`
 
@@ -121,18 +116,6 @@ func validateOSConfig(config *OSConfig) error {
 
 	if config.SNMPCommunity != "public" && config.SNMPCommunity != "private" {
 		return fmt.Errorf("snmp_community must be either public or private")
-	}
-
-	if config.ZGrab2Binary != nil {
-		if err := files.IsFile(*config.ZGrab2Binary, "zgrab2_binary", "*"); err != nil {
-			return err
-		}
-	}
-
-	if config.ZDNSBinary != nil {
-		if err := files.IsFile(*config.ZDNSBinary, "zdns_binary", "*"); err != nil {
-			return err
-		}
 	}
 
 	// --- MEMORY ------------------------------------------------------------------

@@ -8,10 +8,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+make pull-blocklist
+
 # --- swept ipid parameterisations --------------------------------------------
 RT_CONNECTION_COUNT=4;   RT_REQUESTS_PER_CON=4
 FI_CONNECTION_COUNT_1=4; FI_REQUESTS_PER_CON_1=4;  FI_REQUEST_INTERVAL_1=20ms; FI_MIN_REPLY_RATE_1=1.0
-FI_CONNECTION_COUNT_2=10; FI_REQUESTS_PER_CON_2=10; FI_REQUEST_INTERVAL_2=20ms; FI_MIN_REPLY_RATE_2=0.8
+FI_CONNECTION_COUNT_2=4; FI_REQUESTS_PER_CON_2=25; FI_REQUEST_INTERVAL_2=20ms; FI_MIN_REPLY_RATE_2=0.8
 
 # spec fields: mode:connection_count:requests_per_connection:request_interval:minimum_reply_rate
 MODES=(

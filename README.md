@@ -40,9 +40,6 @@ Wrapper around the `zmap` binary that streams `(saddr, timestamp)` tuples into a
 | `sender_threads` | scaled-int | zmap send-thread count |
 | `interface.name` | string | egress interface (e.g. `eth0`) |
 | `interface.ip` | string | source IPv4 |
-| `dryrun` | bool | run zmap without sending packets (validation) |
-| `blacklist_file` | path / null | optional blocklist; `null` = zmap default |
-| `whitelist_file` | path / null | optional inclusion list |
 | `log_to_file` | bool | also write logs to `<measurement_dir>/zmap.log` |
 
 **Run:**
@@ -70,8 +67,6 @@ Joins `zgrab2` (TCP banners), in-process SNMP probes, and `zdns` (DNS CHAOS-clas
 | `read_timeout` | duration | banner-read timeout |
 | `snmp_timeout` | duration | per-target SNMP UDP timeout |
 | `snmp_community` | string | SNMPv2c community string |
-| `zgrab2_binary` | path / null | override zgrab2 binary path |
-| `zdns_binary` | path / null | override zdns binary path |
 | `log_to_file` | bool | also write logs to `<measurement_dir>/os.log` |
 
 **Run:**

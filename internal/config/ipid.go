@@ -109,11 +109,11 @@ func validateIPIDConfig(config *IPIDConfig) error {
 	}
 
 	if config.ConnectionCount < 2 || config.ConnectionCount > 16 || config.ConnectionCount%2 == 1 {
-		return fmt.Errorf("port_count must be even and in [2, 16]")
+		return fmt.Errorf("connection_count must be even and in [2, 16]")
 	}
 
-	if config.RequestsPerConnection < 1 || config.RequestsPerConnection > 10 {
-		return fmt.Errorf("requests_per_port must be in [1, 10]")
+	if config.RequestsPerConnection < 1 || config.RequestsPerConnection > 100 {
+		return fmt.Errorf("requests_per_port must be in [1, 100]")
 	}
 
 	requestCount := config.ConnectionCount * config.RequestsPerConnection
