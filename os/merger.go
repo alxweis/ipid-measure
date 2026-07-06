@@ -93,7 +93,7 @@ func (m *merger) markScannerDead(scanner uint8) {
 
 // integrate folds one scanner's result into the per-IP pending entry and
 // emits + fingerprints once all enabled scanners have reported.
-func (m *merger) integrate(ip string, sourceFlag uint8, ts int64, applyFn func(*records.OSRecord)) {
+func (m *merger) integrate(ip string, sourceFlag uint8, applyFn func(*records.OSRecord)) {
 	m.totalReceived.Add(1)
 	switch sourceFlag {
 	case scannerZGrab2:
@@ -108,19 +108,13 @@ func (m *merger) integrate(ip string, sourceFlag uint8, ts int64, applyFn func(*
 	p, ok := m.pendings[ip]
 	if !ok {
 		p = &pending{
-			rec:     records.OSRecord{IPAddress: ip, TimestampUS: ts},
+			rec:     records.OSRecord{IPAddress: ip},
 			started: time.Now(),
 		}
 		m.pendings[ip] = p
 	}
 	applyFn(&p.rec)
 	p.flags |= sourceFlag
-
-	// Use the latest timestamp; the writer column should reflect when the
-	// fingerprint was completed, not when the first scanner saw the IP.
-	if ts > p.rec.TimestampUS {
-		p.rec.TimestampUS = ts
-	}
 
 	done := (p.flags & m.enabled) == m.enabled
 	if !done {

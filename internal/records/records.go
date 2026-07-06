@@ -7,7 +7,6 @@ type ZMap struct {
 
 type OSRecord struct {
 	IPAddress        string `parquet:"IP_ADDR,plain"`
-	TimestampUS      int64  `parquet:"TIMESTAMP_US"`
 	OSName           string `parquet:"OS_NAME"`
 	OSSource         string `parquet:"OS_SOURCE"`
 	SSHServerID      string `parquet:"SSH_SERVER_ID,plain"`

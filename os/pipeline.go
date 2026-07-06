@@ -132,9 +132,8 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 				close(ch)
 				close(done)
 			}()
-			ts := time.Now().UnixMicro()
 			for r := range ch {
-				m.integrate(r.IP, scannerZGrab2, ts, applyZGrab2(r))
+				m.integrate(r.IP, scannerZGrab2, applyZGrab2(r))
 			}
 			<-done
 		}()
@@ -197,9 +196,8 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 				close(ch)
 				close(done)
 			}()
-			ts := time.Now().UnixMicro()
 			for r := range ch {
-				m.integrate(r.IP, scannerZDNS, ts, applyZDNS(r))
+				m.integrate(r.IP, scannerZDNS, applyZDNS(r))
 			}
 			<-done
 		}()
@@ -217,8 +215,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		go func() {
 			defer scannerWg.Done()
 			for r := range snmpOut {
-				ts := time.Now().UnixMicro()
-				m.integrate(r.IP, scannerSNMP, ts, applySNMP(r))
+				m.integrate(r.IP, scannerSNMP, applySNMP(r))
 			}
 		}()
 	} else {
