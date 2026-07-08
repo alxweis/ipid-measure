@@ -78,3 +78,5 @@ for proto in "${PROTOS[@]}"; do
 done
 
 echo "=== sweep complete ==="
+
+# TODO: Output all measurement ids finally at the end so user sees results directly
