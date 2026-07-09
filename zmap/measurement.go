@@ -52,7 +52,7 @@ func Run(c *config.ZMapConfig, m *paths.ZMapMeasurement) (uint64, error) {
 
 	var written atomic.Uint64
 
-	parser := NewParser(runner.Stdout())
+	parser := NewParser(runner.Stdout(), UsesJSONOutput(c))
 	parseErr := streamRows(ctx, parser, writer, &written)
 
 	if parseErr != nil {

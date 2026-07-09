@@ -2,6 +2,7 @@ package zmap
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -19,15 +20,17 @@ type ParsedRow struct {
 // Parser consumes ZMap's CSV stdout incrementally and emits ParsedRow values.
 type Parser struct {
 	r            *bufio.Reader
-	colIP        int // column index of "saddr"
-	colReplyType int // column index of "classification" (-1 if not present)
+	json         bool // true = one JSON object per line (zmap -O json), false = CSV
+	colIP        int  // column index of "saddr"
+	colReplyType int  // column index of "classification" (-1 if not present)
 	headerSeen   bool
 }
 
 // NewParser constructs a parser from an io.Reader (typically ZMap's stdout).
-func NewParser(r io.Reader) *Parser {
+func NewParser(r io.Reader, jsonMode bool) *Parser {
 	return &Parser{
 		r:            bufio.NewReaderSize(r, consts.ZMapStdoutReadBufferBytes),
+		json:         jsonMode,
 		colIP:        -1,
 		colReplyType: -1,
 	}
@@ -56,6 +59,9 @@ func (p *Parser) readHeader() error {
 
 // Next returns the next row.
 func (p *Parser) Next() (ParsedRow, error) {
+	if p.json {
+		return p.nextJSON()
+	}
 	if !p.headerSeen {
 		if err := p.readHeader(); err != nil {
 			return ParsedRow{}, err
@@ -74,6 +80,27 @@ func (p *Parser) Next() (ParsedRow, error) {
 			return row, nil
 		}
 		// Malformed row: skip and keep going.
+	}
+}
+
+// nextJSON reads one JSON object per line (zmap -O json) and extracts saddr.
+func (p *Parser) nextJSON() (ParsedRow, error) {
+	for {
+		line, err := p.readLine()
+		if err != nil {
+			return ParsedRow{}, err
+		}
+		if line == "" {
+			continue
+		}
+		var obj struct {
+			Saddr          string `json:"saddr"`
+			Classification string `json:"classification"`
+		}
+		if err := json.Unmarshal([]byte(line), &obj); err != nil || obj.Saddr == "" {
+			continue // skip malformed lines
+		}
+		return ParsedRow{IPAddress: obj.Saddr, ReplyType: obj.Classification}, nil
 	}
 }
 

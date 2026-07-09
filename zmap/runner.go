@@ -15,13 +15,20 @@ import (
 )
 
 const (
-	Binary       = "zmap"
-	OutputFormat = "csv"
-	OutputFilter = "success = 1 && repeat = 0"
-	DedupMethod  = "full"
+	Binary           = "zmap"
+	OutputFormatCSV  = "csv"
+	OutputFormatJSON = "json"
+	OutputFilter     = "success = 1 && repeat = 0"
+	DedupMethod      = "full"
 
 	ShutdownGraceSeconds = 5
 )
+
+// UsesJSONOutput reports whether the payload needs zmap's JSON output. The dns
+// module produces dynamic fields that the csv output module cannot represent.
+func UsesJSONOutput(c *config.ZMapConfig) bool {
+	return c.Payload == types.PayloadUDPDNS
+}
 
 // BuildArgs translates a validated ZMapConfig into a zmap argument vector.
 func BuildArgs(c *config.ZMapConfig) ([]string, error) {
@@ -30,9 +37,14 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 		fields = "saddr,classification"
 	}
 
+	outputFormat := OutputFormatCSV
+	if UsesJSONOutput(c) {
+		outputFormat = OutputFormatJSON
+	}
+
 	args := []string{
 		"-C", "/dev/null", // ignore the global /etc/zmap/zmap.conf
-		"-O", OutputFormat,
+		"-O", outputFormat,
 		"-f", fields,
 		"--output-filter", OutputFilter,
 		"--dedup-method", DedupMethod,
