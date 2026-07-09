@@ -3,7 +3,6 @@ package receiver
 import (
 	"fmt"
 	"net"
-	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -60,11 +59,8 @@ func Receive(iface config.Interface) {
 	}
 
 	// Kernel BPF prefilter: drop irrelevant traffic before it ever reaches us.
-	filter := strings.Join(strings.Split(string(payload.Active.ID), "-"), " and ")
-	if payload.Active.ReceiveFilter != "" {
-		filter += " and " + payload.Active.ReceiveFilter
-	}
-	bpfFilter := fmt.Sprintf("ether dst %s and ip and (%s) and dst host %s", ifc.HardwareAddr, filter, iface.IP)
+	bpfFilter := fmt.Sprintf("ether dst %s and ip and (%s) and dst host %s", ifc.HardwareAddr,
+		payload.Active.ReceiveFilter, iface.IP)
 	bpfInstr, err := pcap.CompileBPFFilter(layers.LinkTypeEthernet, ifc.MTU, bpfFilter)
 	if err != nil {
 		panic(err)

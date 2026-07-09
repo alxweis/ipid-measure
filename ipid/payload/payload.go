@@ -27,7 +27,7 @@ var Active *Payload
 var (
 	ICMP = &Payload{
 		ID:            types.PayloadICMP,
-		ReceiveFilter: "icmp[icmptype] == icmp-echoreply",
+		ReceiveFilter: "icmp and icmp[icmptype] == icmp-echoreply",
 		ProtocolID:    layers.IPProtocolICMPv4,
 		Layer:         payload_icmp.Layer,
 		SetChecksum:   icmp.SetChecksum,
@@ -35,7 +35,7 @@ var (
 
 	TCP = &Payload{
 		ID:            types.PayloadTCP,
-		ReceiveFilter: "",
+		ReceiveFilter: "tcp",
 		ProtocolID:    layers.IPProtocolTCP,
 		Layer:         payload_tcp.Layer,
 		SetChecksum:   tcp.SetChecksum,
@@ -43,7 +43,7 @@ var (
 
 	UdpDns = &Payload{
 		ID:            types.PayloadUDPDNS,
-		ReceiveFilter: "",
+		ReceiveFilter: "udp and src port 53",
 		ProtocolID:    layers.IPProtocolUDP,
 		Layer:         payload_udp_dns.Layer,
 		SetChecksum:   udp.SetChecksum,

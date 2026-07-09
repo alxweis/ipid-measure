@@ -44,7 +44,6 @@ const (
 
 type Payload string
 
-// Payloads are composed of BPF-compatible protocol tokens joined by '-'.
 const (
 	PayloadICMP   Payload = "icmp"
 	PayloadTCP    Payload = "tcp"
