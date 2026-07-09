@@ -5,6 +5,23 @@ cd "$(dirname "$0")/.."
 
 make pull-blocklist
 
+# --- collected measurement ids (printed as a summary at the end) --------------
+SUMMARY=()
+print_summary() {
+    echo
+    echo "=== measurement ids ==="
+    if [ ${#SUMMARY[@]} -eq 0 ]; then
+        echo "  (none)"
+    else
+        printf '  %s\n' "${SUMMARY[@]}"
+    fi
+}
+# Print the summary even if the sweep aborts partway (set -e).
+trap print_summary EXIT
+
+# Newest run id under <tool>/raw (the run just created, since runs are sequential).
+latest_id() { ls -t "$1/raw" 2>/dev/null | head -n1; }
+
 # --- swept ipid parameterisations --------------------------------------------
 RT_CONNECTION_COUNT=4;   RT_REQUESTS_PER_CON=4
 FI_CONNECTION_COUNT_1=4; FI_REQUESTS_PER_CON_1=4;  FI_REQUEST_INTERVAL_1=20ms; FI_MIN_REPLY_RATE_1=1.0
@@ -38,10 +55,12 @@ for proto in "${PROTOS[@]}"; do
     # shellcheck disable=SC2046
     id=$(./bin/measure-zmap $(zmap_flags "$proto") --print-id | tail -n1)
     ZMAP[$proto]=$id
+    SUMMARY+=("zmap  $proto  $id")
     echo "=== [$proto] zmap id = $id ==="
 
     echo "=== [$proto] os ==="
     ./bin/measure-os --zmap "$id"
+    SUMMARY+=("os    $proto  $(latest_id os)")
 done
 
 # --- Phase 2: ipid parameter sweep -------------------------------------------
@@ -73,10 +92,9 @@ for proto in "${PROTOS[@]}"; do
 
             echo "=== [$proto] ipid: mode=$mode con=$con_count reqs=$reqs_per_con establish=$tcp_establish_con ${fi_request_interval:+interval=$fi_request_interval rate=$fi_minimum_reply_rate} ==="
             ./bin/measure-ipid "${args[@]}"
+            SUMMARY+=("ipid  $proto  est=$tcp_establish_con mode=$mode con=$con_count reqs=$reqs_per_con  $(latest_id ipid)")
         done
     done
 done
 
 echo "=== sweep complete ==="
-
-# TODO: Output all measurement ids finally at the end so user sees results directly
