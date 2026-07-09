@@ -3,6 +3,12 @@ package iptables
 import (
 	"fmt"
 	"os/exec"
+	"syscall"
+)
+
+const (
+	capNetAdmin = 12 // CAP_NET_ADMIN
+	capNetRaw   = 13 // CAP_NET_RAW
 )
 
 func Setup(dstPort uint16, ifaceIPs ...string) error {
@@ -52,6 +58,9 @@ func rulesFor(action, ip string, dstPort uint16) [][]string {
 
 func run(args []string) error {
 	cmd := exec.Command("iptables", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		AmbientCaps: []uintptr{capNetAdmin, capNetRaw},
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("iptables %v: %w: %s", args, err, string(out))

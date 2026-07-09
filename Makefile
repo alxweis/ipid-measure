@@ -5,7 +5,7 @@
 #   Debian/Ubuntu:  sudo apt-get install libpcap-dev
 #
 # The binaries open AF_PACKET raw sockets and therefore must run as root or with
-# CAP_NET_RAW (e.g. `sudo setcap cap_net_raw+ep ./bin/measure-ipid`).
+# CAP_NET_RAW (e.g. `sudo setcap cap_net_raw,cap_net_admin+eip ./bin/measure-ipid`).
 #
 # `make setcap` builds and (re)applies the file capabilities in one step. Run it
 # instead of a bare `make` whenever you intend to run a measurement afterwards,
@@ -22,7 +22,7 @@ CMDS := measure-ipid measure-os measure-zmap
 
 # Binaries that open raw sockets and need CAP_NET_RAW / CAP_NET_ADMIN.
 CAP_CMDS := measure-ipid measure-zmap
-CAPS     := cap_net_raw,cap_net_admin+ep
+CAPS     := cap_net_raw,cap_net_admin+eip
 
 # Blocklist repo
 BLOCKLIST_REPO ?= git@github.com:netd-tud/active-measurements-blocklists.git
