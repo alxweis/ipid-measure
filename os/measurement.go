@@ -33,8 +33,6 @@ func Run(c *config.OSConfig, m *paths.OSMeasurement) (uint64, error) {
 	log.Printf("zdns_threads           = %s", c.ZDNSThreads.String())
 	log.Printf("snmp_workers           = %s", c.SNMPWorkers.String())
 
-	log.Printf("interface              = %s (%s)", c.Interface.Name, c.Interface.IP)
-
 	log.Printf("connect_timeout        = %s", c.ConnectTimeout)
 	log.Printf("read_timeout           = %s", c.ReadTimeout)
 	log.Printf("snmp_timeout           = %s", c.SNMPTimeout)

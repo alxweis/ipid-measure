@@ -36,6 +36,8 @@ by a `zmap` run, referenced by that run's **measurement id**.
 make           # builds bin/measure-zmap, bin/measure-os, bin/measure-ipid
 ```
 
+`make build-zmap` / `build-os` / `build-ipid` build a single binary.
+
 The `zmap` and `ipid` binaries need raw-socket capabilities. Either run them as
 root, or grant file capabilities once:
 
@@ -44,7 +46,9 @@ make setcap    # builds, then setcap cap_net_raw,cap_net_admin+ep on the binarie
 ```
 
 > `go build` writes a fresh binary and drops file capabilities each time, so run
-> `make setcap` (not a bare `make`) whenever you rebuild before measuring.
+> `make setcap` (not a bare `make`) whenever you rebuild before measuring. The
+> `make run-*` targets deliberately do **not** rebuild, so they keep the
+> capabilities in place.
 
 Other targets: `make vet`, `make test`, `make tidy`, `make clean`.
 
@@ -83,13 +87,14 @@ cp config/ipid.yaml.example config/ipid.yaml
 | `zmap` | measurement-id | zmap run to scan, e.g. `tcp-80_2026-06-03_00-13-06` (usually set via `--zmap`) |
 | `modules.{ssh,smb,http,https,snmp,smtp,mssql,pop3,imap,ftp,telnet,dns_chaos}` | bool | enable each fingerprint module |
 | `zgrab2_senders` / `zdns_threads` / `snmp_workers` | scaled-int | per-scanner concurrency |
-| `interface.name` / `interface.ip` | string | egress interface and source IPv4 |
 | `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | timeouts |
 | `snmp_community` | string | SNMPv2c community |
 | `log_to_file` | bool | also write `<run>/os.log` |
 | `upload.*` | | optional S3 upload |
 
-`zgrab2` and `zdns` are invoked by name from `$PATH`.
+`zgrab2` and `zdns` are invoked by name from `$PATH`. The os stage does not bind
+a source interface (its scanners connect out over the default route), so unlike
+`zmap` and `ipid` it takes no `interface` config.
 
 ### ipid — `config/ipid.yaml`
 
@@ -157,46 +162,63 @@ The three stages are chained by the zmap **run id**: `measure-zmap` produces it,
 
 ### Manually, one protocol
 
+Each tool has a `make run-<tool>` wrapper that forwards `ARGS="..."` to the
+binary (and, for `run-zmap`, refreshes the blocklist first). The binaries can
+also be called directly — the wrappers do nothing more than that:
+
 ```bash
 # 1. discover hosts, capture the run id
-id=$(./bin/measure-zmap --payload tcp --port 80 --print-id | tail -n1)
+id=$(make run-zmap ARGS="--payload tcp --port 80 --print-id" | tail -n1)
+#    equivalently: id=$(./bin/measure-zmap --payload tcp --port 80 --print-id | tail -n1)
 
 # 2. fingerprint OS on those hosts
-./bin/measure-os --zmap "$id"
+make run-os ARGS="--zmap $id"
+#    equivalently: ./bin/measure-os --zmap "$id"
 
 # 3. sample IP-ID behaviour on those hosts
-./bin/measure-ipid --zmap "$id" --measurement_mode rt-based
+make run-ipid ARGS="--zmap $id --measurement_mode rt-based"
+#    equivalently: ./bin/measure-ipid --zmap "$id" --measurement_mode rt-based
 ```
 
-(If you built with `make setcap`, no `sudo` is needed; otherwise prefix each
-command with `sudo`.)
+Build first (`make build`, or `make setcap` for the raw-socket binaries); the
+`run-*` targets do not rebuild. If you built with `make setcap`, no `sudo` is
+needed; otherwise prefix each command with `sudo`. Complex `ARGS` containing
+spaces inside a single value (e.g. dns `--probe-args`) are awkward to quote
+through make — call the binary directly for those.
 
-### The full sweep — `scripts/run-all.sh`
+### The full sweep — `make run-all`
 
 ```bash
-./scripts/run-all.sh
+make run-all            # icmp + tcp + udp
+make run-all-icmp       # one protocol only
+make run-all-tcp
+make run-all-udp
 ```
 
-Runs the complete campaign end-to-end with no manual id juggling:
+These wrap `scripts/run-all.sh [icmp|tcp|udp]`, which runs the complete campaign
+end-to-end with no manual id juggling:
 
-1. `make pull-blocklist` to refresh the zmap blocklist.
-2. For each protocol `icmp`, `tcp-80`, `udp-dns-53`: run `measure-zmap` (capturing
-   its id), then `measure-os --zmap <id>`.
-3. For each protocol, sweep `measure-ipid` over `establish_connection`
+1. `make pull-blocklist` once, up front, to refresh the zmap blocklist (so every
+   zmap run in the sweep shares one consistent list).
+2. For each selected protocol: run `measure-zmap` (capturing its id), then
+   `measure-os --zmap <id>`.
+3. For each selected protocol, sweep `measure-ipid` over `establish_connection`
    (`false`/`true` for tcp, `false` otherwise) x three mode/parameter
    combinations (one `rt-based`, two `fixed-interval`), threading the zmap id in
    via `--zmap`.
 
-Edit the variables at the top of the script (`RT_*`, `FI_*`, `DNS_PROBE`) to
-change the swept parameters. This is also the script a scheduler (cron / systemd
-timer) would invoke for a recurring campaign.
+Build the binaries first (`make setcap` / `make build`); the sweep runs them
+directly and does not rebuild. Edit the variables at the top of the script
+(`RT_*`, `FI_*`, `DNS_PROBE`) to change the swept parameters. This is also what a
+scheduler (cron / systemd timer) would invoke for a recurring campaign.
 
 ---
 
 ## Blocklist
 
 Exempt bogon / opt-out prefixes: `measure-zmap` passes `blacklist_file`
-(`config/zmap.yaml`) to zmap via `-b`. Options:
+(`config/zmap.yaml`) to zmap via `-b`. `make run-zmap` and the `run-all*` sweeps
+refresh the blocklist before scanning (only the zmap stage consumes it). Options:
 
 - **Own repo:** `make pull-blocklist BLOCKLIST_REPO=<url>` clones into
   `../active-measurements-blocklists/`; point `blacklist_file` at a file there.
@@ -238,11 +260,15 @@ to keep results local only).
 | Command | Purpose |
 |---|---|
 | `make` / `make build` | build the three binaries |
+| `make build-zmap` / `build-os` / `build-ipid` | build one binary |
 | `make setcap` | build + apply `cap_net_raw,cap_net_admin+ep` (needs sudo) |
+| `make run-zmap` / `run-os` / `run-ipid` | run a built binary with `ARGS="..."` (does not rebuild; `run-zmap` pulls the blocklist first) |
+| `make run-all` | full multi-protocol measurement sweep |
+| `make run-all-icmp` / `run-all-tcp` / `run-all-udp` | sweep one protocol only |
 | `make pull-blocklist` | clone/update the zmap blocklist |
 | `make vet` / `test` / `tidy` / `clean` | Go housekeeping |
-| `scripts/run-all.sh` | full multi-protocol measurement sweep |
-| `scripts/setup-iptables.sh` / `teardown-iptables.sh` | manage the RST-drop rules for `establish_connection` mode |
+| `scripts/run-all.sh [icmp\|tcp\|udp]` | sweep script behind the `run-all*` targets |
+| `scripts/setup-iptables.sh` / `teardown-iptables.sh` | standalone RST-drop rules for `establish_connection` mode (the tool installs/removes these itself; scripts are a manual escape hatch) |
 
 # TODO
 

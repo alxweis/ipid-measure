@@ -10,7 +10,6 @@ import (
 
 type OSConfig struct {
 	ZMapReference `yaml:",inline"`
-	Interface     Interface `yaml:"interface"`
 	Modules       OSModules `yaml:"modules"`
 
 	ZGrab2Senders *ScaledNumber `yaml:"zgrab2_senders"`
@@ -86,18 +85,6 @@ func validateOSConfig(config *OSConfig) error {
 		}
 	} else if HasSNMPModule(config.Modules) {
 		return fmt.Errorf("snmp_workers must be set, if you use snmp modules")
-	}
-
-	// --- INTERFACE ---------------------------------------------------------------
-
-	// No raw-ICMP send/receive permission test required, as modules only open regular sockets
-	if err := validateInterface(
-		config.Interface,
-		"interface",
-		false,
-		false,
-	); err != nil {
-		return err
 	}
 
 	// --- ADDITIONAL --------------------------------------------------------------

@@ -23,12 +23,6 @@ zgrab2_senders: 1000
 zdns_threads: 1000
 snmp_workers: 2000
 
-# --- INTERFACE ---------------------------------------------------------------
-
-interface:
-  name: eth0
-  ip: 123.45.67.89
-
 # --- ADDITIONAL --------------------------------------------------------------
 
 connect_timeout: 3s

@@ -3,6 +3,21 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Optional protocol filter: run the full sweep for a single protocol only.
+#   run-all.sh              -> icmp + tcp + udp
+#   run-all.sh icmp|tcp|udp -> just that protocol
+if [ $# -gt 1 ]; then
+    echo "usage: $0 [icmp|tcp|udp]" >&2
+    exit 1
+fi
+case "${1:-all}" in
+    all) SELECTED_PROTOS=(icmp tcp-80 udp-dns-53) ;;
+    icmp) SELECTED_PROTOS=(icmp) ;;
+    tcp) SELECTED_PROTOS=(tcp-80) ;;
+    udp) SELECTED_PROTOS=(udp-dns-53) ;;
+    *) echo "usage: $0 [icmp|tcp|udp]" >&2; exit 1 ;;
+esac
+
 make pull-blocklist
 
 # --- collected measurement ids (printed as a summary at the end) --------------
@@ -36,7 +51,7 @@ MODES=(
 
 DNS_PROBE="A,www.example.com"
 
-PROTOS=(icmp tcp-80 udp-dns-53)
+PROTOS=("${SELECTED_PROTOS[@]}")
 
 declare -A ZMAP
 
