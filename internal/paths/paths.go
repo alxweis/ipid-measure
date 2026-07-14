@@ -2,8 +2,9 @@ package paths
 
 import (
 	"fmt"
-	"io"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Measurement struct {
@@ -42,30 +43,14 @@ func (p *Measurement) CreateDirectory() error {
 	return os.MkdirAll(p.Path, 0755)
 }
 
-func (p *Measurement) CreateConfigSnapshot(configFilePath string) error {
-	srcInfo, err := os.Stat(configFilePath)
+func (p *Measurement) CreateConfigSnapshot(config any) error {
+	data, err := yaml.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("stat config source: %w", err)
+		return fmt.Errorf("marshal effective config: %w", err)
 	}
 
-	src, err := os.Open(configFilePath)
-	if err != nil {
-		return fmt.Errorf("open config source: %w", err)
-	}
-	defer src.Close()
-
-	dst, err := os.OpenFile(
-		p.ConfigSnapshotPath,
-		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
-		srcInfo.Mode(),
-	)
-	if err != nil {
-		return fmt.Errorf("create config snapshot: %w", err)
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, src); err != nil {
-		return fmt.Errorf("copy config snapshot: %w", err)
+	if err := os.WriteFile(p.ConfigSnapshotPath, data, 0644); err != nil {
+		return fmt.Errorf("write config snapshot: %w", err)
 	}
 
 	return nil

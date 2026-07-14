@@ -79,7 +79,7 @@ func main() {
 	if err := m.CreateZMapLink(c.ZMapFilePath); err != nil {
 		log.Fatalf("create zmap symlink: %v", err)
 	}
-	if err := m.CreateConfigSnapshot(configFilePath); err != nil {
+	if err := m.CreateConfigSnapshot(c); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
 	}
 
