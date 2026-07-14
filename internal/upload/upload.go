@@ -2,12 +2,13 @@ package upload
 
 import (
 	"fmt"
-	"github.com/alxweis/ipid-measure/internal/config"
-	"github.com/alxweis/ipid-measure/internal/paths"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/paths"
 )
 
 // syncToS3 mirrors the measurement directory into the S3 destination using s3cmd (creds from the local ~/.s3cfg).
@@ -38,4 +39,11 @@ func Upload(c config.UploadConfig, m paths.Measurement) error {
 		log.Printf("deleted local measurement directory: %s", m.Path)
 	}
 	return nil
+}
+
+// RemoteMeasurementURI returns the directory created by s3cmd sync for one
+// measurement. syncToS3 passes the source directory without a trailing slash,
+// so s3cmd preserves its basename below the configured destination.
+func RemoteMeasurementURI(c config.UploadConfig, m paths.Measurement) string {
+	return strings.TrimRight(c.S3Destination, "/") + "/" + m.ID
 }

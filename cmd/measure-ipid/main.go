@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"path/filepath"
@@ -9,13 +10,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/alxweis/ipid-measure/internal/upload"
-
+	"github.com/alxweis/ipid-measure/internal/analysisworkflow"
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
 	"github.com/alxweis/ipid-measure/internal/logger"
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/internal/upload"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 
 	_ "github.com/alxweis/ipid-measure/ipid/receiver"
@@ -36,6 +37,8 @@ func main() {
 	requestIntervalFlag := flag.Duration("fixed_interval.request_interval", -1, "override fixed_interval.request_interval (e.g. 20ms); negative keeps the configured value")
 	minReplyRateFlag := flag.Float64("fixed_interval.minimum_reply_rate", -1, "override fixed_interval.minimum_reply_rate [0.0,1.0]; negative keeps the configured value")
 	establishConnFlag := flag.String("tcp.establish_connection", "", "override tcp.establish_connection (true|false); empty keeps the configured value")
+	targetFileFlag := flag.String("target-file", "", "override the zmap parquet used as the target set")
+	analysisWorkflowFlag := flag.String("analysis_workflow.enable", "", "override analysis_workflow.enable (true|false); empty keeps the configured value")
 	flag.Parse()
 
 	configFilePath, err := filepath.Abs(*configFlag)
@@ -52,17 +55,27 @@ func main() {
 		}
 		establishConn = &b
 	}
+	var analysisWorkflow *bool
+	if *analysisWorkflowFlag != "" {
+		b, err := strconv.ParseBool(*analysisWorkflowFlag)
+		if err != nil {
+			log.Fatalf("invalid --analysis_workflow.enable %q: %v", *analysisWorkflowFlag, err)
+		}
+		analysisWorkflow = &b
+	}
 
 	c, err := config.LoadIPIDConfig(configFilePath, func(c *config.IPIDConfig) {
 		applyIPIDFlags(
 			c,
 			*zmapFlag,
+			*targetFileFlag,
 			*connectionCountFlag,
 			*requestsPerConnFlag,
 			*measurementModeFlag,
 			*requestIntervalFlag,
 			*minReplyRateFlag,
 			establishConn,
+			analysisWorkflow,
 		)
 	})
 	if err != nil {
@@ -101,20 +114,34 @@ func main() {
 	if err = upload.Upload(c.UploadConfig, m.Measurement); err != nil {
 		log.Fatalf("upload measurement: %v", err)
 	}
+	if c.AnalysisWorkflowConfig.Enable {
+		resultPath, err := analysisworkflow.RequestAndWait(
+			context.Background(), c.AnalysisWorkflowConfig, c.UploadConfig, m.Measurement,
+		)
+		if err != nil {
+			log.Fatalf("analysis workflow: %v", err)
+		}
+		log.Printf("analysis workflow completed: %s", resultPath)
+	}
 }
 
 func applyIPIDFlags(
 	c *config.IPIDConfig,
 	zmapID string,
+	targetFile string,
 	connectionCount int,
 	requestsPerConnection int,
 	measurementMode string,
 	requestInterval time.Duration,
 	minReplyRate float64,
 	establishConn *bool,
+	analysisWorkflow *bool,
 ) {
 	if zmapID != "" {
 		c.ZMapID = zmapID
+	}
+	if targetFile != "" {
+		c.TargetFile = targetFile
 	}
 	if connectionCount > 0 {
 		c.ConnectionCount = uint16(connectionCount)
@@ -133,5 +160,8 @@ func applyIPIDFlags(
 	}
 	if establishConn != nil {
 		c.TCPConfig.EstablishConnection = *establishConn
+	}
+	if analysisWorkflow != nil {
+		c.AnalysisWorkflowConfig.Enable = *analysisWorkflow
 	}
 }

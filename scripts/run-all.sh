@@ -84,42 +84,64 @@ for proto in "${PROTOS[@]}"; do
 done
 
 # --- Phase 2: ipid parameter sweep -------------------------------------------
+LAST_IPID_ID=
+run_ipid() {
+    local proto=$1 zmap_id=$2 tcp_establish_con=$3 spec=$4
+    local target_file=${5:-} analysis_workflow=${6:-false}
+    local mode con_count reqs_per_con fi_request_interval fi_minimum_reply_rate
+    IFS=: read -r mode con_count reqs_per_con fi_request_interval fi_minimum_reply_rate <<< "$spec"
+
+    args=(--config "config/ipid.yaml"
+          --zmap "$zmap_id"
+          --connection_count "$con_count"
+          --requests_per_connection "$reqs_per_con"
+          --measurement_mode "$mode"
+          --tcp.establish_connection "$tcp_establish_con"
+          --analysis_workflow.enable "$analysis_workflow")
+
+    if [[ "$mode" == "fixed-interval" ]]; then
+        args+=(--fixed_interval.request_interval "$fi_request_interval"
+               --fixed_interval.minimum_reply_rate "$fi_minimum_reply_rate")
+    fi
+    if [[ -n "$target_file" ]]; then
+        args+=(--target-file "$target_file")
+    fi
+
+    echo "=== [$proto] ipid: mode=$mode con=$con_count reqs=$reqs_per_con establish=$tcp_establish_con ${fi_request_interval:+interval=$fi_request_interval rate=$fi_minimum_reply_rate} ${target_file:+targets=$target_file} ==="
+    ./bin/measure-ipid "${args[@]}"
+    LAST_IPID_ID=$(latest_id ipid)
+    SUMMARY+=("ipid  $proto  est=$tcp_establish_con mode=$mode con=$con_count reqs=$reqs_per_con  $LAST_IPID_ID")
+}
+
 for proto in "${PROTOS[@]}"; do
     id=${ZMAP[$proto]}
 
-    # establish_connection only varies for tcp/80
     if [[ "$proto" == "tcp-80" ]]; then
-        tcp_establish_con_values=(false true)
-    else
-        tcp_establish_con_values=(false)
-    fi
-
-    for tcp_establish_con in "${tcp_establish_con_values[@]}"; do
-        modes=("${MODES[@]}")
-        if [[ "$tcp_establish_con" == "false" ]]; then
-            modes+=("${STATELESS_ONLY_MODES[@]}")
+        # The stateless RT run publishes an S3 analysis request and blocks until
+        # the analysis VM has returned a verified UNCLASSIFIED target parquet.
+        run_ipid "$proto" "$id" false "${MODES[0]}" "" true
+        rt_id=$LAST_IPID_ID
+        unclassified_targets="$PWD/ipid/raw/$rt_id/zmap_unclassified.pq"
+        if [[ ! -f "$unclassified_targets" ]]; then
+            echo "analysis result missing: $unclassified_targets" >&2
+            exit 1
         fi
 
-        for spec in "${modes[@]}"; do
-            IFS=: read -r mode con_count reqs_per_con fi_request_interval fi_minimum_reply_rate <<< "$spec"
+        # Probe only the RT-unclassified addresses at the higher sample count.
+        run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" false
 
-            args=(--config "config/ipid.yaml"
-                  --zmap "$id"
-                  --connection_count "$con_count"
-                  --requests_per_connection "$reqs_per_con"
-                  --measurement_mode "$mode"
-                  --tcp.establish_connection "$tcp_establish_con")
+        # All remaining runs keep using the original zmap target set.
+        run_ipid "$proto" "$id" false "${MODES[1]}" "" false
+        run_ipid "$proto" "$id" true  "${MODES[0]}" "" false
+        run_ipid "$proto" "$id" true  "${MODES[1]}" "" false
+        continue
+    fi
 
-            if [[ "$mode" == "fixed-interval" ]]; then
-                args+=(--fixed_interval.request_interval "$fi_request_interval"
-                       --fixed_interval.minimum_reply_rate "$fi_minimum_reply_rate")
-            fi
-
-            echo "=== [$proto] ipid: mode=$mode con=$con_count reqs=$reqs_per_con establish=$tcp_establish_con ${fi_request_interval:+interval=$fi_request_interval rate=$fi_minimum_reply_rate} ==="
-            ./bin/measure-ipid "${args[@]}"
-            SUMMARY+=("ipid  $proto  est=$tcp_establish_con mode=$mode con=$con_count reqs=$reqs_per_con  $(latest_id ipid)")
-        done
-    done
+    # ICMP and UDP have no connection-establishment variant and keep their
+    # original base/base/mass sweep against the original zmap result.
+    run_ipid "$proto" "$id" false "${MODES[0]}" "" false
+    run_ipid "$proto" "$id" false "${MODES[1]}" "" false
+    run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "" false
 done
 
 echo "=== sweep complete ==="

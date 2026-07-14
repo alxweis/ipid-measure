@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/alxweis/ipid-measure/internal/sets"
@@ -40,5 +42,26 @@ func TestTCPConfigYAMLRoundTrip(t *testing.T) {
 		if !got.ReplyFlags[i].Equal(want.ReplyFlags[i]) {
 			t.Fatalf("ReplyFlags[%d] = %v, want %v", i, got.ReplyFlags[i], want.ReplyFlags[i])
 		}
+	}
+}
+
+func TestZMapReferenceUsesExplicitTargetFile(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "zmap_unclassified.pq")
+	if err := os.WriteFile(target, []byte("parquet"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reference := ZMapReference{
+		ZMapID:     "tcp-80_2026-01-01_00-00-00",
+		TargetFile: target,
+	}
+	if err := reference.ValidateAndParseZMap(); err != nil {
+		t.Fatalf("ValidateAndParseZMap() error = %v", err)
+	}
+	if reference.ZMapFilePath != target {
+		t.Fatalf("ZMapFilePath = %q, want %q", reference.ZMapFilePath, target)
+	}
+	if reference.ZMapPayload != types.PayloadTCP {
+		t.Fatalf("ZMapPayload = %q, want %q", reference.ZMapPayload, types.PayloadTCP)
 	}
 }

@@ -32,6 +32,8 @@ type IPIDConfig struct {
 	GoMemoryLimit *ScaledNumber `yaml:"go_memory_limit"`
 
 	UploadConfig UploadConfig `yaml:"upload"`
+
+	AnalysisWorkflowConfig AnalysisWorkflowConfig `yaml:"analysis_workflow"`
 }
 
 type FixedIntervalConfig struct {
@@ -268,6 +270,9 @@ func validateIPIDConfig(config *IPIDConfig) error {
 	// --- UPLOAD ------------------------------------------------------------------
 
 	if err := validateUpload(config.UploadConfig); err != nil {
+		return err
+	}
+	if err := validateAnalysisWorkflow(config); err != nil {
 		return err
 	}
 
