@@ -44,7 +44,7 @@ RUN_TARGETS   := $(addprefix run-,$(TOOLS))
 
 .PHONY: all build setcap pull-blocklist \
         $(BUILD_TARGETS) $(RUN_TARGETS) \
-        run-all run-all-icmp run-all-tcp run-all-udp \
+        run-all-icmp run-all-tcp run-all-udp \
         vet test tidy clean
 
 all: build
@@ -70,11 +70,7 @@ $(RUN_TARGETS): run-%:
 # The zmap stage always refreshes the blocklist first.
 run-zmap: pull-blocklist
 
-# Full multi-protocol sweep and per-protocol slices. run-all.sh pulls the
-# blocklist once up front, so all zmap runs in a sweep share one consistent list.
-run-all:
-	./scripts/run-all.sh
-
+# Per-protocol sweeps. run-all.sh pulls the blocklist once up front.
 run-all-icmp:
 	./scripts/run-all.sh icmp
 
