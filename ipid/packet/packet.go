@@ -20,12 +20,9 @@ import (
 
 var opts = gopacket.SerializeOptions{ComputeChecksums: false, FixLengths: true}
 
-const tcpFINPacketBytes = 40
+const tcpResetPacketBytes = 40
 
-var (
-	RawPacketsTotalBytes int
-	rawPackets           [][]byte
-)
+var rawPackets [][]byte
 
 // Setup builds the immutable raw packet templates.
 func Setup() {
@@ -38,7 +35,6 @@ func Setup() {
 
 	n := int(measurement.RequestCount)
 	rawPackets = make([][]byte, n)
-	RawPacketsTotalBytes = 0
 
 	protocol := payload.Active.ProtocolID
 	packetBuf := gopacket.NewSerializeBuffer()
@@ -61,13 +57,7 @@ func Setup() {
 			panic(err)
 		}
 
-		RawPacketsTotalBytes += len(sndr.EthHeader) + len(packetBuf.Bytes())
 		rawPackets[seqNum] = append([]byte(nil), packetBuf.Bytes()...)
-	}
-
-	if measurement.TcpEstablishConnection {
-		RawPacketsTotalBytes += int(measurement.Config.ConnectionCount) *
-			(len(sender.SenderA.EthHeader) + tcpFINPacketBytes)
 	}
 }
 
@@ -115,9 +105,9 @@ func SetTCPAcknowledgment(packet []byte, acknowledgment uint32) {
 	payload.Active.SetChecksum(packet)
 }
 
-// BuildTCPFINPacket builds a FIN+ACK packet with the next sequence number for
-// one established connection. FIN replies are intentionally not measured.
-func BuildTCPFINPacket(
+// BuildTCPResetPacket builds a RST+ACK packet for an established connection.
+// A reset releases peer state immediately and does not invite a reply.
+func BuildTCPResetPacket(
 	dstIP net.IP,
 	srcIP net.IP,
 	srcPort uint16,
@@ -135,7 +125,7 @@ func BuildTCPFINPacket(
 	ipLayer.DstIP = dstIP
 	tcpLayer, ok := tcp.Layer(
 		seqNum,
-		sets.New(types.TCPFlagFIN, types.TCPFlagACK),
+		sets.New(types.TCPFlagRST, types.TCPFlagACK),
 	).(*layers.TCP)
 	if !ok {
 		return nil, fmt.Errorf("unexpected TCP layer type %T", tcpLayer)
@@ -145,7 +135,7 @@ func BuildTCPFINPacket(
 
 	packetBuffer := gopacket.NewSerializeBuffer()
 	if err := gopacket.SerializeLayers(packetBuffer, opts, ipLayer, tcpLayer); err != nil {
-		return nil, fmt.Errorf("serialize FIN+ACK packet: %w", err)
+		return nil, fmt.Errorf("serialize RST+ACK packet: %w", err)
 	}
 
 	packetBytes := append([]byte(nil), packetBuffer.Bytes()...)

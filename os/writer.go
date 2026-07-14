@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	osstd "os"
+	"sync/atomic"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/snappy"
@@ -24,7 +25,7 @@ type Writer struct {
 	buffered *bufio.Writer
 	pq       *parquet.GenericWriter[records.OSRecord]
 	batch    []records.OSRecord
-	written  uint64
+	written  atomic.Uint64
 	closed   bool
 }
 
@@ -68,12 +69,12 @@ func (w *Writer) flush() error {
 	if _, err := w.pq.Write(w.batch); err != nil {
 		return fmt.Errorf("parquet write: %w", err)
 	}
-	w.written += uint64(len(w.batch))
+	w.written.Add(uint64(len(w.batch)))
 	w.batch = w.batch[:0]
 	return nil
 }
 
-func (w *Writer) Written() uint64 { return w.written }
+func (w *Writer) Written() uint64 { return w.written.Load() }
 
 func (w *Writer) Close() error {
 	if w.closed {

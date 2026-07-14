@@ -28,6 +28,9 @@ const (
 // runPipeline reads IPs from zmap.pq, fans out to the three scanners,
 // merges per-IP results, fingerprints, and writes to os.pq.
 func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputPath string) (uint64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// Open zmap
 	inFile, err := osstd.Open(zmapInputPath)
 	if err != nil {
@@ -61,17 +64,15 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 
 	outRecords := make(chan records.OSRecord, ResultBufferSize)
 	m := newMerger(c.Modules, outRecords)
+	writerErrCh := make(chan error, 1)
 
 	// Writer goroutine: drains outRecords -> parquet.
 	writerWg := sync.WaitGroup{}
 	writerWg.Add(1)
 	go func() {
 		defer writerWg.Done()
-		for rec := range outRecords {
-			if err := writer.Append(rec); err != nil {
-				log.Printf("os: parquet append: %v", err)
-				return
-			}
+		if err := drainWriter(outRecords, writer.Append, cancel); err != nil {
+			writerErrCh <- fmt.Errorf("append os parquet: %w", err)
 		}
 	}()
 
@@ -329,14 +330,41 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 
 	// Close the writer here so Written() reflects the final flushed row count
 	// (the defer at function entry is now a no-op via Writer.closed).
-	if err := writer.Close(); err != nil {
-		log.Printf("os: parquet close: %v", err)
-	}
+	closeErr := writer.Close()
 
 	log.Printf("os: wrote %d records, %d dropped (no OS match), %d merger inputs",
 		m.totalEmitted.Load(), m.totalDropped.Load(), m.totalReceived.Load())
 
+	select {
+	case writerErr := <-writerErrCh:
+		return writer.Written(), writerErr
+	default:
+	}
+	if closeErr != nil {
+		return writer.Written(), fmt.Errorf("close os parquet: %w", closeErr)
+	}
 	return writer.Written(), feederErr
+}
+
+// drainWriter keeps consuming records after the first write failure so merger
+// goroutines cannot deadlock on a full output channel while cancellation drains
+// the rest of the pipeline.
+func drainWriter(
+	records <-chan records.OSRecord,
+	appendRecord func(records.OSRecord) error,
+	cancel context.CancelFunc,
+) error {
+	var firstErr error
+	for rec := range records {
+		if firstErr != nil {
+			continue
+		}
+		if err := appendRecord(rec); err != nil {
+			firstErr = err
+			cancel()
+		}
+	}
+	return firstErr
 }
 
 // reportOSStats logs progress once per second so a long run shows life.

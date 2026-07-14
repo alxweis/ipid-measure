@@ -24,7 +24,7 @@ func TestSetTCPAcknowledgment(t *testing.T) {
 	}
 }
 
-func TestBuildTCPFINPacket(t *testing.T) {
+func TestBuildTCPResetPacket(t *testing.T) {
 	previousConfig := measurement.Config
 	previousOffset := measurement.TcpSequenceNumOffset
 	previousEstablish := measurement.TcpEstablishConnection
@@ -47,7 +47,7 @@ func TestBuildTCPFINPacket(t *testing.T) {
 	measurement.TcpEstablishConnection = true
 	payload.Active = payload.TCP
 
-	packetBytes, err := BuildTCPFINPacket(
+	packetBytes, err := BuildTCPResetPacket(
 		net.IPv4(192, 0, 2, 10),
 		net.IPv4(192, 0, 2, 20),
 		40_002,
@@ -56,11 +56,11 @@ func TestBuildTCPFINPacket(t *testing.T) {
 		0x12345678,
 	)
 	if err != nil {
-		t.Fatalf("BuildTCPFINPacket() error = %v", err)
+		t.Fatalf("BuildTCPResetPacket() error = %v", err)
 	}
 
-	if len(packetBytes) != tcpFINPacketBytes {
-		t.Fatalf("packet length = %d, want %d", len(packetBytes), tcpFINPacketBytes)
+	if len(packetBytes) != tcpResetPacketBytes {
+		t.Fatalf("packet length = %d, want %d", len(packetBytes), tcpResetPacketBytes)
 	}
 	if got := net.IP(packetBytes[12:16]); !got.Equal(net.IPv4(192, 0, 2, 20)) {
 		t.Fatalf("source IP = %s", got)
@@ -80,8 +80,8 @@ func TestBuildTCPFINPacket(t *testing.T) {
 	if got := binary.BigEndian.Uint32(packetBytes[28:32]); got != 0x12345678 {
 		t.Fatalf("acknowledgment = %#x, want %#x", got, uint32(0x12345678))
 	}
-	if flags := packetBytes[33]; flags != 0x11 {
-		t.Fatalf("TCP flags = %#x, want FIN+ACK (0x11)", flags)
+	if flags := packetBytes[33]; flags != 0x14 {
+		t.Fatalf("TCP flags = %#x, want RST+ACK (0x14)", flags)
 	}
 	if checksum := binary.BigEndian.Uint16(packetBytes[10:12]); checksum == 0 {
 		t.Fatal("IPv4 checksum was not populated")

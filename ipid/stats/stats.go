@@ -47,10 +47,6 @@ var (
 func Log() {
 	defer measurement.LogsWg.Done()
 
-	if ProbesReachedSeq == nil {
-		ProbesReachedSeq = make([]int64, measurement.RequestCount)
-	}
-
 	duration := consts.LogUpdateInterval
 	ticker := time.NewTicker(duration)
 	defer ticker.Stop()
@@ -196,7 +192,12 @@ func Log() {
 }
 
 func init() {
-	measurement.StartStats = func() { go Log() }
+	measurement.StartStats = func() {
+		// Initialize synchronously before target streaming starts. A reply may
+		// otherwise reach probe.Measure before the logger goroutine is scheduled.
+		ProbesReachedSeq = make([]int64, measurement.RequestCount)
+		go Log()
+	}
 	measurement.GetRecordCount = func() int64 { return atomic.LoadInt64(&ValidProbes) }
 }
 

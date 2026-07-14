@@ -12,7 +12,6 @@ const (
 	ParquetExtension        = ".pq"
 	ConfigExtension         = ".yaml"
 	ConfigSnapshotExtension = ".snapshot" + ConfigExtension
-	MetadataExtension       = ".json"
 	LogExtension            = ".log"
 )
 
@@ -28,10 +27,6 @@ const (
 	ZMapConfigSnapshotFile = "zmap" + ConfigSnapshotExtension
 	OSConfigSnapshotFile   = "os" + ConfigSnapshotExtension
 	IPIDConfigSnapshotFile = "ipid" + ConfigSnapshotExtension
-
-	ZMapMetadataFile = "zmap" + MetadataExtension
-	OSMetadataFile   = "os" + MetadataExtension
-	IPIDMetadataFile = "ipid" + MetadataExtension
 
 	ZMapLogFile = "zmap" + LogExtension
 	OSLogFile   = "os" + LogExtension

@@ -2,7 +2,7 @@ package probe
 
 import (
 	"bufio"
-	"log"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -38,13 +38,11 @@ func Save() {
 
 	f, err := os.Create(measurement.Paths.MeasurementFilePath)
 	if err != nil {
-		log.Fatalf("create parquet file: %v", err)
-	}
-	defer func() {
-		if err := f.Close(); err != nil {
-			log.Printf("file close error: %v", err)
+		measurement.Fail(fmt.Errorf("create ipid parquet file: %w", err))
+		for range SaveProbesChannel {
 		}
-	}()
+		return
+	}
 
 	bw := bufio.NewWriterSize(f, consts.IPIDSaveFileBufferSize)
 
@@ -55,13 +53,15 @@ func Save() {
 	)
 
 	batch := make([]records.IPIDRecord, 0, ParquetWriteBatchSize)
+	failed := false
 
 	flush := func() {
-		if len(batch) == 0 {
+		if len(batch) == 0 || failed {
 			return
 		}
 		if _, err := writer.Write(batch); err != nil {
-			log.Printf("parquet write error: %v", err)
+			failed = true
+			measurement.Fail(fmt.Errorf("write ipid parquet: %w", err))
 		}
 		batch = batch[:0]
 	}
@@ -69,7 +69,7 @@ func Save() {
 	rtBased := measurement.Config.MeasurementMode == types.MeasurementModeRTBased
 
 	for p := range SaveProbesChannel {
-		if p == nil {
+		if p == nil || failed {
 			continue
 		}
 		rec, ok := probeToRecord(p, rtBased)
@@ -86,10 +86,13 @@ func Save() {
 	// Final flush, then close writer and buffered writer in order.
 	flush()
 	if err := writer.Close(); err != nil {
-		log.Printf("parquet close error: %v", err)
+		measurement.Fail(fmt.Errorf("close ipid parquet writer: %w", err))
 	}
 	if err := bw.Flush(); err != nil {
-		log.Printf("bufio flush error: %v", err)
+		measurement.Fail(fmt.Errorf("flush ipid parquet buffer: %w", err))
+	}
+	if err := f.Close(); err != nil {
+		measurement.Fail(fmt.Errorf("close ipid parquet file: %w", err))
 	}
 }
 
