@@ -46,6 +46,11 @@ FI_CONNECTION_COUNT_2=4; FI_REQUESTS_PER_CON_2=25; FI_REQUEST_INTERVAL_2=20ms; F
 MODES=(
     "rt-based:${RT_CONNECTION_COUNT}:${RT_REQUESTS_PER_CON}::"
     "fixed-interval:${FI_CONNECTION_COUNT_1}:${FI_REQUESTS_PER_CON_1}:${FI_REQUEST_INTERVAL_1}:${FI_MIN_REPLY_RATE_1}"
+)
+
+# High-volume fixed-interval probing is only safe without establishing TCP
+# connections. Running it against many hosts with full handshakes is unfriendly.
+STATELESS_ONLY_MODES=(
     "fixed-interval:${FI_CONNECTION_COUNT_2}:${FI_REQUESTS_PER_CON_2}:${FI_REQUEST_INTERVAL_2}:${FI_MIN_REPLY_RATE_2}"
 )
 
@@ -90,7 +95,12 @@ for proto in "${PROTOS[@]}"; do
     fi
 
     for tcp_establish_con in "${tcp_establish_con_values[@]}"; do
-        for spec in "${MODES[@]}"; do
+        modes=("${MODES[@]}")
+        if [[ "$tcp_establish_con" == "false" ]]; then
+            modes+=("${STATELESS_ONLY_MODES[@]}")
+        fi
+
+        for spec in "${modes[@]}"; do
             IFS=: read -r mode con_count reqs_per_con fi_request_interval fi_minimum_reply_rate <<< "$spec"
 
             args=(--config "config/ipid.yaml"
