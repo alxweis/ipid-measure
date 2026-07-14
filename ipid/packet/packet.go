@@ -96,6 +96,13 @@ func BuildPacketsInto(packets [][]byte, dstIP net.IP, basePort uint16) {
 	}
 }
 
+// SetTCPAcknowledgment patches the TCP ACK field in a packet prepared for an
+// established connection and recomputes its transport checksum.
+func SetTCPAcknowledgment(packet []byte, acknowledgment uint32) {
+	binary.BigEndian.PutUint32(packet[28:32], acknowledgment)
+	payload.Active.SetChecksum(packet)
+}
+
 func init() {
 	measurement.SetupRawPackets = Setup
 }

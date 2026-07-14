@@ -31,7 +31,7 @@ type DNSFlagSet = sets.Set[DNSFlag]
 
 var (
 	SynAckFlagSet = sets.New(TCPFlagSYN, TCPFlagACK)
-	PshAckFlagSet = sets.New(TCPFlagPSH, TCPFlagACK)
+	AckFlagSet    = sets.New(TCPFlagACK)
 	DnsQRFlagSet  = sets.New(DNSFlagQR)
 )
 

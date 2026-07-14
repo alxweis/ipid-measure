@@ -49,7 +49,7 @@ func main() {
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
 	}
-	if err := m.CreateConfigSnapshot(configFilePath); err != nil {
+	if err := m.CreateConfigSnapshot(c); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
 	}
 

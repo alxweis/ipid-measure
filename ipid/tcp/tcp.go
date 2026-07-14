@@ -6,6 +6,7 @@ import (
 	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/checksum"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/seqnum"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
@@ -18,16 +19,24 @@ func Payload(seqNum uint16) byte {
 
 func Layer(seqNum uint16, overwriteRequestFlags types.TCPFlagSet) gopacket.SerializableLayer {
 	flags := measurement.Config.TCPConfig.RequestFlags
+	tcpSequenceNumber := measurement.TcpSequenceNumOffset + uint32(seqNum)
 
 	if overwriteRequestFlags != nil {
 		flags = overwriteRequestFlags
+	}
+	if measurement.TcpEstablishConnection {
+		tcpSequenceNumber = seqnum.TCPSequenceNumber(
+			measurement.TcpSequenceNumOffset,
+			seqNum,
+			measurement.Config.ConnectionCount,
+		)
 	}
 
 	return &layers.TCP{
 		SrcPort: layers.TCPPort(0),
 		DstPort: layers.TCPPort(*measurement.Config.ZMapPort),
 
-		Seq: measurement.TcpSequenceNumOffset + uint32(seqNum),
+		Seq: tcpSequenceNumber,
 
 		FIN: flags.Contains(types.TCPFlagFIN),
 		SYN: flags.Contains(types.TCPFlagSYN),

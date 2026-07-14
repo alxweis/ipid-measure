@@ -203,9 +203,10 @@ end-to-end with no manual id juggling:
 2. For each selected protocol: run `measure-zmap` (capturing its id), then
    `measure-os --zmap <id>`.
 3. For each selected protocol, sweep `measure-ipid` over `establish_connection`
-   (`false`/`true` for tcp, `false` otherwise) x three mode/parameter
-   combinations (one `rt-based`, two `fixed-interval`), threading the zmap id in
-   via `--zmap`.
+   (`false`/`true` for tcp, `false` otherwise) and the configured mode/parameter
+   combinations, threading the zmap id in via `--zmap`. The high-volume second
+   `fixed-interval` combination is deliberately stateless-only and is skipped
+   for TCP with `establish_connection=true`.
 
 Build the binaries first (`make setcap` / `make build`); the sweep runs them
 directly and does not rebuild. Edit the variables at the top of the script

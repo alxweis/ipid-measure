@@ -16,6 +16,7 @@ type InflightEntry struct {
 
 	expectedMinPort uint16
 	expectedMaxPort uint16
+	basePort        uint16
 
 	expectedFlags FlagExpectation
 
@@ -33,7 +34,7 @@ type FlagExpectation uint8
 const (
 	FlagsDefault FlagExpectation = 0
 	FlagsSynAck  FlagExpectation = 1
-	FlagsPshAck  FlagExpectation = 2
+	FlagsAck     FlagExpectation = 2
 )
 
 func (e *InflightEntry) markDone() {

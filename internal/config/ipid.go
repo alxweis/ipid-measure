@@ -69,6 +69,18 @@ func (c *TCPConfig) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+func (c TCPConfig) MarshalYAML() (any, error) {
+	return struct {
+		EstablishConnection bool     `yaml:"establish_connection"`
+		RequestFlags        string   `yaml:"request_flags"`
+		ReplyFlags          []string `yaml:"reply_flags"`
+	}{
+		EstablishConnection: c.EstablishConnection,
+		RequestFlags:        formatTCPFlagSet(c.RequestFlags),
+		ReplyFlags:          formatTCPFlagSets(c.ReplyFlags),
+	}, nil
+}
+
 // parseTCPFlagSet splits a flag string like "SA" into a set {S, A}.
 func parseTCPFlagSet(s string) types.TCPFlagSet {
 	set := sets.New[types.TCPFlag]()
@@ -76,6 +88,27 @@ func parseTCPFlagSet(s string) types.TCPFlagSet {
 		set.Add(string(s[i]))
 	}
 	return set
+}
+
+func formatTCPFlagSet(flags types.TCPFlagSet) string {
+	const canonicalOrder = "FSRPAUECN"
+
+	result := make([]byte, 0, len(flags))
+	for i := 0; i < len(canonicalOrder); i++ {
+		flag := string(canonicalOrder[i])
+		if flags.Contains(flag) {
+			result = append(result, canonicalOrder[i])
+		}
+	}
+	return string(result)
+}
+
+func formatTCPFlagSets(flagSets []types.TCPFlagSet) []string {
+	result := make([]string, len(flagSets))
+	for i, flags := range flagSets {
+		result[i] = formatTCPFlagSet(flags)
+	}
+	return result
 }
 
 func LoadIPIDConfig(path string, apply func(*IPIDConfig)) (*IPIDConfig, error) {
