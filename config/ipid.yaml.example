@@ -59,3 +59,11 @@ upload:
   enable: true
   s3_destination: s3://bucket/prefix/
   delete_local: false
+
+# --- S3 ANALYSIS HANDOFF ------------------------------------------------------
+
+analysis_workflow:
+  enable: false
+  s3_prefix: s3://bucket/ipid-analysis-workflow/
+  poll_interval: 30s
+  timeout: 24h
