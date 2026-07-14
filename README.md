@@ -186,11 +186,10 @@ needed; otherwise prefix each command with `sudo`. Complex `ARGS` containing
 spaces inside a single value (e.g. dns `--probe-args`) are awkward to quote
 through make — call the binary directly for those.
 
-### The full sweep — `make run-all`
+### Per-protocol sweeps
 
 ```bash
-make run-all            # icmp + tcp + udp
-make run-all-icmp       # one protocol only
+make run-all-icmp
 make run-all-tcp
 make run-all-udp
 ```
@@ -241,6 +240,10 @@ connection. It installs and removes these rules automatically around the run
 `scripts/teardown-iptables.sh <dst-port> <ip_a> [<ip_b>]` install/remove the same
 rules standalone, if you prefer to manage them yourself.
 
+After probing, the tool sends a FIN+ACK on every successfully established TCP
+connection. These closing packets are rate-accounted but are not added to the
+IP-ID result sequence.
+
 ---
 
 ## Output
@@ -264,13 +267,8 @@ to keep results local only).
 | `make build-zmap` / `build-os` / `build-ipid` | build one binary |
 | `make setcap` | build + apply `cap_net_raw,cap_net_admin+ep` (needs sudo) |
 | `make run-zmap` / `run-os` / `run-ipid` | run a built binary with `ARGS="..."` (does not rebuild; `run-zmap` pulls the blocklist first) |
-| `make run-all` | full multi-protocol measurement sweep |
 | `make run-all-icmp` / `run-all-tcp` / `run-all-udp` | sweep one protocol only |
 | `make pull-blocklist` | clone/update the zmap blocklist |
 | `make vet` / `test` / `tidy` / `clean` | Go housekeeping |
 | `scripts/run-all.sh [icmp\|tcp\|udp]` | sweep script behind the `run-all*` targets |
 | `scripts/setup-iptables.sh` / `teardown-iptables.sh` | standalone RST-drop rules for `establish_connection` mode (the tool installs/removes these itself; scripts are a manual escape hatch) |
-
-# TODO
-
-- Add FIN-ACK Message to finalize connection
