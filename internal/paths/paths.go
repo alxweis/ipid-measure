@@ -11,7 +11,6 @@ type Measurement struct {
 	ID                  string
 	Path                string
 	MeasurementFilePath string
-	MetadataFilePath    string
 	ConfigSnapshotPath  string
 	LogFilePath         string
 }

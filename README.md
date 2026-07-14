@@ -114,7 +114,7 @@ a source interface (its scanners connect out over the default route), so unlike
 | `number_of_inflight_probes` | scaled-int | in-flight concurrency |
 | `interface.name` | string | the (single) egress interface |
 | `interface.ip_a` | string | source IPv4 that **sends and receives** |
-| `interface.ip_b` | string | second source IPv4 on the same interface that **only receives** |
+| `interface.ip_b` | string | second source IPv4 on the same interface that sends and receives |
 | `log_to_file` | bool | also write `<run>/ipid.log` |
 | `upload.*` | | optional S3 upload |
 
@@ -240,9 +240,10 @@ connection. It installs and removes these rules automatically around the run
 `scripts/teardown-iptables.sh <dst-port> <ip_a> [<ip_b>]` install/remove the same
 rules standalone, if you prefer to manage them yourself.
 
-After probing, the tool sends a FIN+ACK on every successfully established TCP
-connection. These closing packets are rate-accounted but are not added to the
-IP-ID result sequence.
+After probing, the tool sends one RST+ACK on every successfully established TCP
+connection. A reset releases peer state immediately without inviting the extra
+packets of a graceful four-way close. These packets are rate-accounted but are
+not added to the IP-ID result sequence.
 
 ---
 
@@ -251,7 +252,7 @@ IP-ID result sequence.
 Each stage writes to `<tool>/raw/<measurement-id>/`:
 
 - `<tool>.pq` — the Parquet result,
-- a snapshot of the effective config, run metadata, and (if `log_to_file`) a log.
+- a snapshot of the effective config and, if `log_to_file`, a log.
 
 If `upload.enable: true`, the run directory is synced to `upload.s3_destination`
 with `s3cmd` (install `s3cmd` and configure `~/.s3cfg`; set `upload.enable: false`

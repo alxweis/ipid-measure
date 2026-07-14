@@ -253,7 +253,7 @@ func validateIPIDConfig(config *IPIDConfig) error {
 	if err := validateInterface(
 		config.Interfaces.B(),
 		"interface.ip_b",
-		false,
+		true,
 		true,
 	); err != nil {
 		return err
