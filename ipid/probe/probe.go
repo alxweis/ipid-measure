@@ -66,6 +66,10 @@ func (s *Sample) IsReceived() bool {
 	return SampleState(s.state.Load()) == SampleReceived
 }
 
+func (s *Sample) WasSent() bool {
+	return SampleState(s.state.Load()) != SampleEmpty
+}
+
 var SaveProbesChannel chan *Probe
 
 // Measure probes a single target end-to-end.
@@ -99,6 +103,7 @@ func Measure(target net.IP, packets [][]byte) bool {
 		probe.tcpAcknowledgments = make([]atomic.Uint32, measurement.Config.ConnectionCount)
 		probe.tcpAckReady = make([]atomic.Bool, measurement.Config.ConnectionCount)
 		probe.tcpHandshakeDone = make(chan struct{})
+		defer finalizeTCPConnections(probe, target4, basePort)
 	}
 
 	var targetKey [4]byte
@@ -157,13 +162,13 @@ func measureRTBased(
 		}
 		Inflight.Register(targetKey, entry)
 
-		// MarkSent publishes SentTime before the sending.
-		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 		if !prepareTCPPacket(probe, seqNum, pkt) {
 			Inflight.Deregister(targetKey, entry)
 			atomic.AddInt64(&stats.DropNotRecv, 1)
 			return false
 		}
+		// MarkSent publishes SentTime before the sending.
+		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 
 		if err := sndr.Send(pkt); err != nil {
 			Inflight.Deregister(targetKey, entry)
@@ -239,11 +244,11 @@ func measureFixedInterval(
 		sndr := sender.GetSender(seqNum)
 		pkt := packets[seqNum]
 
-		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 		if !prepareTCPPacket(probe, seqNum, pkt) {
 			atomic.AddInt64(&stats.DropNotRecv, 1)
 			return false
 		}
+		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
 		if err := sndr.Send(pkt); err != nil {
 			atomic.AddInt64(&stats.DropSendErr, 1)
 			return false
@@ -394,6 +399,47 @@ func prepareTCPPacket(probe *Probe, seqNum uint16, packetBytes []byte) bool {
 
 	packet.SetTCPAcknowledgment(packetBytes, probe.tcpAcknowledgments[connectionIndex].Load())
 	return true
+}
+
+func finalizeTCPConnections(probe *Probe, target net.IP, basePort uint16) {
+	for connectionIndex := uint16(0); connectionIndex < measurement.Config.ConnectionCount; connectionIndex++ {
+		if !probe.tcpAckReady[connectionIndex].Load() {
+			continue
+		}
+
+		sndr := sender.GetSender(connectionIndex)
+		finPacket, err := packet.BuildTCPFINPacket(
+			target,
+			sndr.IP,
+			basePort+connectionIndex,
+			connectionIndex,
+			nextTCPRequestIndex(probe, connectionIndex),
+			probe.tcpAcknowledgments[connectionIndex].Load(),
+		)
+		if err != nil {
+			atomic.AddInt64(&stats.DropSendErr, 1)
+			continue
+		}
+
+		if err := sndr.Send(finPacket); err != nil {
+			atomic.AddInt64(&stats.DropSendErr, 1)
+			continue
+		}
+		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(finPacket)))
+		atomic.AddInt64(&stats.SentPackets, 1)
+	}
+}
+
+func nextTCPRequestIndex(probe *Probe, connectionIndex uint16) uint16 {
+	nextRequestIndex := uint16(1) // the acknowledged SYN consumed one sequence number
+	for requestIndex := uint16(1); requestIndex < measurement.Config.RequestsPerConnection; requestIndex++ {
+		seqNum := requestIndex*measurement.Config.ConnectionCount + connectionIndex
+		if !probe.Samples[seqNum].WasSent() {
+			break
+		}
+		nextRequestIndex = requestIndex + 1
+	}
+	return nextRequestIndex
 }
 
 func waitForTCPHandshakes(probe *Probe) bool {
