@@ -80,14 +80,6 @@ func Measure(target net.IP, packets [][]byte) bool {
 		return false
 	}
 
-	// Rate-limiting
-	if sender.Limiter != nil {
-		if !sender.Limiter.Acquire(packet.RawPacketsTotalBytes) {
-			atomic.AddInt64(&stats.DropLimiterStop, 1)
-			return false
-		}
-	}
-
 	atomic.AddInt64(&stats.ProbeCount, 1)
 	atomic.AddInt64(&stats.InFlightProbes, 1)
 	defer atomic.AddInt64(&stats.InFlightProbes, -1)
@@ -103,7 +95,7 @@ func Measure(target net.IP, packets [][]byte) bool {
 		probe.tcpAcknowledgments = make([]atomic.Uint32, measurement.Config.ConnectionCount)
 		probe.tcpAckReady = make([]atomic.Bool, measurement.Config.ConnectionCount)
 		probe.tcpHandshakeDone = make(chan struct{})
-		defer finalizeTCPConnections(probe, target4, basePort)
+		defer resetTCPConnections(probe, target4, basePort)
 	}
 
 	var targetKey [4]byte
@@ -167,17 +159,10 @@ func measureRTBased(
 			atomic.AddInt64(&stats.DropNotRecv, 1)
 			return false
 		}
-		// MarkSent publishes SentTime before the sending.
-		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
-
-		if err := sndr.Send(pkt); err != nil {
+		if !sendPacket(sndr, pkt, &probe.Samples[seqNum]) {
 			Inflight.Deregister(targetKey, entry)
-			atomic.AddInt64(&stats.DropSendErr, 1)
 			return false
 		}
-		// Update sent counters incrementally.
-		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(pkt)))
-		atomic.AddInt64(&stats.SentPackets, 1)
 
 		// Reset and reuse the per-target timer to avoid per-seqNum allocation.
 		if !timer.Stop() {
@@ -210,7 +195,12 @@ func measureRTBased(
 		}
 	}
 
-	SaveProbesChannel <- probe
+	select {
+	case SaveProbesChannel <- probe:
+	case <-measurement.StopSignal:
+		atomic.AddInt64(&stats.DropInterrupt, 1)
+		return false
+	}
 	atomic.AddInt64(&stats.ValidProbes, 1)
 	return true
 }
@@ -248,13 +238,9 @@ func measureFixedInterval(
 			atomic.AddInt64(&stats.DropNotRecv, 1)
 			return false
 		}
-		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
-		if err := sndr.Send(pkt); err != nil {
-			atomic.AddInt64(&stats.DropSendErr, 1)
+		if !sendPacket(sndr, pkt, &probe.Samples[seqNum]) {
 			return false
 		}
-		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(pkt)))
-		atomic.AddInt64(&stats.SentPackets, 1)
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
 			time.Sleep(interval)
@@ -293,7 +279,12 @@ func measureFixedInterval(
 		return false
 	}
 
-	SaveProbesChannel <- probe
+	select {
+	case SaveProbesChannel <- probe:
+	case <-measurement.StopSignal:
+		atomic.AddInt64(&stats.DropInterrupt, 1)
+		return false
+	}
 	atomic.AddInt64(&stats.ValidProbes, 1)
 	return true
 }
@@ -401,14 +392,14 @@ func prepareTCPPacket(probe *Probe, seqNum uint16, packetBytes []byte) bool {
 	return true
 }
 
-func finalizeTCPConnections(probe *Probe, target net.IP, basePort uint16) {
+func resetTCPConnections(probe *Probe, target net.IP, basePort uint16) {
 	for connectionIndex := uint16(0); connectionIndex < measurement.Config.ConnectionCount; connectionIndex++ {
 		if !probe.tcpAckReady[connectionIndex].Load() {
 			continue
 		}
 
 		sndr := sender.GetSender(connectionIndex)
-		finPacket, err := packet.BuildTCPFINPacket(
+		resetPacket, err := packet.BuildTCPResetPacket(
 			target,
 			sndr.IP,
 			basePort+connectionIndex,
@@ -421,13 +412,28 @@ func finalizeTCPConnections(probe *Probe, target net.IP, basePort uint16) {
 			continue
 		}
 
-		if err := sndr.Send(finPacket); err != nil {
-			atomic.AddInt64(&stats.DropSendErr, 1)
-			continue
-		}
-		atomic.AddInt64(&stats.SentBytes, int64(len(sndr.EthHeader)+len(finPacket)))
-		atomic.AddInt64(&stats.SentPackets, 1)
+		_ = sendPacket(sndr, resetPacket, nil)
 	}
+}
+
+func sendPacket(sndr *sender.Sender, packetBytes []byte, sample *Sample) bool {
+	frameBytes := len(sndr.EthHeader) + len(packetBytes)
+	if sender.Limiter != nil && !sender.Limiter.Acquire(frameBytes) {
+		atomic.AddInt64(&stats.DropLimiterStop, 1)
+		return false
+	}
+	if sample != nil {
+		// Publish the send timestamp immediately before the syscall, after any
+		// rate-limit wait, so RTT validation does not include limiter delay.
+		sample.MarkSent(time.Now().UnixMicro())
+	}
+	if err := sndr.Send(packetBytes); err != nil {
+		atomic.AddInt64(&stats.DropSendErr, 1)
+		return false
+	}
+	atomic.AddInt64(&stats.SentBytes, int64(frameBytes))
+	atomic.AddInt64(&stats.SentPackets, 1)
+	return true
 }
 
 func nextTCPRequestIndex(probe *Probe, connectionIndex uint16) uint16 {

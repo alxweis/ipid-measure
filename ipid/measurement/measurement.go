@@ -2,6 +2,7 @@ package measurement
 
 import (
 	"context"
+	"errors"
 	"log"
 	"math"
 	"math/rand/v2"
@@ -45,6 +46,11 @@ var (
 var stopOnce sync.Once
 
 var (
+	runErrorChannel chan error
+	runErrorOnce    sync.Once
+)
+
+var (
 	SetupSenders     func()
 	CloseSenders     func()
 	SetupRateLimiter func()
@@ -66,6 +72,9 @@ var (
 // Run wires the pipeline together and blocks until the whole
 // target stream has been probed (or an interrupt is received)
 func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
+	runErrorChannel = make(chan error, 1)
+	runErrorOnce = sync.Once{}
+
 	Config = c
 	Paths = m
 	RequestCount = Config.ConnectionCount * Config.RequestsPerConnection
@@ -120,14 +129,34 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	StartStats()
 
 	// Feed targets until the source is exhausted or shutdown is requested.
-	if err := StreamTargets(); err != nil {
+	streamErr := StreamTargets()
+	if streamErr != nil {
 		triggerStop()
-		cleanup()
-		return records(), err
 	}
 
 	cleanup()
-	return records(), nil
+	return records(), errors.Join(streamErr, currentRunError())
+}
+
+// Fail stops the measurement and records the first fatal asynchronous error.
+// The failing stage must keep draining its input until cleanup closes it.
+func Fail(err error) {
+	if err == nil {
+		return
+	}
+	runErrorOnce.Do(func() {
+		runErrorChannel <- err
+		triggerStop()
+	})
+}
+
+func currentRunError() error {
+	select {
+	case err := <-runErrorChannel:
+		return err
+	default:
+		return nil
+	}
 }
 
 // records returns the final record count, or 0 if the stats hook is not wired.
