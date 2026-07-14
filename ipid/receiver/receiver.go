@@ -116,7 +116,8 @@ func Receive(iface config.Interface) {
 			srcIP4    [4]byte
 			dstIP4    [4]byte
 			dstPort   uint16
-			seqNum    uint16
+			seqNum    uint32
+			tcpSeq    uint32
 			replyFlgs sets.Set[string]
 			ok        bool
 		)
@@ -126,7 +127,7 @@ func Receive(iface config.Interface) {
 
 		switch protocol {
 		case layers.IPProtocolTCP:
-			seqNum, dstPort, replyFlgs, ok = extractTCP(&tcpL, decoded)
+			seqNum, tcpSeq, dstPort, replyFlgs, ok = extractTCP(&tcpL, decoded)
 		case layers.IPProtocolUDP:
 			seqNum, dstPort, replyFlgs, ok = extractUDPDNS(&udpL, &dnsL, decoded)
 		case layers.IPProtocolICMPv4:
@@ -138,11 +139,11 @@ func Receive(iface config.Interface) {
 		}
 
 		now := time.Now().UnixMicro()
-		probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, ipv4.Id, replyFlgs, now)
+		probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, tcpSeq, ipv4.Id, replyFlgs, now)
 	}
 }
 
-func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint16, uint16, sets.Set[string], bool) {
+func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint32, uint32, uint16, sets.Set[string], bool) {
 	found := false
 	for _, lt := range decoded {
 		if lt == layers.LayerTypeTCP {
@@ -151,16 +152,22 @@ func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint16, uint16, se
 		}
 	}
 	if !found {
-		return 0, 0, nil, false
+		return 0, 0, 0, nil, false
 	}
 	if measurement.Config.ZMapPort != nil && uint16(t.SrcPort) != *measurement.Config.ZMapPort {
-		return 0, 0, nil, false
+		return 0, 0, 0, nil, false
 	}
-	seq := uint16(t.Ack - 1 - measurement.TcpSequenceNumOffset)
-	return seq, uint16(t.DstPort), tcp.GetFlags(t), true
+	if measurement.TcpEstablishConnection {
+		return t.Ack, t.Seq, uint16(t.DstPort), tcp.GetFlags(t), true
+	}
+	if t.Ack <= measurement.TcpSequenceNumOffset {
+		return 0, 0, 0, nil, false
+	}
+	seq := t.Ack - 1 - measurement.TcpSequenceNumOffset
+	return seq, t.Seq, uint16(t.DstPort), tcp.GetFlags(t), true
 }
 
-func extractUDPDNS(u *layers.UDP, d *layers.DNS, decoded []gopacket.LayerType) (uint16, uint16, sets.Set[string], bool) {
+func extractUDPDNS(u *layers.UDP, d *layers.DNS, decoded []gopacket.LayerType) (uint32, uint16, sets.Set[string], bool) {
 	hasUDP, hasDNS, hasICMP := false, false, false
 	for _, lt := range decoded {
 		switch lt {
@@ -178,10 +185,10 @@ func extractUDPDNS(u *layers.UDP, d *layers.DNS, decoded []gopacket.LayerType) (
 	if measurement.Config.ZMapPort != nil && uint16(u.SrcPort) != *measurement.Config.ZMapPort {
 		return 0, 0, nil, false
 	}
-	return d.ID, uint16(u.DstPort), dns.GetFlags(d), true
+	return uint32(d.ID), uint16(u.DstPort), dns.GetFlags(d), true
 }
 
-func extractICMP(i *layers.ICMPv4, decoded []gopacket.LayerType) (uint16, uint16, sets.Set[string], bool) {
+func extractICMP(i *layers.ICMPv4, decoded []gopacket.LayerType) (uint32, uint16, sets.Set[string], bool) {
 	found := false
 	for _, lt := range decoded {
 		if lt == layers.LayerTypeICMPv4 {
@@ -195,7 +202,7 @@ func extractICMP(i *layers.ICMPv4, decoded []gopacket.LayerType) (uint16, uint16
 	if i.TypeCode != layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0) {
 		return 0, 0, nil, false
 	}
-	return i.Seq, 0, sets.New[string](), true
+	return uint32(i.Seq), 0, sets.New[string](), true
 }
 
 func init() {

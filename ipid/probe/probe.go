@@ -2,6 +2,7 @@ package probe
 
 import (
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,12 @@ const (
 type Probe struct {
 	Target  net.IP
 	Samples []Sample
+
+	tcpAcknowledgments []atomic.Uint32
+	tcpAckReady        []atomic.Bool
+	tcpHandshakeCount  atomic.Uint32
+	tcpHandshakeDone   chan struct{}
+	tcpHandshakeOnce   sync.Once
 }
 
 type Sample struct {
@@ -88,6 +95,11 @@ func Measure(target net.IP, packets [][]byte) bool {
 		Target:  target4,
 		Samples: make([]Sample, measurement.RequestCount),
 	}
+	if measurement.TcpEstablishConnection {
+		probe.tcpAcknowledgments = make([]atomic.Uint32, measurement.Config.ConnectionCount)
+		probe.tcpAckReady = make([]atomic.Bool, measurement.Config.ConnectionCount)
+		probe.tcpHandshakeDone = make(chan struct{})
+	}
 
 	var targetKey [4]byte
 	copy(targetKey[:], target4)
@@ -121,10 +133,10 @@ func measureRTBased(
 		// Pick the flag expectation for this seqNum.
 		expectedFlags := FlagsDefault
 		if measurement.TcpEstablishConnection {
-			if seqnum.GetConnectionIndex(seqNum) == 0 {
+			if seqnum.GetRequestIndex(seqNum) == 0 {
 				expectedFlags = FlagsSynAck
 			} else {
-				expectedFlags = FlagsPshAck
+				expectedFlags = FlagsAck
 			}
 		}
 
@@ -137,6 +149,7 @@ func measureRTBased(
 			expectedDsts:    [2][4]byte{sndr.IPBytes, sndr.IPBytes},
 			expectedMinPort: expectedPort,
 			expectedMaxPort: expectedPort,
+			basePort:        basePort,
 			expectedFlags:   expectedFlags,
 			expectedMinSeq:  seqNum,
 			expectedMaxSeq:  seqNum,
@@ -146,6 +159,11 @@ func measureRTBased(
 
 		// MarkSent publishes SentTime before the sending.
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
+		if !prepareTCPPacket(probe, seqNum, pkt) {
+			Inflight.Deregister(targetKey, entry)
+			atomic.AddInt64(&stats.DropNotRecv, 1)
+			return false
+		}
 
 		if err := sndr.Send(pkt); err != nil {
 			Inflight.Deregister(targetKey, entry)
@@ -207,6 +225,7 @@ func measureFixedInterval(
 		expectedDsts:    [2][4]byte{sender.SenderA.IPBytes, sender.SenderB.IPBytes},
 		expectedMinPort: basePort,
 		expectedMaxPort: basePort + measurement.Config.ConnectionCount - 1,
+		basePort:        basePort,
 		expectedMinSeq:  0,
 		expectedMaxSeq:  measurement.RequestCount - 1,
 		done:            make(chan struct{}),
@@ -221,6 +240,10 @@ func measureFixedInterval(
 		pkt := packets[seqNum]
 
 		probe.Samples[seqNum].MarkSent(time.Now().UnixMicro())
+		if !prepareTCPPacket(probe, seqNum, pkt) {
+			atomic.AddInt64(&stats.DropNotRecv, 1)
+			return false
+		}
 		if err := sndr.Send(pkt); err != nil {
 			atomic.AddInt64(&stats.DropSendErr, 1)
 			return false
@@ -230,6 +253,12 @@ func measureFixedInterval(
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
 			time.Sleep(interval)
+		}
+
+		if measurement.TcpEstablishConnection &&
+			seqNum+1 == measurement.Config.ConnectionCount &&
+			!waitForTCPHandshakes(probe) {
+			return false
 		}
 	}
 
@@ -269,7 +298,8 @@ func FulfillReply(
 	srcIP4 [4]byte,
 	dstIP4 [4]byte,
 	dstPort uint16,
-	recoveredSeq uint16,
+	recoveredSeq uint32,
+	replyTCPSeq uint32,
 	ipID uint16,
 	replyFlags sets.Set[string],
 	receiveTime int64,
@@ -294,19 +324,34 @@ func FulfillReply(
 		}
 	}
 
+	logicalSeq, ok := recoverLogicalSequence(entry, dstPort, recoveredSeq)
+	if !ok {
+		atomic.AddInt64(&stats.DropSeqOOR, 1)
+		return false
+	}
+
+	expectedFlags := entry.expectedFlags
+	if measurement.TcpEstablishConnection {
+		if seqnum.GetRequestIndex(logicalSeq) == 0 {
+			expectedFlags = FlagsSynAck
+		} else {
+			expectedFlags = FlagsAck
+		}
+	}
+
 	// Flag-mode check.
-	if !flagsMatch(entry.expectedFlags, replyFlags) {
+	if !flagsMatch(expectedFlags, replyFlags) {
 		atomic.AddInt64(&stats.DropBadFlags, 1)
 		return false
 	}
 
 	// seqNum must be within probe's seqNum range.
-	if recoveredSeq < entry.expectedMinSeq || recoveredSeq > entry.expectedMaxSeq {
+	if logicalSeq < entry.expectedMinSeq || logicalSeq > entry.expectedMaxSeq {
 		atomic.AddInt64(&stats.DropSeqOOR, 1)
 		return false
 	}
 
-	sample := &entry.Probe.Samples[recoveredSeq]
+	sample := &entry.Probe.Samples[logicalSeq]
 
 	// Late reply: reject if RTT exceeds tolerance.
 	if receiveTime-sample.SentTime > measurement.Config.MaximumToleratedRTT.Microseconds() {
@@ -320,6 +365,15 @@ func FulfillReply(
 		return false
 	}
 
+	if measurement.TcpEstablishConnection && expectedFlags == FlagsSynAck {
+		connectionIndex := seqnum.GetConnectionIndex(logicalSeq)
+		entry.Probe.tcpAcknowledgments[connectionIndex].Store(replyTCPSeq + 1)
+		entry.Probe.tcpAckReady[connectionIndex].Store(true)
+		if entry.Probe.tcpHandshakeCount.Add(1) == uint32(measurement.Config.ConnectionCount) {
+			entry.Probe.tcpHandshakeOnce.Do(func() { close(entry.Probe.tcpHandshakeDone) })
+		}
+	}
+
 	// Update the completion counter and signal if we have hit the target.
 	if entry.validCount.Add(1) >= uint32(entry.expectedCount) {
 		entry.markDone()
@@ -328,12 +382,60 @@ func FulfillReply(
 	return true
 }
 
+func prepareTCPPacket(probe *Probe, seqNum uint16, packetBytes []byte) bool {
+	if !measurement.TcpEstablishConnection || seqnum.GetRequestIndex(seqNum) == 0 {
+		return true
+	}
+
+	connectionIndex := seqnum.GetConnectionIndex(seqNum)
+	if !probe.tcpAckReady[connectionIndex].Load() {
+		return false
+	}
+
+	packet.SetTCPAcknowledgment(packetBytes, probe.tcpAcknowledgments[connectionIndex].Load())
+	return true
+}
+
+func waitForTCPHandshakes(probe *Probe) bool {
+	timer := time.NewTimer(measurement.Config.MaximumToleratedRTT)
+	defer timer.Stop()
+
+	select {
+	case <-probe.tcpHandshakeDone:
+		return true
+	case <-timer.C:
+		atomic.AddInt64(&stats.DropTimeout, 1)
+		return false
+	case <-measurement.StopSignal:
+		atomic.AddInt64(&stats.DropInterrupt, 1)
+		return false
+	}
+}
+
+func recoverLogicalSequence(entry *InflightEntry, dstPort uint16, recoveredSeq uint32) (uint16, bool) {
+	if measurement.TcpEstablishConnection {
+		return seqnum.FromTCPAcknowledgment(
+			recoveredSeq,
+			measurement.TcpSequenceNumOffset,
+			dstPort,
+			entry.basePort,
+			measurement.Config.ConnectionCount,
+			measurement.Config.RequestsPerConnection,
+		)
+	}
+
+	if recoveredSeq > uint32(^uint16(0)) {
+		return 0, false
+	}
+	return uint16(recoveredSeq), true
+}
+
 func flagsMatch(mode FlagExpectation, replyFlags sets.Set[string]) bool {
 	switch mode {
 	case FlagsSynAck:
 		return replyFlags.Equal(types.SynAckFlagSet)
-	case FlagsPshAck:
-		return replyFlags.Equal(types.PshAckFlagSet)
+	case FlagsAck:
+		return replyFlags.Equal(types.AckFlagSet)
 	case FlagsDefault:
 		// Defer to the configured payload-specific flag set selection.
 		return defaultFlagsMatch(replyFlags)
