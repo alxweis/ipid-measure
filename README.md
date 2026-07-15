@@ -117,7 +117,7 @@ a source interface (its scanners connect out over the default route), so unlike
 | `interface.ip_b` | string | second source IPv4 on the same interface that sends and receives |
 | `log_to_file` | bool | also write `<run>/ipid.log` |
 | `upload.*` | | optional S3 upload |
-| `analysis_workflow.*` | | S3-only RT classification handoff; required by `run-all-tcp` |
+| `analysis_workflow.*` | | S3-only RT classification handoff used by every `run-all-*` sweep |
 
 ---
 
@@ -204,33 +204,35 @@ end-to-end with no manual id juggling:
    zmap run in the sweep shares one consistent list).
 2. For each selected protocol: run `measure-zmap` (capturing its id), then
    `measure-os --zmap <id>`.
-3. ICMP and UDP sweep the configured mode/parameter combinations against the
-   original ZMap result. TCP runs the S3-coordinated sequence described below.
+3. For each protocol, classify the stateless RT result via S3 and run the mass
+   measurement only against the returned `UNCLASSIFIED` targets.
 
 Build the binaries first (`make setcap` / `make build`); the sweep runs them
 directly and does not rebuild. Edit the variables at the top of the script
 (`RT_*`, `FI_*`, `DNS_PROBE`) to change the swept parameters. This is also what a
 scheduler (cron / systemd timer) would invoke for a recurring campaign.
 
-### TCP S3 analysis handoff
+### S3 analysis handoff
 
-`make run-all-tcp` uses S3 as the only control and data channel between the
+Every `run-all-*` sweep uses S3 as the only control and data channel between the
 measurement and analysis VMs. Configure the same `analysis_workflow.s3_prefix`
 on the measurement VM and `IPID_ANALYSIS_S3_PREFIX` for the analysis worker.
 Both VMs need a working `s3cmd` configuration. `upload.enable` must be true and
-`upload.delete_local` false for the RT run.
+`upload.delete_local` false for the RT runs.
 
-The TCP order is:
+For ICMP, TCP, and UDP-DNS the common order is:
 
-1. ZMap TCP/80 and OS fingerprinting against the original ZMap result.
+1. ZMap and OS fingerprinting against the original ZMap result.
 2. Stateless RT-based IPID measurement (4 x 4), followed by its normal S3 upload.
 3. Upload `jobs/<rt-id>/request.json` and wait for either `done.json` or
    `failed.json`. On success, download and SHA-256-verify
    `zmap_unclassified.pq`.
 4. Stateless fixed-interval 4 x 25 only against `zmap_unclassified.pq`.
 5. Stateless fixed-interval 4 x 4 against the original ZMap result.
-6. Established RT-based 4 x 4 against the original ZMap result.
-7. Established fixed-interval 4 x 4 against the original ZMap result.
+
+TCP additionally runs the established RT-based and fixed-interval 4 x 4
+measurements against the original ZMap result. ICMP and UDP-DNS have no
+connection-establishment variants.
 
 The analysis worker uploads the target parquet before the completion marker;
 therefore observing a valid `done.json` means the result is complete. A timeout,

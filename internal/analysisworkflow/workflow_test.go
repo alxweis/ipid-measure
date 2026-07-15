@@ -57,7 +57,10 @@ func TestRequestAndWaitPublishesRequestAndVerifiesResult(t *testing.T) {
 		Timeout:      time.Second,
 	}
 	u := config.UploadConfig{S3Destination: "s3://bucket/raw/ipid/"}
-	request := newRequest(w, u, m, time.Now())
+	request, err := newRequest(w, u, m, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := []byte("parquet-result")
 	sum := sha256.Sum256(result)
 	done := Done{
@@ -86,6 +89,31 @@ func TestRequestAndWaitPublishesRequestAndVerifiesResult(t *testing.T) {
 	requestURI := "s3://bucket/workflow/jobs/" + m.ID + "/request.json"
 	if _, ok := runner.objects[requestURI]; !ok {
 		t.Fatalf("request was not published to %s", requestURI)
+	}
+}
+
+func TestNewRequestUsesMeasurementProtocol(t *testing.T) {
+	w := config.AnalysisWorkflowConfig{S3Prefix: "s3://bucket/workflow/"}
+	u := config.UploadConfig{S3Destination: "s3://bucket/raw/ipid/"}
+	cases := []struct {
+		id       string
+		protocol string
+	}{
+		{"icmp_2026-01-01_00-00-00", "icmp"},
+		{"tcp-80_2026-01-01_00-00-00", "tcp"},
+		{"udp-dns-53_2026-01-01_00-00-00", "udp-dns"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.protocol, func(t *testing.T) {
+			request, err := newRequest(w, u, paths.Measurement{ID: tc.id}, time.Now())
+			if err != nil {
+				t.Fatalf("newRequest() error = %v", err)
+			}
+			if request.Protocol != tc.protocol {
+				t.Fatalf("Protocol = %q, want %q", request.Protocol, tc.protocol)
+			}
+		})
 	}
 }
 

@@ -80,13 +80,17 @@ func newRequest(
 	u config.UploadConfig,
 	m paths.Measurement,
 	now time.Time,
-) Request {
+) (Request, error) {
+	payload, _, _, err := paths.ParseMeasurementID(m.ID)
+	if err != nil {
+		return Request{}, fmt.Errorf("derive analysis protocol from measurement id: %w", err)
+	}
 	jobPrefix := joinS3(w.S3Prefix, "jobs", m.ID)
 	inputPrefix := upload.RemoteMeasurementURI(u, m)
 	return Request{
 		Version:       ProtocolVersion,
 		JobID:         m.ID,
-		Protocol:      "tcp",
+		Protocol:      string(payload),
 		MeasurementID: m.ID,
 		IPIDURI:       joinS3(inputPrefix, files.IPIDMeasurementFile),
 		SnapshotURI:   joinS3(inputPrefix, files.IPIDConfigSnapshotFile),
@@ -94,7 +98,7 @@ func newRequest(
 		DoneURI:       joinS3(jobPrefix, "done.json"),
 		FailedURI:     joinS3(jobPrefix, "failed.json"),
 		CreatedAt:     now.UTC(),
-	}
+	}, nil
 }
 
 func RequestAndWait(
@@ -113,7 +117,10 @@ func requestAndWait(
 	u config.UploadConfig,
 	m paths.Measurement,
 ) (string, error) {
-	request := newRequest(w, u, m, time.Now())
+	request, err := newRequest(w, u, m, time.Now())
+	if err != nil {
+		return "", err
+	}
 	requestPath := filepath.Join(m.Path, "analysis-request.json")
 	if err := writeJSON(requestPath, request); err != nil {
 		return "", err

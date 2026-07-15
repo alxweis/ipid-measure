@@ -35,10 +35,16 @@ func validateAnalysisWorkflow(c *IPIDConfig) error {
 	if c.UploadConfig.DeleteLocal {
 		return fmt.Errorf("analysis_workflow requires upload.delete_local=false")
 	}
-	if c.ZMapPayload != types.PayloadTCP ||
-		c.MeasurementMode != types.MeasurementModeRTBased ||
-		c.TCPConfig.EstablishConnection {
-		return fmt.Errorf("analysis_workflow is only valid for stateless TCP rt-based measurements")
+	switch c.ZMapPayload {
+	case types.PayloadICMP, types.PayloadTCP, types.PayloadUDPDNS:
+	default:
+		return fmt.Errorf("analysis_workflow does not support payload %q", c.ZMapPayload)
+	}
+	if c.MeasurementMode != types.MeasurementModeRTBased {
+		return fmt.Errorf("analysis_workflow is only valid for rt-based measurements")
+	}
+	if c.ZMapPayload == types.PayloadTCP && c.TCPConfig.EstablishConnection {
+		return fmt.Errorf("analysis_workflow requires stateless TCP")
 	}
 	return nil
 }
