@@ -116,32 +116,25 @@ run_ipid() {
 for proto in "${PROTOS[@]}"; do
     id=${ZMAP[$proto]}
 
-    if [[ "$proto" == "tcp-80" ]]; then
-        # The stateless RT run publishes an S3 analysis request and blocks until
-        # the analysis VM has returned a verified UNCLASSIFIED target parquet.
-        run_ipid "$proto" "$id" false "${MODES[0]}" "" true
-        rt_id=$LAST_IPID_ID
-        unclassified_targets="$PWD/ipid/raw/$rt_id/zmap_unclassified.pq"
-        if [[ ! -f "$unclassified_targets" ]]; then
-            echo "analysis result missing: $unclassified_targets" >&2
-            exit 1
-        fi
-
-        # Probe only the RT-unclassified addresses at the higher sample count.
-        run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" false
-
-        # All remaining runs keep using the original zmap target set.
-        run_ipid "$proto" "$id" false "${MODES[1]}" "" false
-        run_ipid "$proto" "$id" true  "${MODES[0]}" "" false
-        run_ipid "$proto" "$id" true  "${MODES[1]}" "" false
-        continue
+    # The stateless RT run publishes an S3 analysis request and blocks until
+    # the analysis VM has returned a verified UNCLASSIFIED target parquet.
+    run_ipid "$proto" "$id" false "${MODES[0]}" "" true
+    rt_id=$LAST_IPID_ID
+    unclassified_targets="$PWD/ipid/raw/$rt_id/zmap_unclassified.pq"
+    if [[ ! -f "$unclassified_targets" ]]; then
+        echo "analysis result missing: $unclassified_targets" >&2
+        exit 1
     fi
 
-    # ICMP and UDP have no connection-establishment variant and keep their
-    # original base/base/mass sweep against the original zmap result.
-    run_ipid "$proto" "$id" false "${MODES[0]}" "" false
+    # Probe only the RT-unclassified addresses at the higher sample count.
+    run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" false
+
+    # Base fixed-interval and TCP connection variants keep the original targets.
     run_ipid "$proto" "$id" false "${MODES[1]}" "" false
-    run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "" false
+    if [[ "$proto" == "tcp-80" ]]; then
+        run_ipid "$proto" "$id" true  "${MODES[0]}" "" false
+        run_ipid "$proto" "$id" true  "${MODES[1]}" "" false
+    fi
 done
 
 echo "=== sweep complete ==="
