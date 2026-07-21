@@ -19,7 +19,7 @@ const (
 	OutputFormatCSV          = "csv"
 	OutputFormatJSON         = "json"
 	SuccessfulResponseFilter = "success = 1 && repeat = 0"
-	TCPResponseFilter        = `(classification = synack || classification = rst) && repeat = 0`
+	TCPResponseFilter        = "(classification = synack || classification = rst) && repeat = 0"
 	OutputFilter             = SuccessfulResponseFilter // legacy default for ICMP and UDP-DNS
 	DedupMethod              = "full"
 
@@ -34,10 +34,9 @@ func UsesJSONOutput(c *config.ZMapConfig) bool {
 
 // outputFilter returns the response population stored in zmap.pq. ZMap marks
 // TCP RST responses as success=0, so TCP must select its two validated response
-// classes explicitly. ZMap's filter grammar expects string values such as
-// these classifications without quotation marks. For DNS, success means that
-// the transaction ID and question match the probe; DNS header flags do not
-// affect it. For ICMP echo, success identifies an echo reply.
+// classes explicitly. For DNS, success means that the transaction ID and
+// question match the probe; DNS header flags do not affect it. For ICMP echo,
+// success identifies an echo reply.
 func outputFilter(c *config.ZMapConfig) string {
 	if c.Payload == types.PayloadTCP {
 		return TCPResponseFilter
