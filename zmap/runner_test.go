@@ -16,17 +16,17 @@ func TestOutputFilterUsesProtocolResponseSemantics(t *testing.T) {
 		{
 			name:    "TCP keeps SYN-ACK and RST",
 			payload: types.PayloadTCP,
-			want:    TCPResponseFilter,
+			want:    `(classification = synack || classification = rst) && repeat = 0`,
 		},
 		{
 			name:    "UDP DNS keeps matching DNS responses independent of flags",
 			payload: types.PayloadUDPDNS,
-			want:    SuccessfulResponseFilter,
+			want:    "success = 1 && repeat = 0",
 		},
 		{
 			name:    "ICMP keeps echo replies",
 			payload: types.PayloadICMP,
-			want:    SuccessfulResponseFilter,
+			want:    "success = 1 && repeat = 0",
 		},
 	}
 
@@ -54,8 +54,9 @@ func TestBuildArgsIncludesPayloadSpecificOutputFilter(t *testing.T) {
 	}
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == "--output-filter" {
-			if args[i+1] != TCPResponseFilter {
-				t.Fatalf("output filter = %q, want %q", args[i+1], TCPResponseFilter)
+			want := `(classification = synack || classification = rst) && repeat = 0`
+			if args[i+1] != want {
+				t.Fatalf("output filter = %q, want %q", args[i+1], want)
 			}
 			return
 		}
