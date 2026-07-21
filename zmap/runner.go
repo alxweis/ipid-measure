@@ -19,7 +19,7 @@ const (
 	OutputFormatCSV          = "csv"
 	OutputFormatJSON         = "json"
 	SuccessfulResponseFilter = "success = 1 && repeat = 0"
-	TCPResponseFilter        = `(classification = "synack" || classification = "rst") && repeat = 0`
+	TCPResponseFilter        = "(classification = "synack" || classification = "rst") && repeat = 0"
 	OutputFilter             = SuccessfulResponseFilter // legacy default for ICMP and UDP-DNS
 	DedupMethod              = "full"
 
