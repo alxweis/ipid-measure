@@ -136,6 +136,12 @@ drives one static config file per tool.
 | `--probe-args "A,www.example.com"` | override dns `probe_args` |
 | `--print-id` | print the run's measurement id to stdout on success |
 
+The generated `zmap.pq` contains one deduplicated row per accepted responder.
+For TCP SYN scans, both validated `synack` and `rst` responses are retained in
+`REPLY_TYPE`; ICMP errors are excluded. UDP-DNS retains responses whose DNS
+transaction ID and question match the probe, independently of DNS header flags.
+ICMP scans retain only validated echo replies.
+
 **measure-os**
 
 | Flag | Description |
