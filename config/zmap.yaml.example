@@ -50,3 +50,11 @@ upload:
   enable: true
   s3_destination: s3://bucket/prefix/
   delete_local: false
+
+# --- ANALYSIS WORKFLOW -------------------------------------------------------
+
+analysis_workflow:
+  enable: false
+  s3_prefix: s3://bucket/prefix/
+  poll_interval: 30s
+  timeout: 24h
