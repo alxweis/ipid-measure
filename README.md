@@ -231,8 +231,8 @@ For ICMP, TCP, and UDP-DNS the common order is:
 1. ZMap and OS fingerprinting against the original ZMap result.
 2. Stateless RT-based IPID measurement (4 x 4), followed by its normal S3 upload.
 3. Upload `jobs/<rt-id>/request.json` and wait for either `done.json` or
-   `failed.json`. On success, download and SHA-256-verify
-   `zmap_unclassified.pq`.
+   `failed.json`. The analysis worker stores `zmap_unclassified.pq` beside the
+   RT measurement's `ipid.pq`; on success, download and SHA-256-verify it.
 4. Stateless fixed-interval 4 x 25 only against `zmap_unclassified.pq`.
 5. Stateless fixed-interval 4 x 4 against the original ZMap result.
 
@@ -240,9 +240,10 @@ TCP additionally runs the established RT-based and fixed-interval 4 x 4
 measurements against the original ZMap result. ICMP and UDP-DNS have no
 connection-establishment variants.
 
-The analysis worker uploads the target parquet before the completion marker;
-therefore observing a valid `done.json` means the result is complete. A timeout,
-failure marker, checksum mismatch, or missing result aborts the sweep before the
+The analysis worker uploads the target parquet to the RT measurement prefix
+before publishing the completion marker under `jobs/<rt-id>/`; therefore
+observing a valid `done.json` means the result is complete. A timeout, failure
+marker, checksum mismatch, or missing result aborts the sweep before the
 25-request measurement starts.
 
 ---

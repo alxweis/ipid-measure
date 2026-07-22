@@ -61,6 +61,10 @@ func TestRequestAndWaitPublishesRequestAndVerifiesResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wantResultURI := "s3://bucket/raw/ipid/" + m.ID + "/" + UnclassifiedTarget
+	if request.ResultURI != wantResultURI {
+		t.Fatalf("result URI = %q, want %q", request.ResultURI, wantResultURI)
+	}
 	result := []byte("parquet-result")
 	sum := sha256.Sum256(result)
 	done := Done{
