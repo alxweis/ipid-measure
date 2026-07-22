@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"path/filepath"
 	"runtime"
@@ -23,6 +24,7 @@ func main() {
 
 	configFlag := flag.String("config", files.OSConfigFilePath, "path to the os config file")
 	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
+	printID := flag.Bool("print-id", false, "print the measurement id to stdout on success")
 	flag.Parse()
 
 	configFilePath, err := filepath.Abs(*configFlag)
@@ -70,5 +72,9 @@ func main() {
 
 	if err = upload.Upload(c.UploadConfig, m.Measurement); err != nil {
 		log.Fatalf("upload measurement: %v", err)
+	}
+
+	if *printID {
+		fmt.Println(m.ID)
 	}
 }

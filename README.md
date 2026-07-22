@@ -212,6 +212,10 @@ end-to-end with no manual id juggling:
    `measure-os --zmap <id>`.
 3. For each protocol, classify the stateless RT result via S3 and run the mass
    measurement only against the returned `UNCLASSIFIED` targets.
+4. After every measurement for a protocol has succeeded, write
+   `analysis-jobs/<zmap-id>/manifest.json` locally and publish it to the shared
+   S3 prefix. Publishing `request.json` last starts automatic postprocessing on
+   the analysis VM.
 
 Build the binaries first (`make setcap` / `make build`); the sweep runs them
 directly and does not rebuild. Edit the variables at the top of the script
@@ -239,6 +243,14 @@ For ICMP, TCP, and UDP-DNS the common order is:
 TCP additionally runs the established RT-based and fixed-interval 4 x 4
 measurements against the original ZMap result. ICMP and UDP-DNS have no
 connection-establishment variants.
+
+After the complete protocol sweep, the ZMap id is used as its analysis job id.
+The protocol prefix in that id keeps the ICMP, TCP, and UDP-DNS VM jobs distinct.
+The persistent manifest and request are stored below
+`analysis-jobs/<zmap-id>/` both locally and in the configured S3 workflow
+prefix. The existing analysis worker consumes these jobs sequentially, runs the
+normal manifest-driven postprocessing, and publishes `done.json` or
+`failed.json` plus `postprocess.log` in the same S3 directory.
 
 The analysis worker uploads the target parquet to the RT measurement prefix
 before publishing the completion marker under `jobs/<rt-id>/`; therefore

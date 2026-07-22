@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"path/filepath"
 	"runtime"
@@ -39,6 +40,7 @@ func main() {
 	establishConnFlag := flag.String("tcp.establish_connection", "", "override tcp.establish_connection (true|false); empty keeps the configured value")
 	targetFileFlag := flag.String("target-file", "", "override the zmap parquet used as the target set")
 	analysisWorkflowFlag := flag.String("analysis_workflow.enable", "", "override analysis_workflow.enable (true|false); empty keeps the configured value")
+	printID := flag.Bool("print-id", false, "print the measurement id to stdout on success")
 	flag.Parse()
 
 	configFilePath, err := filepath.Abs(*configFlag)
@@ -122,6 +124,10 @@ func main() {
 			log.Fatalf("analysis workflow: %v", err)
 		}
 		log.Printf("analysis workflow completed: %s", resultPath)
+	}
+
+	if *printID {
+		fmt.Println(m.ID)
 	}
 }
 

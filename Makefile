@@ -43,7 +43,7 @@ BUILD_TARGETS := $(addprefix build-,$(TOOLS))
 RUN_TARGETS   := $(addprefix run-,$(TOOLS))
 
 .PHONY: all build setcap pull-blocklist \
-        $(BUILD_TARGETS) $(RUN_TARGETS) \
+        $(BUILD_TARGETS) build-publish-analysis-job $(RUN_TARGETS) \
         run-all-icmp run-all-tcp run-all-udp \
         vet test tidy clean
 
@@ -51,11 +51,15 @@ all: build
 
 # --- build -------------------------------------------------------------------
 
-build: $(BUILD_TARGETS)
+build: $(BUILD_TARGETS) build-publish-analysis-job
 
 $(BUILD_TARGETS): build-%:
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/measure-$* ./cmd/measure-$*
+
+build-publish-analysis-job:
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/publish-analysis-job ./cmd/publish-analysis-job
 
 # Builds, then re-applies file capabilities (needs sudo; prompts once).
 setcap: build
