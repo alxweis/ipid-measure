@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	ProtocolVersion    = 1
+	ProtocolVersion    = 2
 	UnclassifiedTarget = "zmap_unclassified.pq"
 )
 
@@ -94,7 +94,7 @@ func newRequest(
 		MeasurementID: m.ID,
 		IPIDURI:       joinS3(inputPrefix, files.IPIDMeasurementFile),
 		SnapshotURI:   joinS3(inputPrefix, files.IPIDConfigSnapshotFile),
-		ResultURI:     joinS3(jobPrefix, UnclassifiedTarget),
+		ResultURI:     joinS3(inputPrefix, UnclassifiedTarget),
 		DoneURI:       joinS3(jobPrefix, "done.json"),
 		FailedURI:     joinS3(jobPrefix, "failed.json"),
 		CreatedAt:     now.UTC(),
