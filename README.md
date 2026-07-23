@@ -78,6 +78,7 @@ cp config/ipid.yaml.example config/ipid.yaml
 | `interface.name` / `interface.ip` | string | egress interface and source IPv4 |
 | `blacklist_file` | path / unset | zmap blocklist passed via `-b` (see [Blocklist](#blocklist)). Unset = zmap's built-in default |
 | `log_to_file` | bool | also write `<run>/zmap.log` |
+| `go_memory_limit` | scaled-int / null | Go heap target; TCP exact-IP deduplication automatically requires at least `768M` |
 | `upload.*` | | optional S3 upload (see [Output](#output)) |
 
 ### os — `config/os.yaml`
@@ -138,7 +139,9 @@ drives one static config file per tool.
 
 The generated `zmap.pq` contains one deduplicated row per accepted responder.
 For TCP SYN scans, both validated `synack` and `rst` responses are retained in
-`REPLY_TYPE`; ICMP errors are excluded. UDP-DNS retains responses whose DNS
+`REPLY_TYPE`; the first response per IP wins and the configured target count is
+applied after this exact IP-level deduplication. ICMP errors are excluded.
+UDP-DNS retains responses whose DNS
 transaction ID and question match the probe, independently of DNS header flags.
 ICMP scans retain only validated echo replies.
 

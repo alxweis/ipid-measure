@@ -42,7 +42,9 @@ log_to_file: false
 
 # --- MEMORY ------------------------------------------------------------------
 
-# go_memory_limit: 256M
+# TCP exact-IP deduplication uses a 512 MiB bitmap; the binary automatically
+# raises lower limits to 768 MiB for TCP.
+# go_memory_limit: 768M
 
 # --- UPLOAD ------------------------------------------------------------------
 

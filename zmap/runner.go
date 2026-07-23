@@ -19,9 +19,11 @@ const (
 	OutputFormatCSV          = "csv"
 	OutputFormatJSON         = "json"
 	SuccessfulResponseFilter = "success = 1 && repeat = 0"
-	TCPResponseFilter        = "(classification = synack || classification = rst) && repeat = 0"
+	TCPResponseFilter        = "classification = synack || classification = rst"
 	OutputFilter             = SuccessfulResponseFilter // legacy default for ICMP and UDP-DNS
-	DedupMethod              = "full"
+	FullDedupMethod          = "full"
+	NoDedupMethod            = "none"
+	DedupMethod              = FullDedupMethod // legacy default for ICMP and UDP-DNS
 
 	ShutdownGraceSeconds = 5
 )
@@ -44,6 +46,17 @@ func outputFilter(c *config.ZMapConfig) string {
 	return SuccessfulResponseFilter
 }
 
+// dedupMethod leaves TCP deduplication to this application. ZMap's full
+// deduplicator only records successful responses, while tcp_synscan classifies
+// RST as unsuccessful. ICMP and UDP-DNS only retain successful responses and
+// can therefore use ZMap's exact full deduplication.
+func dedupMethod(c *config.ZMapConfig) string {
+	if c.Payload == types.PayloadTCP {
+		return NoDedupMethod
+	}
+	return FullDedupMethod
+}
+
 // BuildArgs translates a validated ZMapConfig into a zmap argument vector.
 func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 	fields := "saddr"
@@ -61,7 +74,7 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 		"-O", outputFormat,
 		"-f", fields,
 		"--output-filter", outputFilter(c),
-		"--dedup-method", DedupMethod,
+		"--dedup-method", dedupMethod(c),
 	}
 
 	// Module / port / probe-args mapping
@@ -81,7 +94,9 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 	args = append(args, "-i", c.Interface.Name, "-S", c.Interface.IP)
 
 	// Result count
-	if c.NumberOfTargetIPAddresses != nil {
+	// The application counts unique TCP responders after deduplicating SYN-ACK
+	// and RST together. ZMap's max-results counter would include repeated RSTs.
+	if c.NumberOfTargetIPAddresses != nil && c.Payload != types.PayloadTCP {
 		args = append(args, "-N", strconv.FormatUint(uint64(*c.NumberOfTargetIPAddresses), 10))
 	}
 
