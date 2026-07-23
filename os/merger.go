@@ -17,7 +17,7 @@ type pending struct {
 }
 
 // merger joins ZGrab2/ZDNS/SNMP streams into one records.OSRecord per IP,
-// fingerprints it, and forwards only non-empty matches.
+// fingerprints it, and forwards records with useful evidence.
 type merger struct {
 	enabledOrig   uint8 // initial mask -- never changes
 	mu            sync.Mutex
@@ -25,7 +25,7 @@ type merger struct {
 	pendings      map[string]*pending
 	out           chan<- records.OSRecord
 	totalEmitted  atomic.Uint64
-	totalDropped  atomic.Uint64 // rows where fingerprint returned ""
+	totalDropped  atomic.Uint64 // rows without any usable scanner evidence
 	totalReceived atomic.Uint64
 	// Per-scanner integrate counters; useful to spot a silent scanner.
 	rxZGrab2 atomic.Uint64
@@ -129,15 +129,19 @@ func (m *merger) integrate(ip string, sourceFlag uint8, applyFn func(*records.OS
 }
 
 // emit runs the fingerprint heuristic on a complete record and forwards it
-// to the writer, or drops it if no OS could be inferred.
+// to the writer. Records are retained when only a vendor, software product,
+// or device type could be inferred; only records without usable evidence are
+// dropped.
 func (m *merger) emit(rec records.OSRecord) {
-	osName, src := Fingerprint(&rec)
-	if osName == "" {
+	result := DetectFingerprint(&rec)
+	if result.DetectedName == "" {
 		m.totalDropped.Add(1)
 		return
 	}
-	rec.OSName = osName
-	rec.OSSource = src
+	rec.OSName = result.OSName
+	rec.DetectedName = result.DetectedName
+	rec.DetectedType = result.DetectedType
+	rec.OSSource = result.Source
 	m.out <- rec
 	m.totalEmitted.Add(1)
 }

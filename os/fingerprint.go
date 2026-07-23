@@ -7,18 +7,146 @@ import (
 	"github.com/alxweis/ipid-measure/internal/records"
 )
 
-// Fingerprint derives the OS family from the per-service raw strings populated in an OSRecord.
+const (
+	detectionOS             = "os"
+	detectionOSFamily       = "os-family"
+	detectionVendor         = "vendor"
+	detectionServerSoftware = "server-software"
+	detectionDeviceType     = "device-type"
+	detectionHostnameHint   = "hostname-hint"
+	detectionUnknown        = "unknown"
+)
+
+// FingerprintResult separates a supported OS inference from the normalized
+// observation that produced it. For example, nginx is useful evidence but is
+// server software rather than proof of Linux.
+type FingerprintResult struct {
+	OSName       string
+	DetectedName string
+	DetectedType string
+	Source       string
+}
+
+// Fingerprint derives the OS family from the per-service raw strings populated
+// in an OSRecord. It is retained as the narrow, backwards-compatible API.
 func Fingerprint(r *records.OSRecord) (osName, osSource string) {
+	result := DetectFingerprint(r)
+	if result.OSName == "" {
+		return "", ""
+	}
+	return result.OSName, result.Source
+}
+
+// DetectFingerprint returns the strongest supported OS inference and preserves
+// the best weaker observation when no OS can be inferred. OS matches outrank
+// vendor, software, and device-type fallbacks even when a fallback occurs in a
+// higher-priority source.
+func DetectFingerprint(r *records.OSRecord) FingerprintResult {
+	var fallback FingerprintResult
 	for _, rule := range rules {
 		field := rule.fieldFn(r)
 		if field == "" {
 			continue
 		}
 		if name := rule.match(field); name != "" {
-			return name, rule.source
+			detectedType := detectionType(name)
+			result := FingerprintResult{
+				DetectedName: name,
+				DetectedType: detectedType,
+				Source:       rule.source,
+			}
+			if detectedType == detectionOS {
+				result.OSName = name
+				return result
+			}
+			if fallback.DetectedName == "" {
+				fallback = result
+			}
 		}
 	}
-	return "", ""
+	if fallback.DetectedName != "" {
+		return fallback
+	}
+	for _, rule := range rules {
+		if strings.TrimSpace(rule.fieldFn(r)) != "" {
+			return FingerprintResult{
+				DetectedName: detectionUnknown,
+				DetectedType: detectionUnknown,
+				Source:       rule.source,
+			}
+		}
+	}
+	return FingerprintResult{}
+}
+
+// detectionTypes lists normalized observations which are deliberately not
+// treated as operating systems. Names absent from this map are OS names.
+var detectionTypes = map[string]string{
+	"apache":           detectionServerSoftware,
+	"arista":           detectionVendor,
+	"bind":             detectionServerSoftware,
+	"busybox":          detectionServerSoftware,
+	"caddy":            detectionServerSoftware,
+	"check-point":      detectionVendor,
+	"cisco":            detectionVendor,
+	"courier":          detectionServerSoftware,
+	"cyrus":            detectionServerSoftware,
+	"dlink":            detectionVendor,
+	"dnsmasq":          detectionServerSoftware,
+	"dovecot":          detectionServerSoftware,
+	"draytek":          detectionVendor,
+	"dropbear":         detectionServerSoftware,
+	"embedded":         detectionDeviceType,
+	"enterprise-linux": detectionOSFamily,
+	"exim":             detectionServerSoftware,
+	"f5":               detectionVendor,
+	"filezilla-server": detectionServerSoftware,
+	"fortinet":         detectionVendor,
+	"hostname-debian":  detectionHostnameHint,
+	"hostname-fedora":  detectionHostnameHint,
+	"hostname-freebsd": detectionHostnameHint,
+	"hostname-ubuntu":  detectionHostnameHint,
+	"huawei":           detectionVendor,
+	"hp-procurve":      detectionVendor,
+	"iredmail":         detectionServerSoftware,
+	"juniper":          detectionVendor,
+	"knot-dns":         detectionServerSoftware,
+	"lighttpd":         detectionServerSoftware,
+	"microsoft-sql":    detectionServerSoftware,
+	"microsoft":        detectionVendor,
+	"mikrotik":         detectionVendor,
+	"nginx":            detectionServerSoftware,
+	"opensmtpd":        detectionServerSoftware,
+	"palo-alto":        detectionVendor,
+	"postfix":          detectionServerSoftware,
+	"powerdns":         detectionServerSoftware,
+	"printer":          detectionDeviceType,
+	"proftpd":          detectionServerSoftware,
+	"pure-ftpd":        detectionServerSoftware,
+	"qnap":             detectionVendor,
+	"router":           detectionDeviceType,
+	"samba":            detectionServerSoftware,
+	"sendmail":         detectionServerSoftware,
+	"server":           detectionDeviceType,
+	"serv-u":           detectionServerSoftware,
+	"sonicwall":        detectionVendor,
+	"sophos":           detectionVendor,
+	"synology":         detectionVendor,
+	"tp-link":          detectionVendor,
+	"ubiquiti":         detectionVendor,
+	"unbound":          detectionServerSoftware,
+	"vsftpd":           detectionServerSoftware,
+	"watchguard":       detectionVendor,
+	"zyxel":            detectionVendor,
+	"zimbra":           detectionServerSoftware,
+	"zte":              detectionVendor,
+}
+
+func detectionType(name string) string {
+	if kind, ok := detectionTypes[name]; ok {
+		return kind
+	}
+	return detectionOS
 }
 
 // rule is one extraction attempt
@@ -61,12 +189,14 @@ func init() {
 				{re(`ubuntu`), "ubuntu"},
 				{re(`debian`), "debian"},
 				{re(`raspbian`), "raspbian"},
-				{re(`el(7|8|9|10)|centos|\.rhel|red.?hat`), "rhel"},
+				{re(`centos`), "centos"},
+				{re(`\.rhel|rhel|red.?hat`), "rhel"},
 				{re(`fedora`), "fedora"},
 				{re(`rocky`), "rocky"},
 				{re(`almalinux|alma`), "alma"},
 				{re(`amazon|amzn`), "amazon-linux"},
 				{re(`oracle.*linux|oraclelinux`), "oracle-linux"},
+				{re(`(?:^|[._+-])el(?:7|8|9|10)(?:[._+-]|$)`), "enterprise-linux"},
 				{re(`suse|sles`), "suse"},
 				{re(`alpine`), "alpine"},
 				{re(`arch`), "arch"},
@@ -84,26 +214,71 @@ func init() {
 				{re(`cisco.*ios.?xr`), "cisco-iosxr"},
 				{re(`cisco.*nx.?os|nxos`), "cisco-nxos"},
 				{re(`cisco.*(asa|adaptive\s+security)`), "cisco-asa"},
-				{re(`cisco`), "cisco-ios"},
-				{re(`mikrotik|routeros`), "mikrotik-routeros"},
-				{re(`juniper|junos`), "juniper-junos"},
-				{re(`huawei|^vrp`), "huawei-vrp"},
-				{re(`fortinet|fortigate|fortios`), "fortinet-fortios"},
-				{re(`paloalto|panos`), "paloalto-panos"},
+				{re(`firepower\s+threat\s+defense|cisco.?ftd`), "cisco-ftd"},
+				{re(`cisco.*\bios\b`), "cisco-ios"},
+				{re(`cisco`), "cisco"},
+				{re(`routeros`), "mikrotik-routeros"},
+				{re(`\bswos\b`), "mikrotik-swos"},
+				{re(`mikrotik`), "mikrotik"},
+				{re(`junos\s+evolved`), "juniper-junos-evolved"},
+				{re(`screenos|netscreen`), "juniper-screenos"},
+				{re(`junos`), "juniper-junos"},
+				{re(`juniper`), "juniper"},
+				{re(`versatile routing platform|(?:^|\s)vrp(?:\s|$)`), "huawei-vrp"},
+				{re(`huawei`), "huawei"},
+				{re(`fortios|fortigate`), "fortinet-fortios"},
+				{re(`fortinet`), "fortinet"},
+				{re(`pan.?os`), "paloalto-panos"},
+				{re(`palo.?alto`), "palo-alto"},
 				{re(`vyos|vyatta`), "vyos"},
 				{re(`pfsense`), "pfsense"},
 				{re(`opnsense`), "opnsense"},
-				{re(`arista|eos`), "arista-eos"},
-				{re(`f5|big.?ip`), "f5-bigip"},
-				{re(`checkpoint|gaia`), "checkpoint-gaia"},
+				{re(`arista.*\beos\b|\beos\b.*arista`), "arista-eos"},
+				{re(`arista`), "arista"},
+				{re(`big.?ip`), "f5-bigip"},
+				{re(`\bf5\b`), "f5"},
+				{re(`gaia`), "checkpoint-gaia"},
+				{re(`checkpoint|check\s+point`), "check-point"},
+				{re(`dray.?os`), "drayos"},
+				{re(`draytek`), "draytek"},
+				{re(`sonic.?os`), "sonicos"},
+				{re(`sonicwall`), "sonicwall"},
+				{re(`zy.?nos`), "zynos"},
+				{re(`zyxel.*\bzld\b|\bzld\b.*zyxel`), "zyxel-zld"},
+				{re(`zyxel.*\buos\b|\buos\b.*zyxel`), "zyxel-uos"},
+				{re(`zyxel`), "zyxel"},
+				{re(`fireware`), "watchguard-fireware"},
+				{re(`watchguard.*firebox|firebox.*watchguard`), "watchguard-fireware"},
+				{re(`watchguard`), "watchguard"},
+				{re(`sophos.*(?:sfos|firewall|xg)|\bsfos\b`), "sophos-sfos"},
+				{re(`sophos`), "sophos"},
+				{re(`fritz!?os`), "fritzos"},
+				{re(`asuswrt`), "asuswrt"},
+				{re(`edgeos`), "edgeos"},
+				{re(`unifi.?os`), "unifi-os"},
+				{re(`\bairos\b`), "airos"},
+				{re(`arubaos.?cx|aos.?cx`), "arubaos-cx"},
+				{re(`arubaos`), "arubaos"},
+				{re(`nokia.*sr.?os|service router operating system|\btimos\b`), "nokia-sros"},
+				{re(`smartfabric.*os10|dell.*\bos10\b`), "dell-os10"},
+				{re(`cumulus.*linux`), "cumulus-linux"},
+				{re(`\bsonic\b.*(?:software|version)`), "sonic"},
 				// NAS / appliances
+				{re(`synology.*(?:\bdsm\b|diskstation manager)|diskstation manager`), "synology-dsm"},
+				{re(`synology.*(?:\bsrm\b|router manager)|synology router manager`), "synology-srm"},
 				{re(`synology`), "synology"},
+				{re(`qnap.*quts|quts.?hero`), "qnap-quts-hero"},
+				{re(`qnap.*\bqts\b|\bqts\b.*qnap`), "qnap-qts"},
 				{re(`qnap`), "qnap"},
+				{re(`truenas.*core`), "truenas-core"},
+				{re(`truenas.*scale`), "truenas-scale"},
 				{re(`truenas|freenas`), "truenas"},
+				{re(`vmware.*esxi|\besxi\b`), "vmware-esxi"},
+				{re(`proxmox.*(?:virtual environment|\bve\b)`), "proxmox-ve"},
 				{re(`openwrt|lede`), "openwrt"},
 				{re(`dd.?wrt`), "dd-wrt"},
-				// Generic Linux fallback (Dropbear is common on embedded Linux)
-				{re(`dropbear`), "linux"},
+				// Software-only fallback.
+				{re(`dropbear`), "dropbear"},
 			},
 		},
 
@@ -113,7 +288,7 @@ func init() {
 			fieldFn: func(r *records.OSRecord) string { return r.SMBNativeOS },
 			patterns: []pattern{
 				{re(`windows`), "windows"},
-				{re(`samba`), "linux"}, // Samba runs almost exclusively on Linux/BSD
+				{re(`samba`), "samba"},
 			},
 		},
 
@@ -127,21 +302,58 @@ func init() {
 				{re(`cisco.*ios.?xr`), "cisco-iosxr"},
 				{re(`cisco.*nx.?os|nxos`), "cisco-nxos"},
 				{re(`cisco.*(asa|adaptive\s+security)`), "cisco-asa"},
-				{re(`cisco`), "cisco-ios"},
-				{re(`mikrotik|routeros`), "mikrotik-routeros"},
-				{re(`juniper|junos`), "juniper-junos"},
-				{re(`huawei|^vrp|versatile routing platform`), "huawei-vrp"},
-				{re(`fortinet|fortigate`), "fortinet-fortios"},
-				{re(`palo.?alto|panos`), "paloalto-panos"},
-				{re(`arista`), "arista-eos"},
+				{re(`firepower\s+threat\s+defense|cisco.?ftd`), "cisco-ftd"},
+				{re(`cisco.*\bios\b`), "cisco-ios"},
+				{re(`cisco`), "cisco"},
+				{re(`routeros`), "mikrotik-routeros"},
+				{re(`\bswos\b`), "mikrotik-swos"},
+				{re(`mikrotik`), "mikrotik"},
+				{re(`junos\s+evolved`), "juniper-junos-evolved"},
+				{re(`screenos|netscreen`), "juniper-screenos"},
+				{re(`junos`), "juniper-junos"},
+				{re(`juniper`), "juniper"},
+				{re(`(?:^|\s)vrp(?:\s|$)|versatile routing platform`), "huawei-vrp"},
+				{re(`huawei`), "huawei"},
+				{re(`fortios|fortigate`), "fortinet-fortios"},
+				{re(`fortinet`), "fortinet"},
+				{re(`pan.?os`), "paloalto-panos"},
+				{re(`palo.?alto`), "palo-alto"},
+				{re(`arista.*\beos\b|\beos\b.*arista`), "arista-eos"},
+				{re(`arista`), "arista"},
 				{re(`extreme.*exos`), "extreme-exos"},
-				{re(`f5|big.?ip`), "f5-bigip"},
-				{re(`checkpoint|gaia`), "checkpoint-gaia"},
+				{re(`big.?ip`), "f5-bigip"},
+				{re(`\bf5\b`), "f5"},
+				{re(`gaia`), "checkpoint-gaia"},
+				{re(`checkpoint|check\s+point`), "check-point"},
+				{re(`dray.?os`), "drayos"},
+				{re(`draytek`), "draytek"},
+				{re(`sonic.?os`), "sonicos"},
+				{re(`sonicwall`), "sonicwall"},
+				{re(`zy.?nos`), "zynos"},
+				{re(`zyxel.*\bzld\b|\bzld\b.*zyxel`), "zyxel-zld"},
+				{re(`zyxel.*\buos\b|\buos\b.*zyxel`), "zyxel-uos"},
+				{re(`zyxel`), "zyxel"},
+				{re(`fireware`), "watchguard-fireware"},
+				{re(`watchguard.*firebox|firebox.*watchguard`), "watchguard-fireware"},
+				{re(`watchguard`), "watchguard"},
+				{re(`sophos.*(?:sfos|firewall|xg)|\bsfos\b`), "sophos-sfos"},
+				{re(`sophos`), "sophos"},
+				{re(`fritz!?os`), "fritzos"},
+				{re(`asuswrt`), "asuswrt"},
+				{re(`edgeos`), "edgeos"},
+				{re(`unifi.?os`), "unifi-os"},
+				{re(`\bairos\b`), "airos"},
+				{re(`arubaos.?cx|aos.?cx`), "arubaos-cx"},
+				{re(`arubaos`), "arubaos"},
+				{re(`nokia.*sr.?os|service router operating system|\btimos\b`), "nokia-sros"},
+				{re(`smartfabric.*os10|dell.*\bos10\b`), "dell-os10"},
+				{re(`cumulus.*linux`), "cumulus-linux"},
+				{re(`\bsonic\b.*(?:software|version)`), "sonic"},
 				// General-purpose OSes
 				{re(`ubuntu`), "ubuntu"},
 				{re(`debian`), "debian"},
 				{re(`red.?hat|rhel`), "rhel"},
-				{re(`centos`), "rhel"},
+				{re(`centos`), "centos"},
 				{re(`fedora`), "fedora"},
 				{re(`suse|sles`), "suse"},
 				{re(`freebsd`), "freebsd"},
@@ -152,6 +364,17 @@ func init() {
 				{re(`aix`), "aix"},
 				{re(`hp.?ux`), "hpux"},
 				{re(`windows`), "windows"},
+				{re(`vmware.*esxi|\besxi\b`), "vmware-esxi"},
+				{re(`proxmox.*(?:virtual environment|\bve\b)`), "proxmox-ve"},
+				{re(`synology.*(?:\bdsm\b|diskstation manager)|diskstation manager`), "synology-dsm"},
+				{re(`synology.*(?:\bsrm\b|router manager)|synology router manager`), "synology-srm"},
+				{re(`synology`), "synology"},
+				{re(`qnap.*quts|quts.?hero`), "qnap-quts-hero"},
+				{re(`qnap.*\bqts\b|\bqts\b.*qnap`), "qnap-qts"},
+				{re(`qnap`), "qnap"},
+				{re(`truenas.*core`), "truenas-core"},
+				{re(`truenas.*scale`), "truenas-scale"},
+				{re(`truenas|freenas`), "truenas"},
 				// Printers (very common in SNMP sysDescr)
 				{re(`hp\b.*(jetdirect|laserjet|officejet)`), "printer"},
 				{re(`brother|epson|canon\s+(printer|imagerunner)`), "printer"},
@@ -187,21 +410,21 @@ func init() {
 				{re(`mailenable`), "windows"},
 				{re(`mdaemon`), "windows"},
 				{re(`smartermail`), "windows"},
-				{re(`opensmtpd`), "openbsd"},
-				{re(`sendmail`), "linux"},
-				{re(`postfix`), "linux"},
-				{re(`exim`), "linux"},
-				{re(`iredmail|iredapd`), "linux"},
-				{re(`zimbra`), "linux"},
+				{re(`opensmtpd`), "opensmtpd"},
+				{re(`sendmail`), "sendmail"},
+				{re(`postfix`), "postfix"},
+				{re(`exim`), "exim"},
+				{re(`iredmail|iredapd`), "iredmail"},
+				{re(`zimbra`), "zimbra"},
 			},
 		},
 
-		// ===== Tier 2: MSSQL is always Windows. =====
+		// ===== Tier 2: MSSQL product detection (not an OS signal). =====
 		{
 			source:  "mssql",
 			fieldFn: func(r *records.OSRecord) string { return r.MSSQLVersion },
 			patterns: []pattern{
-				{re(`.+`), "windows"}, // any non-empty MSSQL version field
+				{re(`.+`), "microsoft-sql"},
 			},
 		},
 
@@ -223,15 +446,16 @@ func init() {
 			fieldFn: func(r *records.OSRecord) string { return r.FTPBanner },
 			patterns: []pattern{
 				{re(`microsoft\s+ftp`), "windows"},
-				{re(`filezilla.*server`), "windows"},
-				{re(`serv.?u\s+ftp`), "windows"},
+				{re(`filezilla.*server`), "filezilla-server"},
+				{re(`serv.?u\s+ftp`), "serv-u"},
 				{re(`proftpd.*\(debian`), "debian"},
 				{re(`proftpd.*\(ubuntu`), "ubuntu"},
-				{re(`proftpd`), "linux"},
-				{re(`vsftpd`), "linux"},
-				{re(`pure.?ftpd`), "linux"},
-				{re(`mikrotik`), "mikrotik-routeros"},
-				{re(`cisco`), "cisco-ios"},
+				{re(`proftpd`), "proftpd"},
+				{re(`vsftpd`), "vsftpd"},
+				{re(`pure.?ftpd`), "pure-ftpd"},
+				{re(`routeros`), "mikrotik-routeros"},
+				{re(`mikrotik`), "mikrotik"},
+				{re(`cisco`), "cisco"},
 			},
 		},
 
@@ -243,47 +467,58 @@ func init() {
 				{re(`cisco.*ios.?xe`), "cisco-iosxe"},
 				{re(`cisco.*ios.?xr`), "cisco-iosxr"},
 				{re(`cisco.*nx.?os`), "cisco-nxos"},
-				{re(`cisco`), "cisco-ios"},
-				{re(`mikrotik|routeros`), "mikrotik-routeros"},
-				{re(`huawei|^vrp`), "huawei-vrp"},
-				{re(`juniper`), "juniper-junos"},
-				{re(`hp.*procurve|hp.*comware`), "hp-comware"},
+				{re(`cisco.*\bios\b`), "cisco-ios"},
+				{re(`cisco`), "cisco"},
+				{re(`routeros`), "mikrotik-routeros"},
+				{re(`\bswos\b`), "mikrotik-swos"},
+				{re(`mikrotik`), "mikrotik"},
+				{re(`(?:^|\s)vrp(?:\s|$)`), "huawei-vrp"},
+				{re(`huawei`), "huawei"},
+				{re(`junos\s+evolved`), "juniper-junos-evolved"},
+				{re(`screenos|netscreen`), "juniper-screenos"},
+				{re(`junos`), "juniper-junos"},
+				{re(`juniper`), "juniper"},
+				{re(`dray.?os`), "drayos"},
+				{re(`draytek`), "draytek"},
+				{re(`sonic.?os`), "sonicos"},
+				{re(`sonicwall`), "sonicwall"},
+				{re(`zy.?nos`), "zynos"},
+				{re(`zyxel`), "zyxel"},
+				{re(`fireware`), "watchguard-fireware"},
+				{re(`fritz!?os`), "fritzos"},
+				{re(`hp.*comware`), "hp-comware"},
+				{re(`hp.*procurve`), "hp-procurve"},
 				{re(`zte`), "zte"},
-				{re(`dlink|d-link`), "embedded"},
-				{re(`tp.?link`), "embedded"},
+				{re(`dlink|d-link`), "dlink"},
+				{re(`tp.?link`), "tp-link"},
 				{re(`ubuntu`), "ubuntu"},
 				{re(`debian`), "debian"},
-				{re(`busybox`), "linux"},
+				{re(`busybox`), "busybox"},
 			},
 		},
 
-		// ===== Tier 2: DNS CHAOS. Lowest priority -- indirect OS signal. =====
+		// ===== Tier 2: DNS CHAOS software detection. =====
 		{
 			source:  "dns-chaos",
 			fieldFn: func(r *records.OSRecord) string { return r.DNSVersionBind },
 			patterns: []pattern{
-				// Unbound is the default base resolver on FreeBSD and OpenBSD,
-				// so when CHAOS version.bind reports Unbound on an otherwise
-				// unfingerprinted host this is a (weak) BSD signal.
-				{re(`unbound`), "bsd"},
-				// PowerDNS is a strong Linux signal.
-				{re(`powerdns|pdns`), "linux"},
+				{re(`unbound`), "unbound"},
+				{re(`powerdns|pdns`), "powerdns"},
 				// BIND on Windows has explicit "ms" in the version sometimes.
 				{re(`bind.*microsoft|bind.*windows`), "windows"},
-				// dnsmasq is overwhelmingly Linux.
-				{re(`dnsmasq`), "linux"},
-				// Knot is Linux-default but cross-platform; weak signal.
-				{re(`knot.dns`), "linux"},
+				{re(`bind`), "bind"},
+				{re(`dnsmasq`), "dnsmasq"},
+				{re(`knot.dns`), "knot-dns"},
 			},
 		},
 		{
 			source:  "dns-chaos-hostname",
 			fieldFn: func(r *records.OSRecord) string { return r.DNSHostnameBind },
 			patterns: []pattern{
-				{re(`\.ubuntu\.|^ubuntu`), "ubuntu"},
-				{re(`\.debian\.|^debian`), "debian"},
-				{re(`\.fedora\.|^fedora`), "fedora"},
-				{re(`\.freebsd\.|^freebsd`), "freebsd"},
+				{re(`\.ubuntu\.|^ubuntu`), "hostname-ubuntu"},
+				{re(`\.debian\.|^debian`), "hostname-debian"},
+				{re(`\.fedora\.|^fedora`), "hostname-fedora"},
+				{re(`\.freebsd\.|^freebsd`), "hostname-freebsd"},
 			},
 		},
 
@@ -292,15 +527,36 @@ func init() {
 			source:  "https-cert",
 			fieldFn: func(r *records.OSRecord) string { return r.HTTPSCertIssuer + " " + r.HTTPSCertSubject },
 			patterns: []pattern{
-				{re(`microsoft.*tls|microsoft.*it.*ca`), "windows"},
+				{re(`microsoft.*tls|microsoft.*it.*ca`), "microsoft"},
+				{re(`synology.*(?:\bdsm\b|diskstation manager)|diskstation manager`), "synology-dsm"},
 				{re(`synology`), "synology"},
+				{re(`qnap.*quts|quts.?hero`), "qnap-quts-hero"},
+				{re(`qnap.*\bqts\b|\bqts\b.*qnap`), "qnap-qts"},
 				{re(`qnap`), "qnap"},
 				{re(`pfsense`), "pfsense"},
 				{re(`opnsense`), "opnsense"},
-				{re(`mikrotik`), "mikrotik-routeros"},
-				{re(`fortigate|fortinet`), "fortinet-fortios"},
-				{re(`paloalto`), "paloalto-panos"},
-				{re(`unifi`), "embedded"},
+				{re(`routeros`), "mikrotik-routeros"},
+				{re(`mikrotik`), "mikrotik"},
+				{re(`fortios|fortigate`), "fortinet-fortios"},
+				{re(`fortinet`), "fortinet"},
+				{re(`pan.?os`), "paloalto-panos"},
+				{re(`palo.?alto`), "palo-alto"},
+				{re(`sonic.?os`), "sonicos"},
+				{re(`sonicwall.*(?:firewall|\btz\d|\bnsa?\d|\bnssp?\d|\bnsv\b)`), "sonicos"},
+				{re(`sonicwall`), "sonicwall"},
+				{re(`dray.?os`), "drayos"},
+				{re(`draytek`), "draytek"},
+				{re(`zy.?nos`), "zynos"},
+				{re(`zyxel`), "zyxel"},
+				{re(`fireware`), "watchguard-fireware"},
+				{re(`watchguard.*firebox|firebox.*watchguard`), "watchguard-fireware"},
+				{re(`watchguard`), "watchguard"},
+				{re(`sophos.*(?:sfos|firewall|xg)|\bsfos\b`), "sophos-sfos"},
+				{re(`sophos`), "sophos"},
+				{re(`unifi.?os`), "unifi-os"},
+				{re(`unifi`), "ubiquiti"},
+				{re(`vmware.*esxi|\besxi\b`), "vmware-esxi"},
+				{re(`proxmox.*(?:virtual environment|\bve\b)`), "proxmox-ve"},
 			},
 		},
 
@@ -322,7 +578,7 @@ var httpServerPatterns = []pattern{
 	{re(`\(ubuntu`), "ubuntu"},
 	{re(`\(debian`), "debian"},
 	{re(`\(raspbian`), "raspbian"},
-	{re(`\(centos`), "rhel"},
+	{re(`\(centos`), "centos"},
 	{re(`\(red.?hat|\(rhel`), "rhel"},
 	{re(`\(fedora`), "fedora"},
 	{re(`\(rocky`), "rocky"},
@@ -337,33 +593,81 @@ var httpServerPatterns = []pattern{
 	{re(`\(netbsd`), "netbsd"},
 	{re(`\(darwin|\(macos|\(mac.?os.x`), "macos"},
 	// Network gear & appliances
-	{re(`mikrotik`), "mikrotik-routeros"},
-	{re(`cisco`), "cisco-ios"},
-	{re(`fortinet|fortigate`), "fortinet-fortios"},
-	{re(`paloalto|panos`), "paloalto-panos"},
+	{re(`router.?os|routeros`), "mikrotik-routeros"},
+	{re(`\bswos\b`), "mikrotik-swos"},
+	{re(`mikrotik`), "mikrotik"},
+	{re(`cisco.*ios.?xe`), "cisco-iosxe"},
+	{re(`cisco.*ios.?xr`), "cisco-iosxr"},
+	{re(`cisco.*nx.?os|nxos`), "cisco-nxos"},
+	{re(`cisco.*(?:asa|adaptive\s+security)`), "cisco-asa"},
+	{re(`firepower\s+threat\s+defense|cisco.?ftd`), "cisco-ftd"},
+	{re(`cisco.*\bios\b`), "cisco-ios"},
+	{re(`cisco`), "cisco"},
+	{re(`fortios|fortigate`), "fortinet-fortios"},
+	{re(`fortinet`), "fortinet"},
+	{re(`pan.?os`), "paloalto-panos"},
+	{re(`palo.?alto`), "palo-alto"},
+	{re(`junos\s+evolved`), "juniper-junos-evolved"},
+	{re(`screenos|netscreen`), "juniper-screenos"},
+	{re(`junos`), "juniper-junos"},
+	{re(`juniper`), "juniper"},
+	{re(`dray.?os`), "drayos"},
+	{re(`draytek`), "draytek"},
+	{re(`sonic.?os`), "sonicos"},
+	{re(`sonicwall.*(?:firewall|\btz\d|\bnsa?\d|\bnssp?\d|\bnsv\b)`), "sonicos"},
+	{re(`sonicwall`), "sonicwall"},
+	{re(`zy.?nos`), "zynos"},
+	{re(`zyxel.*\bzld\b|\bzld\b.*zyxel`), "zyxel-zld"},
+	{re(`zyxel.*\buos\b|\buos\b.*zyxel`), "zyxel-uos"},
+	{re(`zyxel`), "zyxel"},
+	{re(`fireware`), "watchguard-fireware"},
+	{re(`watchguard.*firebox|firebox.*watchguard`), "watchguard-fireware"},
+	{re(`watchguard`), "watchguard"},
+	{re(`sophos.*(?:sfos|firewall|xg)|\bsfos\b`), "sophos-sfos"},
+	{re(`sophos`), "sophos"},
+	{re(`fritz!?os`), "fritzos"},
+	{re(`asuswrt`), "asuswrt"},
+	{re(`edgeos`), "edgeos"},
+	{re(`unifi.?os`), "unifi-os"},
+	{re(`\bairos\b`), "airos"},
+	{re(`arubaos.?cx|aos.?cx`), "arubaos-cx"},
+	{re(`arubaos`), "arubaos"},
+	{re(`nokia.*sr.?os|service router operating system|\btimos\b`), "nokia-sros"},
+	{re(`smartfabric.*os10|dell.*\bos10\b`), "dell-os10"},
+	{re(`cumulus.*linux`), "cumulus-linux"},
+	{re(`\bsonic\b.*(?:software|version)`), "sonic"},
+	{re(`synology.*(?:\bdsm\b|diskstation manager)|diskstation manager`), "synology-dsm"},
+	{re(`synology.*(?:\bsrm\b|router manager)|synology router manager`), "synology-srm"},
 	{re(`synology`), "synology"},
+	{re(`qnap.*quts|quts.?hero`), "qnap-quts-hero"},
+	{re(`qnap.*\bqts\b|\bqts\b.*qnap`), "qnap-qts"},
 	{re(`qnap`), "qnap"},
+	{re(`truenas.*core`), "truenas-core"},
+	{re(`truenas.*scale`), "truenas-scale"},
+	{re(`truenas|freenas`), "truenas"},
+	{re(`vmware.*esxi|\besxi\b`), "vmware-esxi"},
+	{re(`proxmox.*(?:virtual environment|\bve\b)`), "proxmox-ve"},
 	{re(`pfsense`), "pfsense"},
 	{re(`opnsense`), "opnsense"},
 	{re(`openwrt|luci`), "openwrt"},
-	{re(`unifi`), "embedded"},
-	{re(`router.?os|routeros`), "mikrotik-routeros"},
+	{re(`unifi`), "ubiquiti"},
 }
 
 // httpServerFallbackPatterns are very generic indicators.
 var httpServerFallbackPatterns = []pattern{
 	{re(`jetdirect|laserjet|officejet|hp printer`), "printer"},
 	{re(`brother|epson|canon\s+printer`), "printer"},
-	// "Server: nginx" alone gives no distro; treat as linux (statistically very likely)
-	{re(`^nginx(/|$|\s)`), "linux"},
-	{re(`^apache`), "linux"},
-	{re(`^lighttpd`), "linux"},
-	{re(`^caddy`), "linux"},
+	// Server software is useful evidence but does not identify the host OS.
+	{re(`^nginx(/|$|\s)`), "nginx"},
+	{re(`^apache`), "apache"},
+	{re(`^lighttpd`), "lighttpd"},
+	{re(`^caddy`), "caddy"},
 	// Generic "Server: " with the literal "linux" / "unix" string
 	{re(`linux`), "linux"},
 	{re(`unix`), "unix"},
 	// Generic router web-interface markers
 	{re(`router|gateway`), "router"},
+	{re(`server`), "server"},
 }
 
 // mailBannerPatterns is shared between POP3 and IMAP rules.
@@ -371,13 +675,13 @@ var mailBannerPatterns = []pattern{
 	{re(`microsoft.*(pop3|imap)|microsoft\s+exchange`), "windows"},
 	{re(`dovecot.*(ubuntu)`), "ubuntu"},
 	{re(`dovecot.*(debian)`), "debian"},
-	{re(`dovecot`), "linux"},
+	{re(`dovecot`), "dovecot"},
 	{re(`cyrus.*(ubuntu)`), "ubuntu"},
 	{re(`cyrus.*(debian)`), "debian"},
-	{re(`cyrus`), "linux"},
-	{re(`courier`), "linux"},
+	{re(`cyrus`), "cyrus"},
+	{re(`courier`), "courier"},
 	{re(`mdaemon|mailenable`), "windows"},
-	{re(`zimbra`), "linux"},
+	{re(`zimbra`), "zimbra"},
 }
 
 // CleanBanner used by tests and the merger to normalise / clean banner text.

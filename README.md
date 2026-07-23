@@ -148,6 +148,15 @@ ICMP scans retain only validated echo replies.
 |---|---|
 | `--zmap <id>` | override the `zmap` run id |
 
+`os.pq` preserves normalized evidence even when a banner does not identify an
+operating system. `OS_NAME` is populated only for an explicit or supported
+OS inference. `DETECTED_NAME` retains the best normalized observation and
+`DETECTED_TYPE` distinguishes `os`, `os-family`, `vendor`,
+`server-software`, `device-type`, `hostname-hint`, and `unknown`. The original
+service banners remain available in their source columns. For example, a plain
+`nginx` banner is stored as server software without being labeled Linux, while
+`nginx (Ubuntu)` identifies Ubuntu.
+
 **measure-ipid**
 
 | Flag | Description |
