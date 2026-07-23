@@ -48,11 +48,11 @@ func NewWriter(outPath string) (*Writer, error) {
 	}, nil
 }
 
-// Append queues one record. Empty OS_NAME records are dropped silently --
-// the run requirement is that os.pq only contains rows where an OS could
-// be inferred.
+// Append queues one record. Records without a normalized detection are
+// dropped; OS_NAME may be empty when only a vendor, software product, or
+// device type could be identified.
 func (w *Writer) Append(r records.OSRecord) error {
-	if r.OSName == "" {
+	if r.OSName == "" && r.DetectedName == "" {
 		return nil
 	}
 	w.batch = append(w.batch, r)

@@ -8,6 +8,8 @@ type ZMap struct {
 type OSRecord struct {
 	IPAddress        string `parquet:"IP_ADDR,plain"`
 	OSName           string `parquet:"OS_NAME"`
+	DetectedName     string `parquet:"DETECTED_NAME"`
+	DetectedType     string `parquet:"DETECTED_TYPE"`
 	OSSource         string `parquet:"OS_SOURCE"`
 	SSHServerID      string `parquet:"SSH_SERVER_ID,plain"`
 	SMBNativeOS      string `parquet:"SMB_NATIVE_OS,plain"`
