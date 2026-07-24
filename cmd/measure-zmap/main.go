@@ -42,7 +42,16 @@ func main() {
 		log.Fatalf("load zmap config: %v", err)
 	}
 
-	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
+	goMemoryLimit := config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes)
+	if c.Payload == types.PayloadTCP && goMemoryLimit < zmap.TCPDedupGoMemoryLimitBytes {
+		log.Printf(
+			"raising Go memory limit from %d MiB to %d MiB for exact TCP deduplication",
+			goMemoryLimit>>20,
+			zmap.TCPDedupGoMemoryLimitBytes>>20,
+		)
+		goMemoryLimit = zmap.TCPDedupGoMemoryLimitBytes
+	}
+	debug.SetMemoryLimit(goMemoryLimit)
 
 	m := paths.NewZMapMeasurement(c.Payload, c.Port, time.Now())
 
