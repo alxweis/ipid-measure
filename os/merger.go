@@ -31,6 +31,9 @@ type merger struct {
 	rxZGrab2 atomic.Uint64
 	rxZDNS   atomic.Uint64
 	rxSNMP   atomic.Uint64
+
+	secondarySampleRate float64
+	hasSecondary        bool
 }
 
 // Scanner-mask bits. Adding a scanner means adding a bit and accounting for
@@ -42,28 +45,31 @@ const (
 )
 
 // enabledMask returns the bitmask of scanners that will actually emit per-IP
-// results given the user's modules configuration.
-func enabledMask(modules config.OSModules) uint8 {
+// results given the effective configuration.
+func enabledMask(c *config.OSConfig) uint8 {
 	var m uint8
-	if config.HasZGrab2Module(modules) {
+	if config.HasCoreZGrab2Module(c.Modules) ||
+		(config.HasSecondaryZGrab2Module(c.Modules) && c.SecondarySampleRate > 0) {
 		m |= scannerZGrab2
 	}
-	if config.HasZDNSModule(modules) {
+	if config.HasZDNSModule(c.Modules) && c.SecondarySampleRate > 0 {
 		m |= scannerZDNS
 	}
-	if config.HasSNMPModule(modules) {
+	if config.HasSNMPModule(c.Modules) {
 		m |= scannerSNMP
 	}
 	return m
 }
 
-func newMerger(modules config.OSModules, out chan<- records.OSRecord) *merger {
-	mask := enabledMask(modules)
+func newMerger(c *config.OSConfig, out chan<- records.OSRecord) *merger {
+	mask := enabledMask(c)
 	return &merger{
-		enabledOrig: mask,
-		enabled:     mask,
-		pendings:    make(map[string]*pending, 1<<14),
-		out:         out,
+		enabledOrig:         mask,
+		enabled:             mask,
+		pendings:            make(map[string]*pending, 1<<14),
+		out:                 out,
+		secondarySampleRate: c.SecondarySampleRate,
+		hasSecondary:        config.HasSecondaryModule(c.Modules),
 	}
 }
 
@@ -133,6 +139,8 @@ func (m *merger) integrate(ip string, sourceFlag uint8, applyFn func(*records.OS
 // or device type could be inferred; only records without usable evidence are
 // dropped.
 func (m *merger) emit(rec records.OSRecord) {
+	rec.SecondarySampled = m.hasSecondary &&
+		selectSecondary(rec.IPAddress, m.secondarySampleRate)
 	result := DetectFingerprint(&rec)
 	if result.DetectedName == "" {
 		m.totalDropped.Add(1)

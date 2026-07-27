@@ -87,6 +87,7 @@ cp config/ipid.yaml.example config/ipid.yaml
 |---|---|---|
 | `zmap` | measurement-id | zmap run to scan, e.g. `tcp-80_2026-06-03_00-13-06` (usually set via `--zmap`) |
 | `modules.{ssh,smb,http,https,snmp,smtp,mssql,pop3,imap,ftp,telnet,dns_chaos}` | bool | enable each fingerprint module |
+| `secondary_sample_rate` | float 0-1 | deterministic target fraction for lower-yield SMTP/MSSQL/POP3/IMAP/FTP/Telnet/DNS-CHAOS scans; core SSH/SMB/HTTP/HTTPS/SNMP still scan every target |
 | `zgrab2_senders` / `zdns_threads` / `snmp_workers` | scaled-int | per-scanner concurrency |
 | `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | timeouts |
 | `snmp_community` | string | SNMPv2c community |
@@ -150,6 +151,9 @@ ICMP scans retain only validated echo replies.
 | Flag | Description |
 |---|---|
 | `--zmap <id>` | override the `zmap` run id |
+| `--secondary-sample-rate <0..1>` | override the deterministic secondary-module sample |
+| `--zgrab2-senders` / `--zdns-threads` / `--snmp-workers` | override scanner concurrency |
+| `--connect-timeout` / `--read-timeout` / `--snmp-timeout` | override scanner timeouts |
 
 `os.pq` preserves normalized evidence even when a banner does not identify an
 operating system. `OS_NAME` is populated only for an explicit or supported
@@ -159,6 +163,23 @@ OS inference. `DETECTED_NAME` retains the best normalized observation and
 service banners remain available in their source columns. For example, a plain
 `nginx` banner is stored as server software without being labeled Linux, while
 `nginx (Ubuntu)` identifies Ubuntu.
+
+The default Internet-wide profile focuses exhaustive work on the strongest and
+most broadly useful evidence: SSH, SMB, HTTP, HTTPS, and SNMP. Lower-yield mail,
+database, FTP, Telnet, and DNS-CHAOS probes run on a stable 1% sample. Stable
+sampling keeps longitudinal campaigns comparable and still covers roughly
+3 million hosts in a 300-million-target run. Set `secondary_sample_rate: 1` to
+restore the legacy exhaustive behavior, or `0` to disable secondary scans.
+`SECONDARY_SAMPLED` in `os.pq` records whether a retained target received those
+secondary probes, so downstream analyses can filter or weight sampled evidence.
+`run-all-*` supplies the optimized profile as command-line overrides so an
+older deployed `config/os.yaml` cannot silently restore the multi-week scan.
+The periodic `os: completed=...` log reports completed targets (including
+targets without fingerprint evidence), current targets/s, and an ETA. This is
+the authoritative runtime indicator; `emitted` alone only counts retained
+fingerprints and is therefore not a progress counter.
+See [Internet-wide OS scan profile](docs/os-scan-performance.md) for the
+performance budget, module rationale, and production tuning thresholds.
 
 **measure-ipid**
 

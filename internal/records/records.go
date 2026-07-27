@@ -11,6 +11,7 @@ type OSRecord struct {
 	DetectedName     string `parquet:"DETECTED_NAME"`
 	DetectedType     string `parquet:"DETECTED_TYPE"`
 	OSSource         string `parquet:"OS_SOURCE"`
+	SecondarySampled bool   `parquet:"SECONDARY_SAMPLED"`
 	SSHServerID      string `parquet:"SSH_SERVER_ID,plain"`
 	SMBNativeOS      string `parquet:"SMB_NATIVE_OS,plain"`
 	HTTPServer       string `parquet:"HTTP_SERVER,plain"`

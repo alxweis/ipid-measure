@@ -16,6 +16,11 @@ type OSConfig struct {
 	ZDNSThreads   *ScaledNumber `yaml:"zdns_threads"`
 	SNMPWorkers   *ScaledNumber `yaml:"snmp_workers"`
 
+	// SecondarySampleRate is the deterministic fraction of targets that receive
+	// the lower-yield application scans (SMTP, MSSQL, POP3, IMAP, FTP, Telnet,
+	// and DNS CHAOS). Core SSH/SMB/HTTP/HTTPS and SNMP scans always run.
+	SecondarySampleRate float64 `yaml:"secondary_sample_rate"`
+
 	ConnectTimeout time.Duration `yaml:"connect_timeout"`
 	ReadTimeout    time.Duration `yaml:"read_timeout"`
 	SNMPTimeout    time.Duration `yaml:"snmp_timeout"`
@@ -60,12 +65,21 @@ func validateOSConfig(config *OSConfig) error {
 
 	// --- SPEED -------------------------------------------------------------------
 
+	if config.SecondarySampleRate < 0 || config.SecondarySampleRate > 1 {
+		return fmt.Errorf("secondary_sample_rate must be in [0, 1]")
+	}
+	if !HasCoreModule(config.Modules) &&
+		!(HasSecondaryModule(config.Modules) && config.SecondarySampleRate > 0) {
+		return fmt.Errorf("no effective os modules selected")
+	}
+
 	if config.ZGrab2Senders != nil {
 		zgrab2Senders := uint64(*config.ZGrab2Senders)
 		if zgrab2Senders < 1 || zgrab2Senders > 10_000 {
 			return fmt.Errorf("zgrab2_senders must be in [1, 10K]")
 		}
-	} else if HasZGrab2Module(config.Modules) {
+	} else if HasCoreZGrab2Module(config.Modules) ||
+		(HasSecondaryZGrab2Module(config.Modules) && config.SecondarySampleRate > 0) {
 		return fmt.Errorf("zgrab2_senders must be set, if you use zgrab2 modules")
 	}
 
@@ -74,7 +88,7 @@ func validateOSConfig(config *OSConfig) error {
 		if zdnsThreads < 1 || zdnsThreads > 10_000 {
 			return fmt.Errorf("zdns_threads must be in [1, 10K]")
 		}
-	} else if HasZDNSModule(config.Modules) {
+	} else if HasZDNSModule(config.Modules) && config.SecondarySampleRate > 0 {
 		return fmt.Errorf("zdns_threads must be set, if you use zdns modules")
 	}
 

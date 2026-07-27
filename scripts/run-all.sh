@@ -39,6 +39,18 @@ RT_CONNECTION_COUNT=4;   RT_REQUESTS_PER_CON=4
 FI_CONNECTION_COUNT_1=4; FI_REQUESTS_PER_CON_1=4;  FI_REQUEST_INTERVAL_1=20ms; FI_MIN_REPLY_RATE_1=1.0
 FI_CONNECTION_COUNT_2=4; FI_REQUESTS_PER_CON_2=25; FI_REQUEST_INTERVAL_2=20ms; FI_MIN_REPLY_RATE_2=0.8
 
+# Internet-wide OS profile: retain high-yield SSH/SMB/HTTP/HTTPS/SNMP probes
+# for every target, but sample the lower-yield application modules. These
+# overrides keep run-all bounded even when a deployed os.yaml predates the
+# optimized defaults.
+OS_SECONDARY_SAMPLE_RATE=0.01
+OS_ZGRAB2_SENDERS=5K
+OS_ZDNS_THREADS=1K
+OS_SNMP_WORKERS=3K
+OS_CONNECT_TIMEOUT=1s
+OS_READ_TIMEOUT=1s
+OS_SNMP_TIMEOUT=1s
+
 # spec fields: mode:connection_count:requests_per_connection:request_interval:minimum_reply_rate
 MODES=(
     "rt-based:${RT_CONNECTION_COUNT}:${RT_REQUESTS_PER_CON}::"
@@ -76,7 +88,16 @@ for proto in "${PROTOS[@]}"; do
     echo "=== [$proto] zmap id = $id ==="
 
     echo "=== [$proto] os ==="
-    os_id=$(./bin/measure-os --zmap "$id" --print-id | tail -n1)
+    os_id=$(./bin/measure-os
+      --zmap "$id"
+      --secondary-sample-rate "$OS_SECONDARY_SAMPLE_RATE"
+      --zgrab2-senders "$OS_ZGRAB2_SENDERS"
+      --zdns-threads "$OS_ZDNS_THREADS"
+      --snmp-workers "$OS_SNMP_WORKERS"
+      --connect-timeout "$OS_CONNECT_TIMEOUT"
+      --read-timeout "$OS_READ_TIMEOUT"
+      --snmp-timeout "$OS_SNMP_TIMEOUT"
+      --print-id | tail -n1)
     OS[$proto]=$os_id
     SUMMARY+=("os    $proto  $os_id")
 done
