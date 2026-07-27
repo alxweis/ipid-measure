@@ -26,3 +26,21 @@ func TestMergerRetainsFallbackEvidenceAndDropsEmptyRecords(t *testing.T) {
 		t.Fatalf("totalDropped = %d, want 1", got)
 	}
 }
+
+func TestMergerAnnotatesSecondarySample(t *testing.T) {
+	out := make(chan records.OSRecord, 1)
+	m := &merger{
+		out:                 out,
+		secondarySampleRate: 1,
+		hasSecondary:        true,
+	}
+	m.emit(records.OSRecord{
+		IPAddress:   "192.0.2.1",
+		SSHServerID: "OpenSSH_9.6 Ubuntu",
+	})
+
+	got := <-out
+	if !got.SecondarySampled {
+		t.Fatal("SECONDARY_SAMPLED = false, want true")
+	}
+}

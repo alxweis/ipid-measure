@@ -32,6 +32,7 @@ func Run(c *config.OSConfig, m *paths.OSMeasurement) (uint64, error) {
 	log.Printf("zgrab2_senders         = %s", c.ZGrab2Senders.String())
 	log.Printf("zdns_threads           = %s", c.ZDNSThreads.String())
 	log.Printf("snmp_workers           = %s", c.SNMPWorkers.String())
+	log.Printf("secondary_sample_rate  = %.4f", c.SecondarySampleRate)
 
 	log.Printf("connect_timeout        = %s", c.ConnectTimeout)
 	log.Printf("read_timeout           = %s", c.ReadTimeout)

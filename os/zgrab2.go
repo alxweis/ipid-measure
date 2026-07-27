@@ -11,8 +11,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/alxweis/ipid-measure/internal/config"
 )
 
 // ZGrab2Result is the per-IP outcome of the multimodule ZGrab2 scan.
@@ -40,64 +38,6 @@ type ZGrab2Runner struct {
 	stdin      io.WriteCloser
 	stdoutPipe io.ReadCloser
 	stderrPipe io.ReadCloser
-}
-
-// BuildZGrab2INI assembles a multimodule ZGrab2 .ini file.
-//
-// Flag names verified against `zgrab2 -h` and `zgrab2 <module> -h`. Per-module
-// Basic Options accepted everywhere: port, name, connect-timeout, target-timeout.
-// blocklisting is owned by zmap upstream, so we point zgrab2 at /dev/null to
-// override its $HOME/.config/zgrab2/blocklist.conf default which crashes if absent.
-func BuildZGrab2INI(
-	modules config.OSModules,
-	senders config.ScaledNumber,
-	connectTimeout, readTimeout time.Duration,
-) string {
-	var b strings.Builder
-
-	fmt.Fprintf(&b, "[Application Options]\n")
-	fmt.Fprintf(&b, "senders=%d\n", senders)
-	fmt.Fprintf(&b, "output-file=-\n")
-	fmt.Fprintf(&b, "input-file=-\n")
-	fmt.Fprintf(&b, "blocklist-file=/dev/null\n")
-	fmt.Fprintf(&b, "flush=true\n") // flush stdout per result so parser sees lines promptly
-
-	ctStr := connectTimeout.String()
-	ttStr := (connectTimeout + readTimeout).String()
-
-	if modules.HTTP {
-		fmt.Fprintf(&b, "\n[http]\nname=\"http\"\nport=80\nendpoint=\"/\"\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.HTTPS {
-		fmt.Fprintf(&b, "\n[http]\nname=\"https\"\nport=443\nendpoint=\"/\"\nuse-https=true\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.SSH {
-		fmt.Fprintf(&b, "\n[ssh]\nname=\"ssh\"\nport=22\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.SMB {
-		fmt.Fprintf(&b, "\n[smb]\nname=\"smb\"\nport=445\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.SMTP {
-		// Default: read banner, send EHLO if ESMTP advertised, HELO otherwise.
-		fmt.Fprintf(&b, "\n[smtp]\nname=\"smtp\"\nport=25\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.MSSQL {
-		fmt.Fprintf(&b, "\n[mssql]\nname=\"mssql\"\nport=1433\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.POP3 {
-		fmt.Fprintf(&b, "\n[pop3]\nname=\"pop3\"\nport=110\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.IMAP {
-		fmt.Fprintf(&b, "\n[imap]\nname=\"imap\"\nport=143\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.FTP {
-		fmt.Fprintf(&b, "\n[ftp]\nname=\"ftp\"\nport=21\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-	if modules.TELNET {
-		fmt.Fprintf(&b, "\n[telnet]\nname=\"telnet\"\nport=23\nconnect-timeout=%s\ntarget-timeout=%s\n", ctStr, ttStr)
-	}
-
-	return b.String()
 }
 
 // StartZGrab2 spawns ZGrab2 in multimodule mode.

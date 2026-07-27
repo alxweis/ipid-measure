@@ -3,13 +3,16 @@
 zmap: tcp-80_YYYY-MM-DD_HH-MM-SS
 
 modules:
-  ssh: true  # SSH banner
-  smb: true  # NTLM Native OS field
+  # Core modules: high-yield OS evidence, scanned on every target.
+  ssh: true   # SSH banner
+  smb: true   # NTLM Native OS field
   http: true  # HTTP Server header on port 80
-  https: true  # HTTP Server header + TLS cert metadata on port 443
+  https: true # HTTP Server header + TLS cert metadata on port 443
   snmp: true  # SNMP sysDescr.0 (in-process UDP probe, no external tool)
-  smtp: true  # SMTP banner + EHLO response
 
+  # Secondary modules: useful but lower-yield evidence, scanned only on the
+  # deterministic fraction configured by secondary_sample_rate.
+  smtp: true   # SMTP banner + EHLO response
   mssql: true  # Pre-Login response -> Windows
   pop3: true  # POP3 banner
   imap: true  # IMAP banner
@@ -19,15 +22,20 @@ modules:
 
 # --- SPEED -------------------------------------------------------------------
 
-zgrab2_senders: 1000
+# A 1% stable sample still covers about 3M of 300M targets while avoiding
+# exhaustive low-yield handshakes. Set 0 to disable secondary scans or 1 for
+# the legacy exhaustive behavior.
+secondary_sample_rate: 0.01
+
+zgrab2_senders: 5000
 zdns_threads: 1000
-snmp_workers: 2000
+snmp_workers: 3000
 
 # --- ADDITIONAL --------------------------------------------------------------
 
-connect_timeout: 3s
-read_timeout: 3s
-snmp_timeout: 2s
+connect_timeout: 1s
+read_timeout: 1s
+snmp_timeout: 1s
 
 snmp_community: public
 

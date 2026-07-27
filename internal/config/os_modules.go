@@ -19,11 +19,22 @@ type OSModules struct {
 }
 
 func HasZGrab2Module(modules OSModules) bool {
+	return HasCoreZGrab2Module(modules) || HasSecondaryZGrab2Module(modules)
+}
+
+// HasCoreZGrab2Module reports whether at least one high-yield application
+// fingerprint is enabled. These modules run for every target.
+func HasCoreZGrab2Module(modules OSModules) bool {
 	return modules.SSH ||
 		modules.SMB ||
 		modules.HTTP ||
-		modules.HTTPS ||
-		modules.SMTP ||
+		modules.HTTPS
+}
+
+// HasSecondaryZGrab2Module reports whether at least one lower-yield banner
+// module is enabled. These modules are sampled by the OS pipeline.
+func HasSecondaryZGrab2Module(modules OSModules) bool {
+	return modules.SMTP ||
 		modules.MSSQL ||
 		modules.POP3 ||
 		modules.IMAP ||
@@ -37,6 +48,14 @@ func HasZDNSModule(modules OSModules) bool {
 
 func HasSNMPModule(modules OSModules) bool {
 	return modules.SNMP
+}
+
+func HasCoreModule(modules OSModules) bool {
+	return HasCoreZGrab2Module(modules) || HasSNMPModule(modules)
+}
+
+func HasSecondaryModule(modules OSModules) bool {
+	return HasSecondaryZGrab2Module(modules) || HasZDNSModule(modules)
 }
 
 func HasModule(modules OSModules) bool {

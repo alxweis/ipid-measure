@@ -8,6 +8,7 @@ import (
 	osstd "os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/parquet-go/parquet-go"
@@ -39,11 +40,23 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	defer inFile.Close()
 	pqReader := parquet.NewGenericReader[records.ZMap](inFile)
 	defer pqReader.Close()
+	numberOfTargets := uint64(pqReader.NumRows())
+
+	useZGrab2 := config.HasCoreZGrab2Module(c.Modules) ||
+		(config.HasSecondaryZGrab2Module(c.Modules) && c.SecondarySampleRate > 0)
+	useZDNS := config.HasZDNSModule(c.Modules) && c.SecondarySampleRate > 0
+	useSNMP := config.HasSNMPModule(c.Modules)
 
 	// Build subprocess args & write ZGrab2 ini
 	iniPath := ""
-	if config.HasZGrab2Module(c.Modules) {
-		ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout)
+	if useZGrab2 {
+		ini := BuildZGrab2INI(
+			c.Modules,
+			*c.ZGrab2Senders,
+			c.ConnectTimeout,
+			c.ReadTimeout,
+			c.SecondarySampleRate,
+		)
 		iniPath = osstd.TempDir() + "/ipid-zgrab2-" + fmt.Sprint(osstd.Getpid()) + ".ini"
 		if err := WriteIniFile(ini, iniPath); err != nil {
 			return 0, fmt.Errorf("write ini: %w", err)
@@ -63,8 +76,9 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	}()
 
 	outRecords := make(chan records.OSRecord, ResultBufferSize)
-	m := newMerger(c.Modules, outRecords)
+	m := newMerger(c, outRecords)
 	writerErrCh := make(chan error, 1)
+	selectionStats := &secondarySelectionStats{}
 
 	// Writer goroutine: drains outRecords -> parquet.
 	writerWg := sync.WaitGroup{}
@@ -90,7 +104,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 
 	scannerWg := sync.WaitGroup{}
 
-	if config.HasZGrab2Module(c.Modules) {
+	if useZGrab2 {
 		zGrab2Runner, err = StartZGrab2(ctx, ZGrab2Binary, iniPath)
 		if err != nil {
 			close(outRecords)
@@ -146,7 +160,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		}()
 	}
 
-	if config.HasZDNSModule(c.Modules) {
+	if useZDNS {
 		zDnsRunner, err = StartZDNS(ctx, ZDNSBinary, *c.ZDNSThreads, c.ReadTimeout)
 		if err != nil {
 			close(outRecords)
@@ -209,7 +223,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 		}()
 	}
 
-	if config.HasSNMPModule(c.Modules) {
+	if useSNMP {
 		snmpProbe = NewSNMPProbe(c.SNMPCommunity, c.SNMPTimeout)
 		snmpOut = snmpProbe.Run(ctx, snmpIn, int(*c.SNMPWorkers))
 		scannerWg.Add(1)
@@ -236,10 +250,10 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 			return false
 		}
 	}
-	// Hoist scanner-enabled flags out of the per-IP loop.
-	useZGrab2 := config.HasZGrab2Module(c.Modules)
-	useZDNS := config.HasZDNSModule(c.Modules)
-	useSNMP := config.HasSNMPModule(c.Modules)
+	// Hoist scan-plan flags out of the per-IP loop.
+	hasSecondary := config.HasSecondaryModule(c.Modules)
+	tagSecondaryZGrab2 := config.HasSecondaryZGrab2Module(c.Modules) &&
+		c.SecondarySampleRate > 0 && c.SecondarySampleRate < 1
 	go func() {
 		defer close(zGrab2In)
 		defer close(zDnsIn)
@@ -258,16 +272,35 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 				if ip == "" {
 					continue
 				}
+				selectedSecondary := hasSecondary &&
+					selectSecondary(ip, c.SecondarySampleRate)
+				if hasSecondary {
+					if selectedSecondary {
+						selectionStats.selected.Add(1)
+					} else {
+						selectionStats.skipped.Add(1)
+					}
+				}
 				if useZGrab2 {
-					if !send(zGrab2In, ip) {
+					input := zgrab2InputLine(
+						ip,
+						tagSecondaryZGrab2 && selectedSecondary,
+					)
+					if !send(zGrab2In, input) {
 						feederErrCh <- ctx.Err()
 						return
 					}
 				}
 				if useZDNS {
-					if !send(zDnsIn, ip) {
-						feederErrCh <- ctx.Err()
-						return
+					if selectedSecondary {
+						if !send(zDnsIn, ip) {
+							feederErrCh <- ctx.Err()
+							return
+						}
+					} else {
+						// Mark deliberately unsampled DNS as complete for
+						// this IP without issuing either network query.
+						m.integrate(ip, scannerZDNS, func(*records.OSRecord) {})
 					}
 				}
 				if useSNMP {
@@ -290,7 +323,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 
 	// Stats reporter (once per second)
 	statsDone := make(chan struct{})
-	go reportOSStats(ctx, m, writer, statsDone)
+	go reportOSStats(ctx, m, writer, selectionStats, numberOfTargets, statsDone)
 
 	// Wait for feeder + scanners + merger to drain
 	feederErr := <-feederErrCh
@@ -367,11 +400,23 @@ func drainWriter(
 	return firstErr
 }
 
+type secondarySelectionStats struct {
+	selected atomic.Uint64
+	skipped  atomic.Uint64
+}
+
 // reportOSStats logs progress once per second so a long run shows life.
-func reportOSStats(ctx context.Context, m *merger, w *Writer, done <-chan struct{}) {
+func reportOSStats(
+	ctx context.Context,
+	m *merger,
+	w *Writer,
+	selection *secondarySelectionStats,
+	numberOfTargets uint64,
+	done <-chan struct{},
+) {
 	t := time.NewTicker(consts.LogUpdateInterval)
 	defer t.Stop()
-	var lastEmitted uint64
+	var lastCompleted uint64
 	var ms runtime.MemStats
 	start := time.Now()
 	for {
@@ -381,16 +426,33 @@ func reportOSStats(ctx context.Context, m *merger, w *Writer, done <-chan struct
 		case <-done:
 			return
 		case <-t.C:
-			cur := m.totalEmitted.Load()
-			delta := cur - lastEmitted
-			lastEmitted = cur
-			received := m.totalReceived.Load()
+			emitted := m.totalEmitted.Load()
 			dropped := m.totalDropped.Load()
+			completed := emitted + dropped
+			deltaCompleted := completed - lastCompleted
+			lastCompleted = completed
+			received := m.totalReceived.Load()
 			elapsed := time.Since(start).Truncate(time.Second)
+			progress := 0.0
+			eta := "warming-up"
+			if numberOfTargets > 0 {
+				progress = float64(completed) / float64(numberOfTargets) * 100
+			}
+			if completed > 0 && completed < numberOfTargets {
+				remaining := time.Duration(
+					float64(elapsed) / float64(completed) *
+						float64(numberOfTargets-completed),
+				).Truncate(time.Second)
+				eta = remaining.String()
+			} else if completed >= numberOfTargets && numberOfTargets > 0 {
+				eta = "0s"
+			}
 			runtime.ReadMemStats(&ms)
-			log.Printf("os: emitted=%d (+%d) dropped=%d merger_in=%d (zgrab2=%d zdns=%d snmp=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
-				cur, delta, dropped, received,
+			log.Printf("os: completed=%d/%d (%.2f%% +%d/s eta=%s) emitted=%d dropped=%d merger_in=%d (zgrab2=%d zdns=%d snmp=%d) secondary=(selected=%d skipped=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
+				completed, numberOfTargets, progress, deltaCompleted, eta,
+				emitted, dropped, received,
 				m.rxZGrab2.Load(), m.rxZDNS.Load(), m.rxSNMP.Load(),
+				selection.selected.Load(), selection.skipped.Load(),
 				w.Written(), ms.HeapAlloc>>20, runtime.NumGoroutine(), elapsed)
 		}
 	}
