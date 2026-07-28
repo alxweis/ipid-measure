@@ -88,16 +88,15 @@ for proto in "${PROTOS[@]}"; do
     echo "=== [$proto] zmap id = $id ==="
 
     echo "=== [$proto] os ==="
-    os_id=$(./bin/measure-os
-      --zmap "$id"
-      --secondary-sample-rate "$OS_SECONDARY_SAMPLE_RATE"
-      --zgrab2-senders "$OS_ZGRAB2_SENDERS"
-      --zdns-threads "$OS_ZDNS_THREADS"
-      --snmp-workers "$OS_SNMP_WORKERS"
-      --connect-timeout "$OS_CONNECT_TIMEOUT"
-      --read-timeout "$OS_READ_TIMEOUT"
-      --snmp-timeout "$OS_SNMP_TIMEOUT"
-      --print-id | tail -n1)
+    os_args=(--zmap "$id"
+             --secondary-sample-rate "$OS_SECONDARY_SAMPLE_RATE"
+             --zgrab2-senders "$OS_ZGRAB2_SENDERS"
+             --zdns-threads "$OS_ZDNS_THREADS"
+             --snmp-workers "$OS_SNMP_WORKERS"
+             --connect-timeout "$OS_CONNECT_TIMEOUT"
+             --read-timeout "$OS_READ_TIMEOUT"
+             --snmp-timeout "$OS_SNMP_TIMEOUT")
+    os_id=$(./bin/measure-os "${os_args[@]}" --print-id | tail -n1)
     OS[$proto]=$os_id
     SUMMARY+=("os    $proto  $os_id")
 done
