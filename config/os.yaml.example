@@ -18,7 +18,7 @@ modules:
   imap: true  # IMAP banner
   ftp: true  # FTP 220 banner
   telnet: true  # Telnet banner (often router OS)
-  dns_chaos: true  # version.bind / hostname.bind CHAOS-class via zdns
+  dns_chaos: true  # in-process version.bind / hostname.bind CHAOS TXT probes
 
 # --- SPEED -------------------------------------------------------------------
 
@@ -28,7 +28,7 @@ modules:
 secondary_sample_rate: 0.01
 
 zgrab2_senders: 5000
-zdns_threads: 1000
+zdns_threads: 1000  # in-process DNS CHAOS workers (name retained for compatibility)
 snmp_workers: 3000
 
 # --- ADDITIONAL --------------------------------------------------------------

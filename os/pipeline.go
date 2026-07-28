@@ -20,7 +20,6 @@ import (
 
 const (
 	ZGrab2Binary          = "zgrab2"
-	ZDNSBinary            = "zdns"
 	ResultBufferSize      = 100_000
 	ShutdownGraceSeconds  = 5
 	StdoutReadBufferBytes = 1 << 20
@@ -42,9 +41,10 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	defer pqReader.Close()
 	numberOfTargets := uint64(pqReader.NumRows())
 
-	useZGrab2 := config.HasCoreZGrab2Module(c.Modules) ||
-		(config.HasSecondaryZGrab2Module(c.Modules) && c.SecondarySampleRate > 0)
-	useZDNS := config.HasZDNSModule(c.Modules) && c.SecondarySampleRate > 0
+	useDefaultZGrab2 := usesDefaultZGrab2(c)
+	useTriggeredSecondaryZGrab2 := usesTriggeredSecondaryZGrab2(c)
+	useZGrab2 := useDefaultZGrab2 || useTriggeredSecondaryZGrab2
+	useDNSChaos := config.HasZDNSModule(c.Modules) && c.SecondarySampleRate > 0
 	useSNMP := config.HasSNMPModule(c.Modules)
 
 	// Build subprocess args & write ZGrab2 ini
@@ -92,14 +92,15 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 
 	// Start the three scanners
 	var (
-		zGrab2Runner *ZGrab2Runner
-		zDnsRunner   *ZDNSRunner
-		snmpProbe    *SNMPProbe
+		zGrab2Runner  *ZGrab2Runner
+		dnsChaosProbe *DNSChaosProbe
+		snmpProbe     *SNMPProbe
 	)
 
 	zGrab2In := make(chan string, 4096)
-	zDnsIn := make(chan string, 4096)
+	dnsChaosIn := make(chan string, 4096)
 	snmpIn := make(chan string, 4096)
+	var dnsChaosOut <-chan DNSChaosResult
 	var snmpOut <-chan SNMPResult
 
 	scannerWg := sync.WaitGroup{}
@@ -124,7 +125,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 				if _, err := io.WriteString(zGrab2Runner.Stdin(), ip+"\n"); err != nil {
 					log.Printf("os: zgrab2 stdin write failed (%v); draining remaining IP addresses without sending them to zgrab2", err)
 					writeOK = false
-					m.markScannerDead(scannerZGrab2)
+					m.markScannerDead(scannerZGrab2Default | scannerZGrab2Secondary)
 				}
 			}
 		}()
@@ -148,77 +149,36 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 				close(done)
 			}()
 			for r := range ch {
-				m.integrate(r.IP, scannerZGrab2, applyZGrab2(r))
+				source := scannerZGrab2Default
+				if useTriggeredSecondaryZGrab2 && r.TriggeredSecondary {
+					source = scannerZGrab2Secondary
+				}
+				m.integrate(r.IP, source, applyZGrab2(r))
 			}
 			<-done
 		}()
 	} else {
-		// Even when ZGrab2 is disabled we still need to drain zGrab2In so the fan-out goroutine doesn't block.
+		// Even when ZGrab2 is disabled we still need to drain zGrab2In so the
+		// fan-out goroutine doesn't block.
 		go func() {
 			for range zGrab2In {
 			}
 		}()
 	}
 
-	if useZDNS {
-		zDnsRunner, err = StartZDNS(ctx, ZDNSBinary, *c.ZDNSThreads, c.ReadTimeout)
-		if err != nil {
-			close(outRecords)
-			writerWg.Wait()
-			if zGrab2Runner != nil {
-				_ = zGrab2Runner.Shutdown()
-			}
-			return writer.Written(), fmt.Errorf("start zdns: %w", err)
-		}
-		// Feed two CHAOS queries per IP. Same self-protecting pattern as the ZGrab2 feeder above:
-		// if the subprocess dies, keep draining zDnsIn so the upstream feeder does not block.
+	if useDNSChaos {
+		dnsChaosProbe = NewDNSChaosProbe(c.ReadTimeout)
+		dnsChaosOut = dnsChaosProbe.Run(ctx, dnsChaosIn, int(*c.ZDNSThreads))
 		scannerWg.Add(1)
 		go func() {
 			defer scannerWg.Done()
-			defer zDnsRunner.Stdin().Close()
-			writeOK := true
-			for ip := range zDnsIn {
-				if !writeOK {
-					continue
-				}
-				if _, err := io.WriteString(zDnsRunner.Stdin(), ZDNSInputLine("version.bind", ip)); err != nil {
-					log.Printf("os: zdns stdin write failed (%v); draining remaining IPs", err)
-					writeOK = false
-					m.markScannerDead(scannerZDNS)
-					continue
-				}
-				if _, err := io.WriteString(zDnsRunner.Stdin(), ZDNSInputLine("hostname.bind", ip)); err != nil {
-					log.Printf("os: zdns stdin write failed (%v); draining remaining IPs", err)
-					writeOK = false
-					m.markScannerDead(scannerZDNS)
-				}
+			for r := range dnsChaosOut {
+				m.integrate(r.IP, scannerDNSChaos, applyDNSChaos(r))
 			}
-		}()
-		scannerWg.Add(1)
-		go func() {
-			defer scannerWg.Done()
-			drainPipe(zDnsRunner.Stderr(), func(s string) { log.Printf("zdns: %s", s) })
-		}()
-		scannerWg.Add(1)
-		go func() {
-			defer scannerWg.Done()
-			ch := make(chan ZDNSResult, 256)
-			done := make(chan struct{})
-			go func() {
-				if err := ParseZDNSStream(zDnsRunner.Stdout(), ch); err != nil {
-					log.Printf("zdns parse: %v", err)
-				}
-				close(ch)
-				close(done)
-			}()
-			for r := range ch {
-				m.integrate(r.IP, scannerZDNS, applyZDNS(r))
-			}
-			<-done
 		}()
 	} else {
 		go func() {
-			for range zDnsIn {
+			for range dnsChaosIn {
 			}
 		}()
 	}
@@ -252,11 +212,9 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	}
 	// Hoist scan-plan flags out of the per-IP loop.
 	hasSecondary := config.HasSecondaryModule(c.Modules)
-	tagSecondaryZGrab2 := config.HasSecondaryZGrab2Module(c.Modules) &&
-		c.SecondarySampleRate > 0 && c.SecondarySampleRate < 1
 	go func() {
 		defer close(zGrab2In)
-		defer close(zDnsIn)
+		defer close(dnsChaosIn)
 		defer close(snmpIn)
 		buf := make([]records.ZMap, consts.ZMapReadBufferSize)
 		for {
@@ -281,26 +239,35 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 						selectionStats.skipped.Add(1)
 					}
 				}
-				if useZGrab2 {
-					input := zgrab2InputLine(
-						ip,
-						tagSecondaryZGrab2 && selectedSecondary,
-					)
-					if !send(zGrab2In, input) {
+				if useDefaultZGrab2 {
+					// Untagged input runs the exhaustive core modules (or all
+					// enabled ZGrab2 modules when sample_rate=1).
+					if !send(zGrab2In, zgrab2InputLine(ip, false)) {
 						feederErrCh <- ctx.Err()
 						return
 					}
 				}
-				if useZDNS {
+				if useTriggeredSecondaryZGrab2 {
 					if selectedSecondary {
-						if !send(zDnsIn, ip) {
+						// A second input row is intentional: tagged rows run
+						// only triggered modules in ZGrab2, not the untagged
+						// core modules.
+						if !send(zGrab2In, zgrab2InputLine(ip, true)) {
 							feederErrCh <- ctx.Err()
 							return
 						}
 					} else {
-						// Mark deliberately unsampled DNS as complete for
-						// this IP without issuing either network query.
-						m.integrate(ip, scannerZDNS, func(*records.OSRecord) {})
+						m.integrate(ip, scannerZGrab2Secondary, func(*records.OSRecord) {})
+					}
+				}
+				if useDNSChaos {
+					if selectedSecondary {
+						if !send(dnsChaosIn, ip) {
+							feederErrCh <- ctx.Err()
+							return
+						}
+					} else {
+						m.integrate(ip, scannerDNSChaos, func(*records.OSRecord) {})
 					}
 				}
 				if useSNMP {
@@ -331,7 +298,7 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 	// Wait for all scanner goroutines
 	scannerWg.Wait()
 
-	// Wait for the external subprocesses to exit.
+	// Wait for the external ZGrab2 subprocess to exit.
 	if zGrab2Runner != nil {
 		if ctx.Err() != nil {
 			_ = zGrab2Runner.Shutdown()
@@ -341,16 +308,6 @@ func runPipeline(ctx context.Context, c *config.OSConfig, zmapInputPath, outputP
 			}
 		}
 	}
-	if zDnsRunner != nil {
-		if ctx.Err() != nil {
-			_ = zDnsRunner.Shutdown()
-		} else {
-			if err := zDnsRunner.Wait(); err != nil {
-				log.Printf("zdns exited: %v", err)
-			}
-		}
-	}
-
 	// Force-emit any pending merger entries.
 	m.flushAll()
 
@@ -448,10 +405,11 @@ func reportOSStats(
 				eta = "0s"
 			}
 			runtime.ReadMemStats(&ms)
-			log.Printf("os: completed=%d/%d (%.2f%% +%d/s eta=%s) emitted=%d dropped=%d merger_in=%d (zgrab2=%d zdns=%d snmp=%d) secondary=(selected=%d skipped=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
+			log.Printf("os: completed=%d/%d (%.2f%% +%d/s eta=%s) emitted=%d dropped=%d merger_in=%d (zgrab2_default=%d zgrab2_secondary=%d dns_chaos=%d snmp=%d) secondary=(selected=%d skipped=%d) written=%d heap=%dMB goroutines=%d elapsed=%s",
 				completed, numberOfTargets, progress, deltaCompleted, eta,
 				emitted, dropped, received,
-				m.rxZGrab2.Load(), m.rxZDNS.Load(), m.rxSNMP.Load(),
+				m.rxZGrab2Default.Load(), m.rxZGrab2Secondary.Load(),
+				m.rxDNSChaos.Load(), m.rxSNMP.Load(),
 				selection.selected.Load(), selection.skipped.Load(),
 				w.Written(), ms.HeapAlloc>>20, runtime.NumGoroutine(), elapsed)
 		}
