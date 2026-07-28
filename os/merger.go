@@ -16,7 +16,7 @@ type pending struct {
 	started time.Time
 }
 
-// merger joins ZGrab2/ZDNS/SNMP streams into one records.OSRecord per IP,
+// merger joins ZGrab2/DNS-CHAOS/SNMP streams into one records.OSRecord per IP,
 // fingerprints it, and forwards records with useful evidence.
 type merger struct {
 	enabledOrig   uint8 // initial mask -- never changes
@@ -27,10 +27,11 @@ type merger struct {
 	totalEmitted  atomic.Uint64
 	totalDropped  atomic.Uint64 // rows without any usable scanner evidence
 	totalReceived atomic.Uint64
-	// Per-scanner integrate counters; useful to spot a silent scanner.
-	rxZGrab2 atomic.Uint64
-	rxZDNS   atomic.Uint64
-	rxSNMP   atomic.Uint64
+	// Per-scanner completion counters; useful to spot a silent scanner.
+	rxZGrab2Default   atomic.Uint64
+	rxZGrab2Secondary atomic.Uint64
+	rxDNSChaos        atomic.Uint64
+	rxSNMP            atomic.Uint64
 
 	secondarySampleRate float64
 	hasSecondary        bool
@@ -39,21 +40,34 @@ type merger struct {
 // Scanner-mask bits. Adding a scanner means adding a bit and accounting for
 // it in newMerger's `enabled` field.
 const (
-	scannerZGrab2 uint8 = 1 << 0
-	scannerZDNS   uint8 = 1 << 1
-	scannerSNMP   uint8 = 1 << 2
+	scannerZGrab2Default   uint8 = 1 << 0
+	scannerZGrab2Secondary uint8 = 1 << 1
+	scannerDNSChaos        uint8 = 1 << 2
+	scannerSNMP            uint8 = 1 << 3
 )
+
+func usesDefaultZGrab2(c *config.OSConfig) bool {
+	return config.HasCoreZGrab2Module(c.Modules) ||
+		(config.HasSecondaryZGrab2Module(c.Modules) && c.SecondarySampleRate >= 1)
+}
+
+func usesTriggeredSecondaryZGrab2(c *config.OSConfig) bool {
+	return config.HasSecondaryZGrab2Module(c.Modules) &&
+		c.SecondarySampleRate > 0 && c.SecondarySampleRate < 1
+}
 
 // enabledMask returns the bitmask of scanners that will actually emit per-IP
 // results given the effective configuration.
 func enabledMask(c *config.OSConfig) uint8 {
 	var m uint8
-	if config.HasCoreZGrab2Module(c.Modules) ||
-		(config.HasSecondaryZGrab2Module(c.Modules) && c.SecondarySampleRate > 0) {
-		m |= scannerZGrab2
+	if usesDefaultZGrab2(c) {
+		m |= scannerZGrab2Default
+	}
+	if usesTriggeredSecondaryZGrab2(c) {
+		m |= scannerZGrab2Secondary
 	}
 	if config.HasZDNSModule(c.Modules) && c.SecondarySampleRate > 0 {
-		m |= scannerZDNS
+		m |= scannerDNSChaos
 	}
 	if config.HasSNMPModule(c.Modules) {
 		m |= scannerSNMP
@@ -102,10 +116,12 @@ func (m *merger) markScannerDead(scanner uint8) {
 func (m *merger) integrate(ip string, sourceFlag uint8, applyFn func(*records.OSRecord)) {
 	m.totalReceived.Add(1)
 	switch sourceFlag {
-	case scannerZGrab2:
-		m.rxZGrab2.Add(1)
-	case scannerZDNS:
-		m.rxZDNS.Add(1)
+	case scannerZGrab2Default:
+		m.rxZGrab2Default.Add(1)
+	case scannerZGrab2Secondary:
+		m.rxZGrab2Secondary.Add(1)
+	case scannerDNSChaos:
+		m.rxDNSChaos.Add(1)
 	case scannerSNMP:
 		m.rxSNMP.Add(1)
 	}
@@ -172,23 +188,32 @@ func (m *merger) flushAll() {
 // applyZGrab2 transfers all zgrab2 module fields into the record.
 func applyZGrab2(in ZGrab2Result) func(*records.OSRecord) {
 	return func(r *records.OSRecord) {
-		r.SSHServerID = in.SSHServerID
-		r.SMBNativeOS = in.SMBNativeOS
-		r.HTTPServer = in.HTTPServer
-		r.HTTPSServer = in.HTTPSServer
-		r.HTTPSCertIssuer = in.HTTPSCertIssuer
-		r.HTTPSCertSubject = in.HTTPSCertSubject
-		r.SMTPBanner = in.SMTPBanner
-		r.SMTPEHLO = in.SMTPEHLO
-		r.MSSQLVersion = in.MSSQLVersion
-		r.POP3Banner = in.POP3Banner
-		r.IMAPBanner = in.IMAPBanner
-		r.FTPBanner = in.FTPBanner
-		r.TelnetBanner = in.TelnetBanner
+		// Core and sampled secondary ZGrab2 results arrive independently.
+		// Merge their non-empty fields instead of allowing the second result
+		// to erase evidence collected by the first.
+		setIfNonEmpty(&r.SSHServerID, in.SSHServerID)
+		setIfNonEmpty(&r.SMBNativeOS, in.SMBNativeOS)
+		setIfNonEmpty(&r.HTTPServer, in.HTTPServer)
+		setIfNonEmpty(&r.HTTPSServer, in.HTTPSServer)
+		setIfNonEmpty(&r.HTTPSCertIssuer, in.HTTPSCertIssuer)
+		setIfNonEmpty(&r.HTTPSCertSubject, in.HTTPSCertSubject)
+		setIfNonEmpty(&r.SMTPBanner, in.SMTPBanner)
+		setIfNonEmpty(&r.SMTPEHLO, in.SMTPEHLO)
+		setIfNonEmpty(&r.MSSQLVersion, in.MSSQLVersion)
+		setIfNonEmpty(&r.POP3Banner, in.POP3Banner)
+		setIfNonEmpty(&r.IMAPBanner, in.IMAPBanner)
+		setIfNonEmpty(&r.FTPBanner, in.FTPBanner)
+		setIfNonEmpty(&r.TelnetBanner, in.TelnetBanner)
 	}
 }
 
-func applyZDNS(in ZDNSResult) func(*records.OSRecord) {
+func setIfNonEmpty(dst *string, value string) {
+	if value != "" {
+		*dst = value
+	}
+}
+
+func applyDNSChaos(in DNSChaosResult) func(*records.OSRecord) {
 	return func(r *records.OSRecord) {
 		// Take the union; never overwrite a non-empty field with empty.
 		if in.VersionBind != "" {

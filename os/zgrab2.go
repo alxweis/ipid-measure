@@ -15,20 +15,24 @@ import (
 
 // ZGrab2Result is the per-IP outcome of the multimodule ZGrab2 scan.
 type ZGrab2Result struct {
-	IP               string
-	SSHServerID      string
-	SMBNativeOS      string
-	HTTPServer       string
-	HTTPSServer      string
-	HTTPSCertIssuer  string
-	HTTPSCertSubject string
-	SMTPBanner       string
-	SMTPEHLO         string
-	MSSQLVersion     string
-	POP3Banner       string
-	IMAPBanner       string
-	FTPBanner        string
-	TelnetBanner     string
+	IP string
+	// TriggeredSecondary identifies the extra ZGrab2 input row that carries
+	// the "secondary" trigger. ZGrab2 does not echo input tags, so this is
+	// inferred from the module names present in the result.
+	TriggeredSecondary bool
+	SSHServerID        string
+	SMBNativeOS        string
+	HTTPServer         string
+	HTTPSServer        string
+	HTTPSCertIssuer    string
+	HTTPSCertSubject   string
+	SMTPBanner         string
+	SMTPEHLO           string
+	MSSQLVersion       string
+	POP3Banner         string
+	IMAPBanner         string
+	FTPBanner          string
+	TelnetBanner       string
 }
 
 // ZGrab2Runner manages one ZGrab2 child process configured to run the union
@@ -115,9 +119,21 @@ func parseZGrab2Line(line string) (ZGrab2Result, bool) {
 	}
 	res := ZGrab2Result{IP: raw.IP}
 	for name, blob := range raw.Data {
+		if isSecondaryZGrab2ModuleName(name) {
+			res.TriggeredSecondary = true
+		}
 		extractZGrab2Module(name, blob, &res)
 	}
 	return res, true
+}
+
+func isSecondaryZGrab2ModuleName(name string) bool {
+	switch name {
+	case "smtp", "mssql", "pop3", "imap", "ftp", "telnet":
+		return true
+	default:
+		return false
+	}
 }
 
 // extractZGrab2Module is a switch over the module names we configured.

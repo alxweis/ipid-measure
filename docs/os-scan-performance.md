@@ -30,7 +30,7 @@ The optimized `run-all-*` profile uses:
 - 5,000 ZGrab2 senders;
 - 1-second connect and read timeouts;
 - 3,000 SNMP workers with a 1-second timeout;
-- 1,000 ZDNS threads with a 1-second timeout;
+- 1,000 in-process DNS CHAOS workers with a 1-second timeout;
 - a 1% secondary sample.
 
 The ZGrab2 work per target falls from ten module attempts to approximately
@@ -38,8 +38,9 @@ The ZGrab2 work per target falls from ten module attempts to approximately
 timeouts, the empirical baseline predicts roughly 700-1,600 targets/s after
 allowing for non-linear kernel, network, and parsing overhead. SNMP has a
 worst-case timeout capacity of about 3,000 targets/s. Sampled DNS performs only
-about 6 million queries instead of 600 million and should not determine the
-wall-clock runtime.
+about 6 million queries instead of 600 million. The in-process prober emits one
+completion for every selected host, including timeouts, so DNS cannot leave
+millions of merger entries pending at shutdown.
 
 This is a performance target, not a hard real-time guarantee: remote filtering,
 local file-descriptor limits, CPU, and network policy can change the observed

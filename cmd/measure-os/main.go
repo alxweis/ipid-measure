@@ -31,7 +31,7 @@ func main() {
 		"override the deterministic secondary-module sample rate [0,1]",
 	)
 	zgrab2SendersFlag := flag.String("zgrab2-senders", "", "override zgrab2 sender concurrency")
-	zdnsThreadsFlag := flag.String("zdns-threads", "", "override zdns thread concurrency")
+	zdnsThreadsFlag := flag.String("zdns-threads", "", "override in-process DNS CHAOS worker count")
 	snmpWorkersFlag := flag.String("snmp-workers", "", "override SNMP worker concurrency")
 	connectTimeoutFlag := flag.Duration("connect-timeout", 0, "override application connect timeout")
 	readTimeoutFlag := flag.Duration("read-timeout", 0, "override application read timeout")

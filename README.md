@@ -5,7 +5,7 @@ pipeline:
 
 1. **zmap** — discover responsive hosts (wraps the `zmap` scanner).
 2. **os** — fingerprint their operating system from service banners
-   (`zgrab2` + `zdns` + in-process SNMP).
+   (`zgrab2` + in-process DNS CHAOS and SNMP probes).
 3. **ipid** — sample how each host selects its IP-ID field.
 
 Each stage writes a Parquet file. `os` and `ipid` consume the host set produced
@@ -23,9 +23,8 @@ by a `zmap` run, referenced by that run's **measurement id**.
   sudo apt-get install libpcap-dev      # Debian/Ubuntu
   ```
 - The **external scanners on `$PATH`**, used by the `os` and `zmap` stages:
-  `zmap`, `zgrab2`, `zdns`. Install them from their upstream projects
-  (github.com/zmap/{zmap,zgrab2,zdns}) so that `zmap`, `zgrab2` and `zdns` are
-  callable by name.
+  `zmap` and `zgrab2`. Install them from their upstream projects
+  (github.com/zmap/{zmap,zgrab2}) so both are callable by name.
 - For the `ipid` stage: **one interface with two source IPv4 addresses**.
 
 ---
@@ -88,15 +87,16 @@ cp config/ipid.yaml.example config/ipid.yaml
 | `zmap` | measurement-id | zmap run to scan, e.g. `tcp-80_2026-06-03_00-13-06` (usually set via `--zmap`) |
 | `modules.{ssh,smb,http,https,snmp,smtp,mssql,pop3,imap,ftp,telnet,dns_chaos}` | bool | enable each fingerprint module |
 | `secondary_sample_rate` | float 0-1 | deterministic target fraction for lower-yield SMTP/MSSQL/POP3/IMAP/FTP/Telnet/DNS-CHAOS scans; core SSH/SMB/HTTP/HTTPS/SNMP still scan every target |
-| `zgrab2_senders` / `zdns_threads` / `snmp_workers` | scaled-int | per-scanner concurrency |
+| `zgrab2_senders` / `zdns_threads` / `snmp_workers` | scaled-int | ZGrab2 concurrency and in-process DNS/SNMP worker counts |
 | `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | timeouts |
 | `snmp_community` | string | SNMPv2c community |
 | `log_to_file` | bool | also write `<run>/os.log` |
 | `upload.*` | | optional S3 upload |
 
-`zgrab2` and `zdns` are invoked by name from `$PATH`. The os stage does not bind
-a source interface (its scanners connect out over the default route), so unlike
-`zmap` and `ipid` it takes no `interface` config.
+`zgrab2` is invoked by name from `$PATH`. DNS CHAOS and SNMP probes run in
+process. The os stage does not bind a source interface (its scanners connect
+out over the default route), so unlike `zmap` and `ipid` it takes no
+`interface` config.
 
 ### ipid — `config/ipid.yaml`
 

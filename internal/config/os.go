@@ -89,7 +89,7 @@ func validateOSConfig(config *OSConfig) error {
 			return fmt.Errorf("zdns_threads must be in [1, 10K]")
 		}
 	} else if HasZDNSModule(config.Modules) && config.SecondarySampleRate > 0 {
-		return fmt.Errorf("zdns_threads must be set, if you use zdns modules")
+		return fmt.Errorf("zdns_threads must be set, if you use the dns_chaos module")
 	}
 
 	if config.SNMPWorkers != nil {
