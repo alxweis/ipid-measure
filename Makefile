@@ -35,6 +35,16 @@ CAPS      := cap_net_raw,cap_net_admin+eip
 #   make run-zmap ARGS="--payload tcp --port 80 --print-id"
 ARGS ?=
 
+# Existing measurement ids for resuming a run-all sweep after ZMap or OS.
+# Examples:
+#   make run-all-tcp ZMAP_ID=tcp-80_... OS_ID=tcp-80_...
+#   make run-all-udp ZMAP_ID=udp-dns-53_...
+ZMAP_ID ?=
+OS_ID   ?=
+RUN_ALL_RESUME_ARGS = \
+	$(if $(strip $(ZMAP_ID)),--zmap-id "$(strip $(ZMAP_ID))") \
+	$(if $(strip $(OS_ID)),--os-id "$(strip $(OS_ID))")
+
 # Blocklist repo (only the zmap stage consumes it).
 BLOCKLIST_REPO ?= git@github.com:netd-tud/active-measurements-blocklists.git
 BLOCKLIST_DIR  ?= ../active-measurements-blocklists
@@ -76,13 +86,13 @@ run-zmap: pull-blocklist
 
 # Per-protocol sweeps. run-all.sh pulls the blocklist once up front.
 run-all-icmp:
-	./scripts/run-all.sh icmp
+	./scripts/run-all.sh icmp $(RUN_ALL_RESUME_ARGS)
 
 run-all-tcp:
-	./scripts/run-all.sh tcp
+	./scripts/run-all.sh tcp $(RUN_ALL_RESUME_ARGS)
 
 run-all-udp:
-	./scripts/run-all.sh udp
+	./scripts/run-all.sh udp $(RUN_ALL_RESUME_ARGS)
 
 # --- blocklist ---------------------------------------------------------------
 

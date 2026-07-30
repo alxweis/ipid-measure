@@ -3,22 +3,138 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Optional protocol filter: run the full sweep for a single protocol only.
-#   run-all.sh              -> icmp + tcp + udp
-#   run-all.sh icmp|tcp|udp -> just that protocol
-if [ $# -gt 1 ]; then
-    echo "usage: $0 [icmp|tcp|udp]" >&2
-    exit 1
+usage() {
+    cat >&2 <<EOF
+usage: $0 [icmp|tcp|udp] [--zmap-id ID] [--os-id ID]
+
+Without existing ids, run the complete sweep. --zmap-id reuses a local ZMap
+measurement and starts at OS; adding --os-id reuses both and starts at IPID.
+--os-id requires --zmap-id, and resume options require a single protocol.
+EOF
+}
+
+SELECTED_PROTOCOL=all
+RESUME_ZMAP_ID=
+RESUME_OS_ID=
+
+if [[ $# -gt 0 && "$1" != --* ]]; then
+    SELECTED_PROTOCOL=$1
+    shift
 fi
-case "${1:-all}" in
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --zmap-id)
+            [[ $# -ge 2 ]] || { echo "--zmap-id requires a value" >&2; usage; exit 1; }
+            RESUME_ZMAP_ID=$2
+            shift 2
+            ;;
+        --zmap-id=*)
+            RESUME_ZMAP_ID=${1#*=}
+            shift
+            ;;
+        --os-id)
+            [[ $# -ge 2 ]] || { echo "--os-id requires a value" >&2; usage; exit 1; }
+            RESUME_OS_ID=$2
+            shift 2
+            ;;
+        --os-id=*)
+            RESUME_OS_ID=${1#*=}
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "unknown argument: $1" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+case "$SELECTED_PROTOCOL" in
     all) SELECTED_PROTOS=(icmp tcp-80 udp-dns-53) ;;
     icmp) SELECTED_PROTOS=(icmp) ;;
     tcp) SELECTED_PROTOS=(tcp-80) ;;
     udp) SELECTED_PROTOS=(udp-dns-53) ;;
-    *) echo "usage: $0 [icmp|tcp|udp]" >&2; exit 1 ;;
+    *) echo "unknown protocol: $SELECTED_PROTOCOL" >&2; usage; exit 1 ;;
 esac
 
-make pull-blocklist
+if [[ -n "$RESUME_OS_ID" && -z "$RESUME_ZMAP_ID" ]]; then
+    echo "--os-id requires --zmap-id" >&2
+    exit 1
+fi
+if [[ -n "$RESUME_ZMAP_ID" && ${#SELECTED_PROTOS[@]} -ne 1 ]]; then
+    echo "resume options require exactly one of icmp, tcp, or udp" >&2
+    exit 1
+fi
+
+validate_measurement() {
+    local kind=$1 proto=$2 id=$3
+    local pattern="^${proto}_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$"
+    local path snapshot
+
+    if [[ ! "$id" =~ $pattern ]]; then
+        echo "invalid $kind id for $proto: $id" >&2
+        exit 1
+    fi
+
+    case "$kind" in
+        zmap)
+            path="zmap/raw/$id/zmap.pq"
+            snapshot="zmap/raw/$id/zmap.snapshot.yaml"
+            ;;
+        os)
+            path="os/raw/$id/os.pq"
+            snapshot="os/raw/$id/os.snapshot.yaml"
+            ;;
+        *)
+            echo "internal error: unknown measurement kind $kind" >&2
+            exit 1
+            ;;
+    esac
+
+    if [[ ! -s "$path" ]]; then
+        echo "existing $kind measurement is missing or empty: $path" >&2
+        exit 1
+    fi
+    if [[ ! -s "$snapshot" ]]; then
+        echo "existing $kind snapshot is missing or empty: $snapshot" >&2
+        exit 1
+    fi
+}
+
+validate_os_zmap_reference() {
+    local os_id=$1 zmap_id=$2
+    local snapshot="os/raw/$os_id/os.snapshot.yaml"
+    local referenced_zmap
+
+    referenced_zmap=$(
+        awk '$1 == "zmap:" { value=$2; gsub(/^"|"$/, "", value); print value; exit }' "$snapshot"
+    )
+    if [[ -z "$referenced_zmap" ]]; then
+        echo "could not read zmap reference from $snapshot" >&2
+        exit 1
+    fi
+    if [[ "$referenced_zmap" != "$zmap_id" ]]; then
+        echo "OS measurement $os_id references $referenced_zmap, not $zmap_id" >&2
+        exit 1
+    fi
+}
+
+if [[ -n "$RESUME_ZMAP_ID" ]]; then
+    resume_proto=${SELECTED_PROTOS[0]}
+    validate_measurement zmap "$resume_proto" "$RESUME_ZMAP_ID"
+    if [[ -n "$RESUME_OS_ID" ]]; then
+        validate_measurement os "$resume_proto" "$RESUME_OS_ID"
+        validate_os_zmap_reference "$RESUME_OS_ID" "$RESUME_ZMAP_ID"
+    fi
+else
+    # Only a fresh ZMap scan consumes the blocklist.
+    make pull-blocklist
+fi
 
 # --- collected measurement ids (printed as a summary at the end) --------------
 SUMMARY=()
@@ -80,23 +196,33 @@ zmap_flags() {
 
 # --- Phase 1: zmap + os per protocol -----------------------------------------
 for proto in "${PROTOS[@]}"; do
-    echo "=== [$proto] zmap ==="
-    # shellcheck disable=SC2046
-    id=$(./bin/measure-zmap $(zmap_flags "$proto") --print-id | tail -n1)
+    if [[ -n "$RESUME_ZMAP_ID" ]]; then
+        id=$RESUME_ZMAP_ID
+        echo "=== [$proto] reusing zmap id = $id ==="
+    else
+        echo "=== [$proto] zmap ==="
+        # shellcheck disable=SC2046
+        id=$(./bin/measure-zmap $(zmap_flags "$proto") --print-id | tail -n1)
+        echo "=== [$proto] zmap id = $id ==="
+    fi
     ZMAP[$proto]=$id
     SUMMARY+=("zmap  $proto  $id")
-    echo "=== [$proto] zmap id = $id ==="
 
-    echo "=== [$proto] os ==="
-    os_args=(--zmap "$id"
-             --secondary-sample-rate "$OS_SECONDARY_SAMPLE_RATE"
-             --zgrab2-senders "$OS_ZGRAB2_SENDERS"
-             --zdns-threads "$OS_ZDNS_THREADS"
-             --snmp-workers "$OS_SNMP_WORKERS"
-             --connect-timeout "$OS_CONNECT_TIMEOUT"
-             --read-timeout "$OS_READ_TIMEOUT"
-             --snmp-timeout "$OS_SNMP_TIMEOUT")
-    os_id=$(./bin/measure-os "${os_args[@]}" --print-id | tail -n1)
+    if [[ -n "$RESUME_OS_ID" ]]; then
+        os_id=$RESUME_OS_ID
+        echo "=== [$proto] reusing os id = $os_id ==="
+    else
+        echo "=== [$proto] os ==="
+        os_args=(--zmap "$id"
+                 --secondary-sample-rate "$OS_SECONDARY_SAMPLE_RATE"
+                 --zgrab2-senders "$OS_ZGRAB2_SENDERS"
+                 --zdns-threads "$OS_ZDNS_THREADS"
+                 --snmp-workers "$OS_SNMP_WORKERS"
+                 --connect-timeout "$OS_CONNECT_TIMEOUT"
+                 --read-timeout "$OS_READ_TIMEOUT"
+                 --snmp-timeout "$OS_SNMP_TIMEOUT")
+        os_id=$(./bin/measure-os "${os_args[@]}" --print-id | tail -n1)
+    fi
     OS[$proto]=$os_id
     SUMMARY+=("os    $proto  $os_id")
 done
