@@ -255,6 +255,25 @@ directly and does not rebuild. Edit the variables at the top of the script
 (`RT_*`, `FI_*`, `DNS_PROBE`) to change the swept parameters. This is also what a
 scheduler (cron / systemd timer) would invoke for a recurring campaign.
 
+An interrupted sweep can reuse completed local ZMap and OS measurements instead
+of repeating expensive scans:
+
+```bash
+# Reuse ZMap, then run OS and IPID.
+make run-all-tcp ZMAP_ID=tcp-80_2026-07-28_01-59-44
+
+# Reuse both ZMap and OS, then resume at IPID.
+make run-all-tcp \
+  ZMAP_ID=tcp-80_2026-07-28_01-59-44 \
+  OS_ID=tcp-80_2026-07-29_01-04-50
+```
+
+The equivalent direct-script options are `--zmap-id ID` and `--os-id ID`.
+`--os-id` requires `--zmap-id`. Resume mode accepts one protocol at a time and
+verifies the measurement-id protocol, local parquet and snapshot files, and the
+OS snapshot's ZMap reference before sending any probes. When ZMap is reused, the
+blocklist is not refreshed because no ZMap scan will run.
+
 ### S3 analysis handoff
 
 Every `run-all-*` sweep uses S3 as the only control and data channel between the
