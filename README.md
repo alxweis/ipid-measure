@@ -290,11 +290,18 @@ For ICMP, TCP, and UDP-DNS the common order is:
    `failed.json`. The analysis worker stores `zmap_unclassified.pq` beside the
    RT measurement's `ipid.pq`; on success, download and SHA-256-verify it.
 4. Stateless fixed-interval 4 x 25 only against `zmap_unclassified.pq`.
-5. Stateless fixed-interval 4 x 4 against the original ZMap result.
+5. Stateless fixed-interval 4 x 4: ICMP and UDP-DNS use the original ZMap
+   result; TCP uses the shared fixed-base target sample described below.
 
-TCP additionally runs the established RT-based and fixed-interval 4 x 4
-measurements against the original ZMap result. ICMP and UDP-DNS have no
-connection-establishment variants.
+TCP additionally runs the established RT-based 4 x 4 measurement against the
+original ZMap result and the established fixed-interval 4 x 4 measurement
+against the same fixed-base target sample as the stateless fixed-interval run.
+The sample contains exactly
+`min(N, max(ceil(10% * N), 1,000,000))` uniformly selected rows from the
+original TCP `zmap.pq`. It is generated once per ZMap campaign and persisted as
+`zmap/raw/<zmap-id>/zmap-fixed-base-sample.pq`; its seed and source/sample row
+counts are recorded in `zmap-fixed-base-sample.json`. ICMP and UDP-DNS have no
+connection-establishment variants and retain their full-ZMap fixed-base runs.
 
 After the complete protocol sweep, the ZMap id is used as its analysis job id.
 The protocol prefix in that id keeps the ICMP, TCP, and UDP-DNS VM jobs distinct.

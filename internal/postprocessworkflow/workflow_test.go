@@ -48,6 +48,21 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 		ConnectionRTBase: "tcp-80_2026-07-22_10-00-05",
 		ConnectionFIBase: "tcp-80_2026-07-22_10-00-06",
 	}
+	sampleDirectory := filepath.Join(root, "zmap", measurements.ZMap)
+	if err := os.MkdirAll(sampleDirectory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	measurements.FixedBaseTarget = filepath.Join(sampleDirectory, "zmap-fixed-base-sample.pq")
+	if err := os.WriteFile(measurements.FixedBaseTarget, []byte("sample"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(sampleDirectory, "zmap-fixed-base-sample.json"),
+		[]byte("{}\n"),
+		0644,
+	); err != nil {
+		t.Fatal(err)
+	}
 	runner := &recordingRunner{}
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.FixedZone("CEST", 2*60*60))
 
@@ -64,13 +79,20 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	if requestURI != jobPrefix+"/request.json" {
 		t.Fatalf("unexpected request URI: %s", requestURI)
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("expected two uploads, got %d", len(runner.calls))
+	if len(runner.calls) != 4 {
+		t.Fatalf("expected four uploads, got %d", len(runner.calls))
 	}
-	if got := runner.calls[0][len(runner.calls[0])-1]; got != jobPrefix+"/manifest.json" {
+	fixedBaseTargetURI := "s3://bucket/raw/zmap/" + measurements.ZMap + "/zmap-fixed-base-sample.pq"
+	if got := runner.calls[0][len(runner.calls[0])-1]; got != fixedBaseTargetURI {
+		t.Fatalf("sample target must be uploaded first, got %s", got)
+	}
+	if got := runner.calls[1][len(runner.calls[1])-1]; got != "s3://bucket/raw/zmap/"+measurements.ZMap+"/zmap-fixed-base-sample.json" {
+		t.Fatalf("sample metadata must be uploaded second, got %s", got)
+	}
+	if got := runner.calls[2][len(runner.calls[2])-1]; got != jobPrefix+"/manifest.json" {
 		t.Fatalf("manifest must be uploaded first, got %s", got)
 	}
-	if got := runner.calls[1][len(runner.calls[1])-1]; got != requestURI {
+	if got := runner.calls[3][len(runner.calls[3])-1]; got != requestURI {
 		t.Fatalf("request must be uploaded last, got %s", got)
 	}
 
@@ -85,6 +107,9 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	}
 	if request.JobID != measurements.ZMap || request.Protocol != "tcp" {
 		t.Fatalf("unexpected request: %+v", request)
+	}
+	if request.FixedBaseTargetURI != fixedBaseTargetURI {
+		t.Fatalf("unexpected fixed-base target URI: %s", request.FixedBaseTargetURI)
 	}
 	if request.CreatedAt.Location() != time.UTC || !request.CreatedAt.Equal(now) {
 		t.Fatalf("unexpected creation time: %s", request.CreatedAt)

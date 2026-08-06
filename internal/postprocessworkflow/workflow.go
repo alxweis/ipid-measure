@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alxweis/ipid-measure/internal/files"
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +23,7 @@ type Measurements struct {
 	RTBase           string
 	FixedMass        string
 	FixedBase        string
+	FixedBaseTarget  string
 	ConnectionRTBase string
 	ConnectionFIBase string
 }
@@ -48,16 +50,17 @@ type ProtocolMeasurements struct {
 }
 
 type Request struct {
-	Version     int       `json:"version"`
-	JobID       string    `json:"job_id"`
-	Protocol    string    `json:"protocol"`
-	ManifestURI string    `json:"manifest_uri"`
-	ZMapPrefix  string    `json:"zmap_prefix"`
-	OSPrefix    string    `json:"os_prefix"`
-	IPIDPrefix  string    `json:"ipid_prefix"`
-	DoneURI     string    `json:"done_uri"`
-	FailedURI   string    `json:"failed_uri"`
-	CreatedAt   time.Time `json:"created_at"`
+	Version            int       `json:"version"`
+	JobID              string    `json:"job_id"`
+	Protocol           string    `json:"protocol"`
+	ManifestURI        string    `json:"manifest_uri"`
+	ZMapPrefix         string    `json:"zmap_prefix"`
+	OSPrefix           string    `json:"os_prefix"`
+	IPIDPrefix         string    `json:"ipid_prefix"`
+	DoneURI            string    `json:"done_uri"`
+	FailedURI          string    `json:"failed_uri"`
+	FixedBaseTargetURI string    `json:"fixed_base_target_uri,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type ConfigPaths struct {
@@ -143,6 +146,9 @@ func validateMeasurements(m Measurements) (string, error) {
 			return "", fmt.Errorf("connection measurements are only valid for TCP")
 		}
 		all = append(all, m.ConnectionRTBase, m.ConnectionFIBase)
+	}
+	if payload != "tcp" && m.FixedBaseTarget != "" {
+		return "", fmt.Errorf("fixed-base target sample is only valid for TCP")
 	}
 	for _, id := range all {
 		candidatePayload, candidatePort, _, parseErr := paths.ParseMeasurementID(id)
@@ -256,6 +262,43 @@ func publish(
 		DoneURI:     joinS3(jobPrefix, "done.json"),
 		FailedURI:   joinS3(jobPrefix, "failed.json"),
 		CreatedAt:   now.UTC(),
+	}
+	if measurements.FixedBaseTarget != "" {
+		if filepath.Base(measurements.FixedBaseTarget) != files.ZMapFixedBaseSampleFile {
+			return "", fmt.Errorf("fixed-base target must be named %s", files.ZMapFixedBaseSampleFile)
+		}
+		if info, statErr := os.Stat(measurements.FixedBaseTarget); statErr != nil {
+			return "", fmt.Errorf("inspect fixed-base target: %w", statErr)
+		} else if !info.Mode().IsRegular() || info.Size() == 0 {
+			return "", fmt.Errorf("fixed-base target is not a non-empty regular file")
+		}
+		metadataPath := filepath.Join(
+			filepath.Dir(measurements.FixedBaseTarget), files.ZMapFixedBaseSampleMetadataFile,
+		)
+		if info, statErr := os.Stat(metadataPath); statErr != nil {
+			return "", fmt.Errorf("inspect fixed-base target metadata: %w", statErr)
+		} else if !info.Mode().IsRegular() || info.Size() == 0 {
+			return "", fmt.Errorf("fixed-base target metadata is not a non-empty regular file")
+		}
+
+		request.FixedBaseTargetURI = joinS3(
+			zmapConfig.Upload.S3Destination,
+			measurements.ZMap,
+			files.ZMapFixedBaseSampleFile,
+		)
+		metadataURI := joinS3(
+			zmapConfig.Upload.S3Destination,
+			measurements.ZMap,
+			files.ZMapFixedBaseSampleMetadataFile,
+		)
+		if _, err := r.Run(
+			ctx, "put", "--no-progress", measurements.FixedBaseTarget, request.FixedBaseTargetURI,
+		); err != nil {
+			return "", fmt.Errorf("upload fixed-base target: %w", err)
+		}
+		if _, err := r.Run(ctx, "put", "--no-progress", metadataPath, metadataURI); err != nil {
+			return "", fmt.Errorf("upload fixed-base target metadata: %w", err)
+		}
 	}
 	if err := writeJSON(manifestPath, manifest(protocol, measurements)); err != nil {
 		return "", err
