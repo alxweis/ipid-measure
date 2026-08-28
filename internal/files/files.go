@@ -16,9 +16,11 @@ const (
 )
 
 const (
-	ZMapMeasurementFile = "zmap" + ParquetExtension
-	OSMeasurementFile   = "os" + ParquetExtension
-	IPIDMeasurementFile = "ipid" + ParquetExtension
+	ZMapMeasurementFile             = "zmap" + ParquetExtension
+	ZMapFixedBaseSampleFile         = "zmap-fixed-base-sample" + ParquetExtension
+	ZMapFixedBaseSampleMetadataFile = "zmap-fixed-base-sample.json"
+	OSMeasurementFile               = "os" + ParquetExtension
+	IPIDMeasurementFile             = "ipid" + ParquetExtension
 
 	ZMapConfigFile = "zmap" + ConfigExtension
 	OSConfigFile   = "os" + ConfigExtension

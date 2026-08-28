@@ -53,7 +53,7 @@ BUILD_TARGETS := $(addprefix build-,$(TOOLS))
 RUN_TARGETS   := $(addprefix run-,$(TOOLS))
 
 .PHONY: all build setcap pull-blocklist \
-        $(BUILD_TARGETS) build-publish-analysis-job $(RUN_TARGETS) \
+		$(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap $(RUN_TARGETS) \
         run-all-icmp run-all-tcp run-all-udp \
         vet test tidy clean
 
@@ -61,7 +61,7 @@ all: build
 
 # --- build -------------------------------------------------------------------
 
-build: $(BUILD_TARGETS) build-publish-analysis-job
+build: $(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap
 
 $(BUILD_TARGETS): build-%:
 	@mkdir -p $(BIN_DIR)
@@ -70,6 +70,10 @@ $(BUILD_TARGETS): build-%:
 build-publish-analysis-job:
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/publish-analysis-job ./cmd/publish-analysis-job
+
+build-sample-zmap:
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/sample-zmap ./cmd/sample-zmap
 
 # Builds, then re-applies file capabilities (needs sudo; prompts once).
 setcap: build
