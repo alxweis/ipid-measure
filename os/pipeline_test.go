@@ -15,7 +15,7 @@ func TestDrainWriterContinuesAfterFailure(t *testing.T) {
 		defer close(producerDone)
 		defer close(in)
 		for i := 0; i < 3; i++ {
-			in <- records.OSRecord{IPAddress: "192.0.2.1", OSName: "Linux"}
+			in <- records.OSRecord{IPAddress: "192.0.2.1", OSStatus: statusResolved}
 		}
 	}()
 

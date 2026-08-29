@@ -26,6 +26,7 @@ type ZMapMeasurement struct {
 
 type OSMeasurement struct {
 	ZMapLinkedMeasurement
+	CoverageFilePath string
 }
 
 type IPIDMeasurement struct {

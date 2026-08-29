@@ -14,17 +14,16 @@ import (
 
 const dnsClassCHAOS dnsmessage.Class = 3
 
-// DNSChaosResult is the per-IP outcome of the two DNS CHAOS queries.
+// DNSChaosResult is the per-IP outcome of the version.bind query.
 type DNSChaosResult struct {
-	IP           string
-	VersionBind  string
-	HostnameBind string
+	IP          string
+	VersionBind string
+	Responded   bool
 }
 
-// DNSChaosProbe sends version.bind and hostname.bind TXT queries directly to
-// each target. Unlike the external ZDNS JSON stream, it always retains the
-// input IP and therefore emits exactly one completion result per target,
-// including timeouts and malformed responses.
+// DNSChaosProbe sends a version.bind TXT query directly to
+// each target and emits exactly one completion result per target, including
+// timeouts and malformed responses.
 type DNSChaosProbe struct {
 	timeout time.Duration
 }
@@ -54,7 +53,7 @@ func (p *DNSChaosProbe) Run(ctx context.Context, in <-chan string, workers int) 
 				defer conn.Close()
 			}
 
-			// CHAOS version/hostname TXT answers are tiny; a small reusable
+			// CHAOS version TXT answers are tiny; a small reusable
 			// buffer keeps 1K workers from reserving tens of megabytes.
 			buf := make([]byte, 4096)
 			for target := range in {
@@ -65,8 +64,7 @@ func (p *DNSChaosProbe) Run(ctx context.Context, in <-chan string, workers int) 
 				}
 				result := DNSChaosResult{IP: target}
 				if conn != nil {
-					result.VersionBind = p.query(ctx, conn, target, "version.bind.", buf)
-					result.HostnameBind = p.query(ctx, conn, target, "hostname.bind.", buf)
+					result.VersionBind, result.Responded = p.query(ctx, conn, target, "version.bind.", buf)
 				}
 				select {
 				case out <- result:
@@ -89,19 +87,19 @@ func (p *DNSChaosProbe) query(
 	conn *net.UDPConn,
 	target, name string,
 	buf []byte,
-) string {
+) (string, bool) {
 	if ctx.Err() != nil {
-		return ""
+		return "", false
 	}
 	ip := net.ParseIP(target)
 	if ip == nil || ip.To4() == nil {
-		return ""
+		return "", false
 	}
 
 	id := nextDNSQueryID()
 	packet, err := buildChaosTXTQuery(name, id)
 	if err != nil {
-		return ""
+		return "", false
 	}
 
 	deadline := time.Now().Add(p.timeout)
@@ -109,24 +107,24 @@ func (p *DNSChaosProbe) query(
 		deadline = ctxDeadline
 	}
 	if err := conn.SetDeadline(deadline); err != nil {
-		return ""
+		return "", false
 	}
 
 	dst := &net.UDPAddr{IP: ip, Port: 53}
 	if _, err := conn.WriteToUDP(packet, dst); err != nil {
-		return ""
+		return "", false
 	}
 
 	for {
 		n, src, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			return ""
+			return "", false
 		}
 		if src == nil || !src.IP.Equal(ip) {
 			continue
 		}
 		if txt, matched := parseChaosTXTReply(buf[:n], id); matched {
-			return CleanBanner(txt)
+			return CleanBanner(txt), true
 		}
 	}
 }

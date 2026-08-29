@@ -74,7 +74,7 @@ fi
 validate_measurement() {
     local kind=$1 proto=$2 id=$3
     local pattern="^${proto}_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$"
-    local path snapshot
+    local path snapshot coverage
 
     if [[ ! "$id" =~ $pattern ]]; then
         echo "invalid $kind id for $proto: $id" >&2
@@ -89,6 +89,7 @@ validate_measurement() {
         os)
             path="os/raw/$id/os.pq"
             snapshot="os/raw/$id/os.snapshot.yaml"
+            coverage="os/raw/$id/os-coverage.json"
             ;;
         *)
             echo "internal error: unknown measurement kind $kind" >&2
@@ -102,6 +103,10 @@ validate_measurement() {
     fi
     if [[ ! -s "$snapshot" ]]; then
         echo "existing $kind snapshot is missing or empty: $snapshot" >&2
+        exit 1
+    fi
+    if [[ "$kind" == "os" && ! -s "$coverage" ]]; then
+        echo "existing OS coverage file is missing or empty: $coverage" >&2
         exit 1
     fi
 }
@@ -157,13 +162,10 @@ FI_CONNECTION_COUNT_2=4; FI_REQUESTS_PER_CON_2=25; FI_REQUEST_INTERVAL_2=20ms; F
 TCP_FIXED_BASE_SAMPLE_PERCENT=10
 TCP_FIXED_BASE_SAMPLE_MINIMUM=1000000
 
-# Internet-wide OS profile: retain high-yield SSH/SMB/HTTP/HTTPS/SNMP probes
-# for every target, but sample the lower-yield application modules. These
-# overrides keep run-all bounded even when a deployed os.yaml predates the
-# optimized defaults.
-OS_SECONDARY_SAMPLE_RATE=0.01
+# Internet-wide OS profile: scan the six selected services for every target
+# with bounded concurrency in the three scanner implementations.
 OS_ZGRAB2_SENDERS=5K
-OS_ZDNS_THREADS=1K
+OS_DNS_CHAOS_WORKERS=1K
 OS_SNMP_WORKERS=3K
 OS_CONNECT_TIMEOUT=1s
 OS_READ_TIMEOUT=1s
@@ -216,9 +218,8 @@ for proto in "${PROTOS[@]}"; do
     else
         echo "=== [$proto] os ==="
         os_args=(--zmap "$id"
-                 --secondary-sample-rate "$OS_SECONDARY_SAMPLE_RATE"
                  --zgrab2-senders "$OS_ZGRAB2_SENDERS"
-                 --zdns-threads "$OS_ZDNS_THREADS"
+                 --dns-chaos-workers "$OS_DNS_CHAOS_WORKERS"
                  --snmp-workers "$OS_SNMP_WORKERS"
                  --connect-timeout "$OS_CONNECT_TIMEOUT"
                  --read-timeout "$OS_READ_TIMEOUT"
