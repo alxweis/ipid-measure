@@ -85,9 +85,8 @@ cp config/ipid.yaml.example config/ipid.yaml
 | Key | Type | Description |
 |---|---|---|
 | `zmap` | measurement-id | zmap run to scan, e.g. `tcp-80_2026-06-03_00-13-06` (usually set via `--zmap`) |
-| `modules.{ssh,smb,http,https,snmp,smtp,mssql,pop3,imap,ftp,telnet,dns_chaos}` | bool | enable each fingerprint module |
-| `secondary_sample_rate` | float 0-1 | deterministic target fraction for lower-yield SMTP/MSSQL/POP3/IMAP/FTP/Telnet/DNS-CHAOS scans; core SSH/SMB/HTTP/HTTPS/SNMP still scan every target |
-| `zgrab2_senders` / `zdns_threads` / `snmp_workers` | scaled-int | ZGrab2 concurrency and in-process DNS/SNMP worker counts |
+| `modules.{ssh,smb,http,https,snmp,dns_chaos}` | bool | the six required OS-evidence services; all are scanned for every target |
+| `zgrab2_senders` / `dns_chaos_workers` / `snmp_workers` | scaled-int | bounded concurrency for ZGrab2, DNS CHAOS, and SNMP |
 | `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | timeouts |
 | `snmp_community` | string | SNMPv2c community |
 | `log_to_file` | bool | also write `<run>/os.log` |
@@ -151,33 +150,38 @@ ICMP scans retain only validated echo replies.
 | Flag | Description |
 |---|---|
 | `--zmap <id>` | override the `zmap` run id |
-| `--secondary-sample-rate <0..1>` | override the deterministic secondary-module sample |
-| `--zgrab2-senders` / `--zdns-threads` / `--snmp-workers` | override scanner concurrency |
+| `--zgrab2-senders` / `--dns-chaos-workers` / `--snmp-workers` | override scanner concurrency |
 | `--connect-timeout` / `--read-timeout` / `--snmp-timeout` | override scanner timeouts |
 
-`os.pq` preserves normalized evidence even when a banner does not identify an
-operating system. `OS_NAME` is populated only for an explicit or supported
-OS inference. `DETECTED_NAME` retains the best normalized observation and
-`DETECTED_TYPE` distinguishes `os`, `os-family`, `vendor`,
-`server-software`, `device-type`, `hostname-hint`, and `unknown`. The original
-service banners remain available in their source columns. For example, a plain
-`nginx` banner is stored as server software without being labeled Linux, while
-`nginx (Ubuntu)` identifies Ubuntu.
+Every ZMap target is scanned for SSH/22, SMB/445, HTTP/80, HTTPS/443, SNMP/161,
+and DNS CHAOS `version.bind`/53. ZGrab2 handles the four TCP services in one
+multimodule pass; bounded worker pools handle SNMP and DNS concurrently. SMB
+session setup retains available NativeOS/NTLM evidence.
 
-The default Internet-wide profile focuses exhaustive work on the strongest and
-most broadly useful evidence: SSH, SMB, HTTP, HTTPS, and SNMP. Lower-yield mail,
-database, FTP, Telnet, and DNS-CHAOS probes run on a stable 1% sample. Stable
-sampling keeps longitudinal campaigns comparable and still covers roughly
-3 million hosts in a 300-million-target run. Set `secondary_sample_rate: 1` to
-restore the legacy exhaustive behavior, or `0` to disable secondary scans.
-`SECONDARY_SAMPLED` in `os.pq` records whether a retained target received those
-secondary probes, so downstream analyses can filter or weight sampled evidence.
-`run-all-*` supplies the optimized profile as command-line overrides so an
-older deployed `config/os.yaml` cannot silently restore the multi-week scan.
+`os.pq` contains one row for every IP with at least one evidence string. Each
+service has one nullable evidence column and one nullable canonical OS-tag
+column. `OS_STATUS` is `resolved`, `ambiguous`, or `unclassified`; `OS_TAG` is
+set only for a resolved row. Compatible service tags select the most specific
+tag, while conflicting tags remain explicit as `ambiguous`. OS grouping is an
+analysis operation and therefore is not stored in raw measurement data.
+
+The Parquet columns are `IP_ADDR`, `OS_STATUS`, `OS_TAG`, the six nullable
+`{SSH,SMB,HTTP,HTTPS,SNMP,DNS}_OS_TAG` columns, followed by the six nullable
+evidence columns `SSH_SERVER_ID`, `SMB_NATIVE_OS`, `HTTP_SERVER`,
+`HTTPS_SERVER`, `SNMP_SYS_DESCR`, and `DNS_VERSION_BIND`.
+
+`os-coverage.json` has a paper-oriented `overview` and a lossless `detail`.
+The overview reports unique responded/evidence/tagged/resolved IP counts and
+their coverage relative to all ZMap targets, classification rates among evidence
+targets, and per-service response/evidence/tag coverage and conditional rates.
+The detail retains all absolute target, classification, service, and conflicting-
+tag counters. Coverage values are fractions in `[0,1]`; multiply by 100 for a
+percentage. The Parquet writer streams Snappy-compressed nullable columns in
+bounded row groups.
+
 The periodic `os: completed=...` log reports completed targets (including
-targets without fingerprint evidence), current targets/s, and an ETA. This is
-the authoritative runtime indicator; `emitted` alone only counts retained
-fingerprints and is therefore not a progress counter.
+targets without fingerprint evidence), current targets/s, pending merge rows,
+per-scanner completion counts, heap size, and elapsed time.
 See [Internet-wide OS scan profile](docs/os-scan-performance.md) for the
 performance budget, module rationale, and production tuning thresholds.
 

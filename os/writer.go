@@ -48,12 +48,11 @@ func NewWriter(outPath string) (*Writer, error) {
 	}, nil
 }
 
-// Append queues one record. Records without a normalized detection are
-// dropped; OS_NAME may be empty when only a vendor, software product, or
-// device type could be identified.
+// Append queues one evidence-bearing record. Classification may be resolved,
+// ambiguous, or unclassified; all three states are part of os.pq.
 func (w *Writer) Append(r records.OSRecord) error {
-	if r.OSName == "" && r.DetectedName == "" {
-		return nil
+	if r.IPAddress == "" || r.OSStatus == "" {
+		return fmt.Errorf("invalid OS record: IP_ADDR and OS_STATUS are required")
 	}
 	w.batch = append(w.batch, r)
 	if len(w.batch) >= ParquetWriteBatchSize {

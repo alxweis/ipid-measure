@@ -3,32 +3,17 @@
 zmap: tcp-80_YYYY-MM-DD_HH-MM-SS
 
 modules:
-  # Core modules: high-yield OS evidence, scanned on every target.
   ssh: true   # SSH banner
   smb: true   # NTLM Native OS field
   http: true  # HTTP Server header on port 80
-  https: true # HTTP Server header + TLS cert metadata on port 443
+  https: true # HTTP Server header on port 443
   snmp: true  # SNMP sysDescr.0 (in-process UDP probe, no external tool)
-
-  # Secondary modules: useful but lower-yield evidence, scanned only on the
-  # deterministic fraction configured by secondary_sample_rate.
-  smtp: true   # SMTP banner + EHLO response
-  mssql: true  # Pre-Login response -> Windows
-  pop3: true  # POP3 banner
-  imap: true  # IMAP banner
-  ftp: true  # FTP 220 banner
-  telnet: true  # Telnet banner (often router OS)
-  dns_chaos: true  # in-process version.bind / hostname.bind CHAOS TXT probes
+  dns_chaos: true  # in-process version.bind CHAOS TXT probe
 
 # --- SPEED -------------------------------------------------------------------
 
-# A 1% stable sample still covers about 3M of 300M targets while avoiding
-# exhaustive low-yield handshakes. Set 0 to disable secondary scans or 1 for
-# the legacy exhaustive behavior.
-secondary_sample_rate: 0.01
-
 zgrab2_senders: 5000
-zdns_threads: 1000  # in-process DNS CHAOS workers (name retained for compatibility)
+dns_chaos_workers: 1000
 snmp_workers: 3000
 
 # --- ADDITIONAL --------------------------------------------------------------

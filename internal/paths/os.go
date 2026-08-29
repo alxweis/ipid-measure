@@ -14,7 +14,7 @@ func NewOSMeasurement(payload types.Payload, port *uint16, timestamp time.Time) 
 	path := filepath.Join(root.Root, dirs.OSDir, dirs.RawDir, id)
 
 	return &OSMeasurement{
-		ZMapLinkedMeasurement{
+		ZMapLinkedMeasurement: ZMapLinkedMeasurement{
 			Measurement: Measurement{
 				ID:                  id,
 				Path:                path,
@@ -24,5 +24,6 @@ func NewOSMeasurement(payload types.Payload, port *uint16, timestamp time.Time) 
 			},
 			ZMapLinkPath: filepath.Join(path, files.ZMapLink),
 		},
+		CoverageFilePath: filepath.Join(path, files.OSCoverageFile),
 	}
 }

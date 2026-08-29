@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"time"
@@ -9,17 +10,14 @@ import (
 )
 
 type OSConfig struct {
-	ZMapReference `yaml:",inline"`
-	Modules       OSModules `yaml:"modules"`
+	ZMapReference     `yaml:",inline"`
+	Modules           OSModules `yaml:"modules"`
+	SchemaVersion     string    `yaml:"schema_version"`
+	ClassifierVersion string    `yaml:"classifier_version"`
 
-	ZGrab2Senders *ScaledNumber `yaml:"zgrab2_senders"`
-	ZDNSThreads   *ScaledNumber `yaml:"zdns_threads"`
-	SNMPWorkers   *ScaledNumber `yaml:"snmp_workers"`
-
-	// SecondarySampleRate is the deterministic fraction of targets that receive
-	// the lower-yield application scans (SMTP, MSSQL, POP3, IMAP, FTP, Telnet,
-	// and DNS CHAOS). Core SSH/SMB/HTTP/HTTPS and SNMP scans always run.
-	SecondarySampleRate float64 `yaml:"secondary_sample_rate"`
+	ZGrab2Senders   *ScaledNumber `yaml:"zgrab2_senders"`
+	DNSChaosWorkers *ScaledNumber `yaml:"dns_chaos_workers"`
+	SNMPWorkers     *ScaledNumber `yaml:"snmp_workers"`
 
 	ConnectTimeout time.Duration `yaml:"connect_timeout"`
 	ReadTimeout    time.Duration `yaml:"read_timeout"`
@@ -40,7 +38,9 @@ func LoadOSConfig(path string, apply func(*OSConfig)) (*OSConfig, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	var config OSConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&config); err != nil {
 		return nil, fmt.Errorf("unmarshal yaml: %w", err)
 	}
 	if apply != nil {
@@ -65,31 +65,22 @@ func validateOSConfig(config *OSConfig) error {
 
 	// --- SPEED -------------------------------------------------------------------
 
-	if config.SecondarySampleRate < 0 || config.SecondarySampleRate > 1 {
-		return fmt.Errorf("secondary_sample_rate must be in [0, 1]")
-	}
-	if !HasCoreModule(config.Modules) &&
-		!(HasSecondaryModule(config.Modules) && config.SecondarySampleRate > 0) {
-		return fmt.Errorf("no effective os modules selected")
-	}
-
 	if config.ZGrab2Senders != nil {
 		zgrab2Senders := uint64(*config.ZGrab2Senders)
 		if zgrab2Senders < 1 || zgrab2Senders > 10_000 {
 			return fmt.Errorf("zgrab2_senders must be in [1, 10K]")
 		}
-	} else if HasCoreZGrab2Module(config.Modules) ||
-		(HasSecondaryZGrab2Module(config.Modules) && config.SecondarySampleRate > 0) {
+	} else if HasZGrab2Module(config.Modules) {
 		return fmt.Errorf("zgrab2_senders must be set, if you use zgrab2 modules")
 	}
 
-	if config.ZDNSThreads != nil {
-		zdnsThreads := uint64(*config.ZDNSThreads)
-		if zdnsThreads < 1 || zdnsThreads > 10_000 {
-			return fmt.Errorf("zdns_threads must be in [1, 10K]")
+	if config.DNSChaosWorkers != nil {
+		dnsChaosWorkers := uint64(*config.DNSChaosWorkers)
+		if dnsChaosWorkers < 1 || dnsChaosWorkers > 10_000 {
+			return fmt.Errorf("dns_chaos_workers must be in [1, 10K]")
 		}
-	} else if HasZDNSModule(config.Modules) && config.SecondarySampleRate > 0 {
-		return fmt.Errorf("zdns_threads must be set, if you use the dns_chaos module")
+	} else if HasDNSChaosModule(config.Modules) {
+		return fmt.Errorf("dns_chaos_workers must be set if you use dns_chaos")
 	}
 
 	if config.SNMPWorkers != nil {

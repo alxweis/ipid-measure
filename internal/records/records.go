@@ -6,28 +6,23 @@ type ZMap struct {
 }
 
 type OSRecord struct {
-	IPAddress        string `parquet:"IP_ADDR,plain"`
-	OSName           string `parquet:"OS_NAME"`
-	DetectedName     string `parquet:"DETECTED_NAME"`
-	DetectedType     string `parquet:"DETECTED_TYPE"`
-	OSSource         string `parquet:"OS_SOURCE"`
-	SecondarySampled bool   `parquet:"SECONDARY_SAMPLED"`
-	SSHServerID      string `parquet:"SSH_SERVER_ID,plain"`
-	SMBNativeOS      string `parquet:"SMB_NATIVE_OS,plain"`
-	HTTPServer       string `parquet:"HTTP_SERVER,plain"`
-	HTTPSServer      string `parquet:"HTTPS_SERVER,plain"`
-	HTTPSCertIssuer  string `parquet:"HTTPS_CERT_ISSUER,plain"`
-	HTTPSCertSubject string `parquet:"HTTPS_CERT_SUBJECT,plain"`
-	SNMPSysDescr     string `parquet:"SNMP_SYS_DESCR,plain"`
-	SMTPBanner       string `parquet:"SMTP_BANNER,plain"`
-	SMTPEHLO         string `parquet:"SMTP_EHLO_RESPONSE,plain"`
-	MSSQLVersion     string `parquet:"MSSQL_VERSION,plain"`
-	POP3Banner       string `parquet:"POP3_BANNER,plain"`
-	IMAPBanner       string `parquet:"IMAP_BANNER,plain"`
-	FTPBanner        string `parquet:"FTP_BANNER,plain"`
-	TelnetBanner     string `parquet:"TELNET_BANNER,plain"`
-	DNSVersionBind   string `parquet:"DNS_VERSION_BIND,plain"`
-	DNSHostnameBind  string `parquet:"DNS_HOSTNAME_BIND,plain"`
+	IPAddress string  `parquet:"IP_ADDR,plain"`
+	OSStatus  string  `parquet:"OS_STATUS,dict"`
+	OSTag     *string `parquet:"OS_TAG,optional,dict"`
+
+	SSHOS   *string `parquet:"SSH_OS_TAG,optional,dict"`
+	SMBOS   *string `parquet:"SMB_OS_TAG,optional,dict"`
+	HTTPOS  *string `parquet:"HTTP_OS_TAG,optional,dict"`
+	HTTPSOS *string `parquet:"HTTPS_OS_TAG,optional,dict"`
+	SNMPOS  *string `parquet:"SNMP_OS_TAG,optional,dict"`
+	DNSOS   *string `parquet:"DNS_OS_TAG,optional,dict"`
+
+	SSHServerID    *string `parquet:"SSH_SERVER_ID,optional"`
+	SMBNativeOS    *string `parquet:"SMB_NATIVE_OS,optional"`
+	HTTPServer     *string `parquet:"HTTP_SERVER,optional"`
+	HTTPSServer    *string `parquet:"HTTPS_SERVER,optional"`
+	SNMPSysDescr   *string `parquet:"SNMP_SYS_DESCR,optional"`
+	DNSVersionBind *string `parquet:"DNS_VERSION_BIND,optional"`
 }
 
 type IPIDRecord struct {

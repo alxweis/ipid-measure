@@ -8,52 +8,24 @@ import (
 	"github.com/alxweis/ipid-measure/internal/config"
 )
 
-func TestBuildZGrab2INISamplesSecondaryModules(t *testing.T) {
+func TestBuildZGrab2INIContainsFourServices(t *testing.T) {
 	ini := BuildZGrab2INI(
-		config.OSModules{SSH: true, SMTP: true, FTP: true},
-		config.ScaledNumber(5000),
-		time.Second,
-		time.Second,
-		0.01,
+		config.OSModules{SSH: true, SMB: true, HTTP: true, HTTPS: true},
+		config.ScaledNumber(5000), time.Second, time.Second,
 	)
-
-	if strings.Contains(section(ini, "ssh"), "trigger=") {
-		t.Fatal("core SSH module unexpectedly has a trigger")
-	}
-	for _, name := range []string{"smtp", "ftp"} {
-		if !strings.Contains(section(ini, name), `trigger="secondary"`) {
-			t.Fatalf("%s module does not have the secondary trigger:\n%s", name, ini)
+	for _, name := range []string{"ssh", "smb", "http"} {
+		if section(ini, name) == "" {
+			t.Fatalf("missing %s section:\n%s", name, ini)
 		}
 	}
-}
-
-func TestBuildZGrab2INIDisablesSecondaryModulesAtZero(t *testing.T) {
-	ini := BuildZGrab2INI(
-		config.OSModules{SSH: true, SMTP: true},
-		config.ScaledNumber(5000),
-		time.Second,
-		time.Second,
-		0,
-	)
-	if strings.Contains(ini, "[smtp]") {
-		t.Fatalf("secondary SMTP module present at zero sample rate:\n%s", ini)
+	if !strings.Contains(ini, `name="https"`) || !strings.Contains(ini, "use-https=true") {
+		t.Fatalf("missing HTTPS module:\n%s", ini)
 	}
-	if !strings.Contains(ini, "[ssh]") {
-		t.Fatalf("core SSH module missing:\n%s", ini)
+	if !strings.Contains(section(ini, "smb"), "setup-session=true") {
+		t.Fatalf("SMB session setup missing:\n%s", ini)
 	}
-}
-
-func TestBuildZGrab2INIRunsSecondaryModulesExhaustivelyAtOne(t *testing.T) {
-	ini := BuildZGrab2INI(
-		config.OSModules{SMTP: true},
-		config.ScaledNumber(5000),
-		time.Second,
-		time.Second,
-		1,
-	)
-	smtp := section(ini, "smtp")
-	if smtp == "" || strings.Contains(smtp, "trigger=") {
-		t.Fatalf("unexpected exhaustive SMTP section:\n%s", ini)
+	if strings.Contains(ini, "trigger=") {
+		t.Fatalf("unexpected sampling trigger:\n%s", ini)
 	}
 }
 

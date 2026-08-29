@@ -28,9 +28,9 @@ func NewSNMPProbe(community string, timeout time.Duration) *SNMPProbe {
 
 // SNMPResult is the per-target outcome of a sysDescr query.
 type SNMPResult struct {
-	IP       string
-	SysDescr string // empty if no response or no sysDescr value
-	OK       bool   // true iff we got a valid SNMP response with a string varBind
+	IP        string
+	SysDescr  string // empty if no response or no sysDescr value
+	Responded bool   // true for a valid matching SNMP response
 }
 
 // Run fans `in` out to `workers` goroutines and emits one SNMPResult per target.
@@ -51,9 +51,9 @@ func (p *SNMPProbe) Run(ctx context.Context, in <-chan string, workers int) <-ch
 					return
 				default:
 				}
-				descr, ok := p.probeOne(ctx, target, buf)
+				descr, responded := p.probeOne(ctx, target, buf)
 				select {
-				case out <- SNMPResult{IP: target, SysDescr: descr, OK: ok}:
+				case out <- SNMPResult{IP: target, SysDescr: descr, Responded: responded}:
 				case <-ctx.Done():
 					return
 				}
@@ -70,8 +70,8 @@ func (p *SNMPProbe) Run(ctx context.Context, in <-chan string, workers int) <-ch
 }
 
 // probeOne sends one GET-Request for sysDescr.0 and waits for the reply.
-// On any error returns ("", false). On a successful reply with a string
-// varBind value returns (value, true).
+// On any error returns ("", false). A valid matching response returns true,
+// with sysDescr when the response contains a non-empty string value.
 func (p *SNMPProbe) probeOne(ctx context.Context, target string, buf []byte) (string, bool) {
 	deadline := time.Now().Add(p.timeout)
 	if dctx, ok := ctx.Deadline(); ok && dctx.Before(deadline) {
@@ -284,7 +284,7 @@ func parseSysDescrReply(reply []byte, expectedReqID int32, expectedCommunity []b
 		}
 		vbBytes = next
 	}
-	return "", false
+	return "", true
 }
 
 func bytesEqual(a, b []byte) bool {

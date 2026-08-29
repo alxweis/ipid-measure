@@ -20,6 +20,7 @@ const (
 	ZMapFixedBaseSampleFile         = "zmap-fixed-base-sample" + ParquetExtension
 	ZMapFixedBaseSampleMetadataFile = "zmap-fixed-base-sample.json"
 	OSMeasurementFile               = "os" + ParquetExtension
+	OSCoverageFile                  = "os-coverage.json"
 	IPIDMeasurementFile             = "ipid" + ParquetExtension
 
 	ZMapConfigFile = "zmap" + ConfigExtension

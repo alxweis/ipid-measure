@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"strconv"
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
@@ -25,13 +24,8 @@ func main() {
 
 	configFlag := flag.String("config", files.OSConfigFilePath, "path to the os config file")
 	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
-	secondarySampleRateFlag := flag.String(
-		"secondary-sample-rate",
-		"",
-		"override the deterministic secondary-module sample rate [0,1]",
-	)
 	zgrab2SendersFlag := flag.String("zgrab2-senders", "", "override zgrab2 sender concurrency")
-	zdnsThreadsFlag := flag.String("zdns-threads", "", "override in-process DNS CHAOS worker count")
+	dnsChaosWorkersFlag := flag.String("dns-chaos-workers", "", "override DNS CHAOS worker concurrency")
 	snmpWorkersFlag := flag.String("snmp-workers", "", "override SNMP worker concurrency")
 	connectTimeoutFlag := flag.Duration("connect-timeout", 0, "override application connect timeout")
 	readTimeoutFlag := flag.Duration("read-timeout", 0, "override application read timeout")
@@ -45,25 +39,17 @@ func main() {
 	}
 
 	zgrab2Senders := parseOptionalScaledNumber("zgrab2-senders", *zgrab2SendersFlag)
-	zdnsThreads := parseOptionalScaledNumber("zdns-threads", *zdnsThreadsFlag)
+	dnsChaosWorkers := parseOptionalScaledNumber("dns-chaos-workers", *dnsChaosWorkersFlag)
 	snmpWorkers := parseOptionalScaledNumber("snmp-workers", *snmpWorkersFlag)
-	secondarySampleRate := parseOptionalFloat64(
-		"secondary-sample-rate",
-		*secondarySampleRateFlag,
-	)
-
 	c, err := config.LoadOSConfig(configFilePath, func(c *config.OSConfig) {
 		if *zmapFlag != "" {
 			c.ZMapID = *zmapFlag
 		}
-		if secondarySampleRate != nil {
-			c.SecondarySampleRate = *secondarySampleRate
-		}
 		if zgrab2Senders != nil {
 			c.ZGrab2Senders = zgrab2Senders
 		}
-		if zdnsThreads != nil {
-			c.ZDNSThreads = zdnsThreads
+		if dnsChaosWorkers != nil {
+			c.DNSChaosWorkers = dnsChaosWorkers
 		}
 		if snmpWorkers != nil {
 			c.SNMPWorkers = snmpWorkers
@@ -81,6 +67,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load os config: %v", err)
 	}
+	c.SchemaVersion = osmod.SchemaVersion
+	c.ClassifierVersion = osmod.ClassifierVersion
 
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 
@@ -130,15 +118,4 @@ func parseOptionalScaledNumber(name, value string) *config.ScaledNumber {
 	}
 	result := config.ScaledNumber(parsed)
 	return &result
-}
-
-func parseOptionalFloat64(name, value string) *float64 {
-	if value == "" {
-		return nil
-	}
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		log.Fatalf("parse --%s: %v", name, err)
-	}
-	return &parsed
 }

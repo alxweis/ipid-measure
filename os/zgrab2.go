@@ -9,30 +9,20 @@ import (
 	osstd "os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 )
 
 // ZGrab2Result is the per-IP outcome of the multimodule ZGrab2 scan.
 type ZGrab2Result struct {
-	IP string
-	// TriggeredSecondary identifies the extra ZGrab2 input row that carries
-	// the "secondary" trigger. ZGrab2 does not echo input tags, so this is
-	// inferred from the module names present in the result.
-	TriggeredSecondary bool
-	SSHServerID        string
-	SMBNativeOS        string
-	HTTPServer         string
-	HTTPSServer        string
-	HTTPSCertIssuer    string
-	HTTPSCertSubject   string
-	SMTPBanner         string
-	SMTPEHLO           string
-	MSSQLVersion       string
-	POP3Banner         string
-	IMAPBanner         string
-	FTPBanner          string
-	TelnetBanner       string
+	IP             string
+	SSHResponded   bool
+	SMBResponded   bool
+	HTTPResponded  bool
+	HTTPSResponded bool
+	SSHServerID    string
+	SMBNativeOS    string
+	HTTPServer     string
+	HTTPSServer    string
 }
 
 // ZGrab2Runner manages one ZGrab2 child process configured to run the union
@@ -47,7 +37,7 @@ type ZGrab2Runner struct {
 // StartZGrab2 spawns ZGrab2 in multimodule mode.
 func StartZGrab2(ctx context.Context, binary, iniPath string) (*ZGrab2Runner, error) {
 	cmd := exec.CommandContext(ctx, binary, "multiple", "-c", iniPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -75,15 +65,14 @@ func (r *ZGrab2Runner) Shutdown() error {
 	if r.cmd.Process == nil {
 		return nil
 	}
-	pgid := r.cmd.Process.Pid
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	_ = terminateProcessGroup(r.cmd)
 	done := make(chan error, 1)
 	go func() { done <- r.cmd.Wait() }()
 	select {
 	case err := <-done:
 		return err
 	case <-time.After(ShutdownGraceSeconds * time.Second):
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		_ = killProcessGroup(r.cmd)
 		return <-done
 	}
 }
@@ -119,27 +108,17 @@ func parseZGrab2Line(line string) (ZGrab2Result, bool) {
 	}
 	res := ZGrab2Result{IP: raw.IP}
 	for name, blob := range raw.Data {
-		if isSecondaryZGrab2ModuleName(name) {
-			res.TriggeredSecondary = true
-		}
 		extractZGrab2Module(name, blob, &res)
 	}
 	return res, true
 }
 
-func isSecondaryZGrab2ModuleName(name string) bool {
-	switch name {
-	case "smtp", "mssql", "pop3", "imap", "ftp", "telnet":
-		return true
-	default:
-		return false
-	}
-}
-
 // extractZGrab2Module is a switch over the module names we configured.
 func extractZGrab2Module(name string, blob json.RawMessage, out *ZGrab2Result) {
+	succeeded := zgrab2ModuleSucceeded(blob)
 	switch name {
 	case "ssh":
+		out.SSHResponded = succeeded
 		var v struct {
 			Result struct {
 				ServerID struct {
@@ -149,140 +128,112 @@ func extractZGrab2Module(name string, blob json.RawMessage, out *ZGrab2Result) {
 		}
 		if json.Unmarshal(blob, &v) == nil {
 			out.SSHServerID = CleanBanner(v.Result.ServerID.Raw)
+			out.SSHResponded = out.SSHResponded || out.SSHServerID != ""
 		}
 	case "smb":
-		var v struct {
-			Result struct {
-				NTLM struct {
-					ProductName string `json:"target_name"`
-					NativeOS    string `json:"native_os"`
-				} `json:"ntlm,omitempty"`
-				SMBVersions struct {
-					NativeOS string `json:"native_os"`
-				} `json:"smb_versions,omitempty"`
-				NativeOS string `json:"native_os"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			// Different ZGrab2 versions surface the field in slightly different
-			// nested paths. Take the first non-empty.
-			switch {
-			case v.Result.NativeOS != "":
-				out.SMBNativeOS = CleanBanner(v.Result.NativeOS)
-			case v.Result.NTLM.NativeOS != "":
-				out.SMBNativeOS = CleanBanner(v.Result.NTLM.NativeOS)
-			case v.Result.SMBVersions.NativeOS != "":
-				out.SMBNativeOS = CleanBanner(v.Result.SMBVersions.NativeOS)
-			case v.Result.NTLM.ProductName != "":
-				out.SMBNativeOS = CleanBanner(v.Result.NTLM.ProductName)
-			}
+		out.SMBResponded = succeeded
+		// ZGrab2 releases have used both strings and objects for NTLM/session
+		// metadata. Decode only the paths we need so a schema change in an
+		// unrelated field cannot discard the complete SMB result.
+		if root := decodeJSONObject(blob); root != nil {
+			out.SMBNativeOS = CleanBanner(firstJSONText(root,
+				[]string{"result", "native_os"},
+				[]string{"result", "ntlm", "native_os"},
+				[]string{"result", "smb_versions", "native_os"},
+				[]string{"result", "ntlm", "product_name"},
+				[]string{"result", "ntlm", "target_name"},
+				[]string{"result", "ntlm"},
+			))
+			out.SMBResponded = out.SMBResponded || out.SMBNativeOS != ""
 		}
 	case "http", "https":
 		var v struct {
 			Result struct {
 				Response struct {
-					Headers map[string][]string `json:"headers"`
+					Headers map[string]json.RawMessage `json:"headers"`
 				} `json:"response"`
-				TLSLog struct {
-					HandshakeLog struct {
-						ServerCertificates struct {
-							Certificate struct {
-								Parsed struct {
-									Issuer struct {
-										CommonName []string `json:"common_name"`
-									} `json:"issuer"`
-									Subject struct {
-										CommonName []string `json:"common_name"`
-									} `json:"subject"`
-								} `json:"parsed"`
-							} `json:"certificate"`
-						} `json:"server_certificates"`
-					} `json:"handshake_log"`
-				} `json:"tls_log"`
 			} `json:"result"`
 		}
 		if json.Unmarshal(blob, &v) == nil {
-			server := firstNonEmpty(v.Result.Response.Headers["server"])
-			cn := joined(v.Result.TLSLog.HandshakeLog.ServerCertificates.Certificate.Parsed.Issuer.CommonName)
-			sub := joined(v.Result.TLSLog.HandshakeLog.ServerCertificates.Certificate.Parsed.Subject.CommonName)
+			server := headerText(v.Result.Response.Headers, "server")
 			if name == "http" {
 				out.HTTPServer = CleanBanner(server)
+				out.HTTPResponded = succeeded || out.HTTPServer != ""
 			} else {
 				out.HTTPSServer = CleanBanner(server)
-				out.HTTPSCertIssuer = CleanBanner(cn)
-				out.HTTPSCertSubject = CleanBanner(sub)
+				out.HTTPSResponded = succeeded || out.HTTPSServer != ""
 			}
-		}
-	case "smtp":
-		var v struct {
-			Result struct {
-				Banner string `json:"banner"`
-				EHLO   string `json:"ehlo"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			out.SMTPBanner = CleanBanner(v.Result.Banner)
-			out.SMTPEHLO = CleanBanner(v.Result.EHLO)
-		}
-	case "mssql":
-		var v struct {
-			Result struct {
-				Version string `json:"version"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			out.MSSQLVersion = CleanBanner(v.Result.Version)
-		}
-	case "pop3":
-		var v struct {
-			Result struct {
-				Banner string `json:"banner"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			out.POP3Banner = CleanBanner(v.Result.Banner)
-		}
-	case "imap":
-		var v struct {
-			Result struct {
-				Banner string `json:"banner"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			out.IMAPBanner = CleanBanner(v.Result.Banner)
-		}
-	case "ftp":
-		var v struct {
-			Result struct {
-				Banner string `json:"banner"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			out.FTPBanner = CleanBanner(v.Result.Banner)
-		}
-	case "telnet":
-		var v struct {
-			Result struct {
-				Banner string `json:"banner"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(blob, &v) == nil {
-			out.TelnetBanner = CleanBanner(v.Result.Banner)
 		}
 	}
 }
 
-func firstNonEmpty(ss []string) string {
-	for _, s := range ss {
-		if s != "" {
-			return s
+func zgrab2ModuleSucceeded(blob json.RawMessage) bool {
+	var envelope struct {
+		Status string `json:"status"`
+	}
+	return json.Unmarshal(blob, &envelope) == nil && envelope.Status == "success"
+}
+
+func decodeJSONObject(blob json.RawMessage) map[string]any {
+	var value map[string]any
+	if json.Unmarshal(blob, &value) != nil {
+		return nil
+	}
+	return value
+}
+
+func jsonValueAt(root any, path ...string) any {
+	value := root
+	for _, part := range path {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return nil
+		}
+		value, ok = object[part]
+		if !ok {
+			return nil
+		}
+	}
+	return value
+}
+
+func jsonText(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := jsonText(item); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, ", ")
+	default:
+		return ""
+	}
+}
+
+func firstJSONText(root map[string]any, paths ...[]string) string {
+	for _, path := range paths {
+		if text := jsonText(jsonValueAt(root, path...)); text != "" {
+			return text
 		}
 	}
 	return ""
 }
 
-func joined(ss []string) string {
-	return strings.Join(ss, ", ")
+func headerText(headers map[string]json.RawMessage, wanted string) string {
+	for name, raw := range headers {
+		if !strings.EqualFold(name, wanted) {
+			continue
+		}
+		var value any
+		if json.Unmarshal(raw, &value) == nil {
+			return jsonText(value)
+		}
+	}
+	return ""
 }
 
 // WriteIniFile writes the .ini contents to a temp file and returns its path.

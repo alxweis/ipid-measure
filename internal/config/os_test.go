@@ -1,64 +1,31 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestValidateOSConfigSecondarySampleRate(t *testing.T) {
-	tests := []struct {
-		name    string
-		modules OSModules
-		rate    float64
-		wantErr string
-	}{
-		{
-			name:    "core only at zero",
-			modules: OSModules{SSH: true},
-			rate:    0,
-		},
-		{
-			name:    "secondary sampled",
-			modules: OSModules{SMTP: true},
-			rate:    0.01,
-		},
-		{
-			name:    "secondary disabled leaves no effective module",
-			modules: OSModules{SMTP: true},
-			rate:    0,
-			wantErr: "no effective os modules selected",
-		},
-		{
-			name:    "negative rate",
-			modules: OSModules{SSH: true},
-			rate:    -0.01,
-			wantErr: "secondary_sample_rate",
-		},
-		{
-			name:    "rate above one",
-			modules: OSModules{SSH: true},
-			rate:    1.01,
-			wantErr: "secondary_sample_rate",
-		},
+func TestValidateOSConfigRequiresSixServices(t *testing.T) {
+	c := validTestOSConfig()
+	if err := validateOSConfig(c); err != nil {
+		t.Fatalf("valid configuration rejected: %v", err)
 	}
+	c.Modules.HTTPS = false
+	if err := validateOSConfig(c); err == nil || !strings.Contains(err.Error(), "must all be enabled") {
+		t.Fatalf("missing HTTPS error = %v", err)
+	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			c := validTestOSConfig()
-			c.Modules = test.modules
-			c.SecondarySampleRate = test.rate
-			err := validateOSConfig(c)
-			if test.wantErr == "" {
-				if err != nil {
-					t.Fatalf("validateOSConfig() error = %v", err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Fatalf("validateOSConfig() error = %v, want %q", err, test.wantErr)
-			}
-		})
+func TestLoadOSConfigRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "os.yaml")
+	if err := os.WriteFile(path, []byte("zmap: icmp_2026-07-27_09-16-34\nsecondary_sample_rate: 0.01\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOSConfig(path, nil); err == nil || !strings.Contains(err.Error(), "field secondary_sample_rate not found") {
+		t.Fatalf("LoadOSConfig() error = %v", err)
 	}
 }
 
@@ -67,14 +34,16 @@ func validTestOSConfig() *OSConfig {
 	zdns := ScaledNumber(1000)
 	snmp := ScaledNumber(3000)
 	return &OSConfig{
-		ZMapReference:  ZMapReference{ZMapID: "icmp_2026-07-27_09-16-34"},
-		Modules:        OSModules{SSH: true},
-		ZGrab2Senders:  &zgrab,
-		ZDNSThreads:    &zdns,
-		SNMPWorkers:    &snmp,
-		ConnectTimeout: time.Second,
-		ReadTimeout:    time.Second,
-		SNMPTimeout:    time.Second,
-		SNMPCommunity:  "public",
+		ZMapReference: ZMapReference{ZMapID: "icmp_2026-07-27_09-16-34"},
+		Modules: OSModules{
+			SSH: true, SMB: true, HTTP: true, HTTPS: true, SNMP: true, DNSChaos: true,
+		},
+		ZGrab2Senders:   &zgrab,
+		DNSChaosWorkers: &zdns,
+		SNMPWorkers:     &snmp,
+		ConnectTimeout:  time.Second,
+		ReadTimeout:     time.Second,
+		SNMPTimeout:     time.Second,
+		SNMPCommunity:   "public",
 	}
 }
