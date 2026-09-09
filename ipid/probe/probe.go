@@ -506,7 +506,7 @@ func defaultFlagsMatch(replyFlags sets.Set[string]) bool {
 		}
 		return false
 	case layers.IPProtocolUDP:
-		return replyFlags.Equal(types.DnsQRFlagSet)
+		return replyFlags.Contains(types.DNSFlagQR)
 	case layers.IPProtocolICMPv4:
 		return true // ICMP has no flag set.
 	}
