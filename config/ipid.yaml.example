@@ -36,7 +36,7 @@ maximum_tolerated_rtt: 2s
 bandwidth: 30M
 packets_per_second: null
 
-number_of_inflight_probes: 2000
+number_of_inflight_probes: 2K
 
 # --- INTERFACE ---------------------------------------------------------------
 
@@ -47,7 +47,7 @@ interface:
 
 # --- LOGGING -----------------------------------------------------------------
 
-log_to_file: true
+log_to_file: false
 
 # --- MEMORY ------------------------------------------------------------------
 
