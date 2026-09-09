@@ -10,6 +10,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/dns"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/packet"
 	"github.com/alxweis/ipid-measure/ipid/payload"
@@ -506,7 +507,7 @@ func defaultFlagsMatch(replyFlags sets.Set[string]) bool {
 		}
 		return false
 	case layers.IPProtocolUDP:
-		return replyFlags.Equal(types.DnsQRFlagSet)
+		return dns.IsResponse(replyFlags)
 	case layers.IPProtocolICMPv4:
 		return true // ICMP has no flag set.
 	}

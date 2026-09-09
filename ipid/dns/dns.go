@@ -10,6 +10,12 @@ import (
 
 const Sld = "example.com"
 
+// IsResponse requires QR without excluding legitimate response flags such as
+// AA, RA, RD or TC. Matching the outstanding probe is handled by the receiver.
+func IsResponse(flags types.DNSFlagSet) bool {
+	return flags.Contains(types.DNSFlagQR)
+}
+
 func Layer(seqNum uint16) gopacket.SerializableLayer {
 	return &layers.DNS{
 		ID:      seqNum,
