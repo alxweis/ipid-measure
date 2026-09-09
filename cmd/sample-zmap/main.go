@@ -24,14 +24,16 @@ import (
 const metadataVersion = 1
 
 type metadata struct {
-	Version     int       `json:"version"`
-	ZMapID      string    `json:"zmap_id"`
-	SourceRows  int64     `json:"source_rows"`
-	SampleRows  int64     `json:"sample_rows"`
-	MinimumRows int64     `json:"minimum_rows"`
-	Percent     int       `json:"percent"`
-	Seed        int64     `json:"seed"`
-	CreatedAt   time.Time `json:"created_at"`
+	Version      int       `json:"version"`
+	ZMapID       string    `json:"zmap_id"`
+	ReplyType    string    `json:"reply_type,omitempty"`
+	EligibleRows int64     `json:"eligible_rows,omitempty"`
+	SourceRows   int64     `json:"source_rows"`
+	SampleRows   int64     `json:"sample_rows"`
+	MinimumRows  int64     `json:"minimum_rows"`
+	Percent      int       `json:"percent"`
+	Seed         int64     `json:"seed"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func main() {
@@ -39,13 +41,18 @@ func main() {
 	minimum := flag.Int64("minimum", 1_000_000, "minimum sample rows (capped at source size)")
 	percent := flag.Int("percent", 10, "sample percentage")
 	seed := flag.Int64("seed", 0, "PRNG seed; 0 generates a cryptographically random seed")
+	replyType := flag.String("reply-type", "", "target response class: empty or synack (TCP only)")
 	flag.Parse()
 
 	if *zmapID == "" {
 		log.Fatal("--zmap is required")
 	}
-	if _, _, _, err := paths.ParseMeasurementID(*zmapID); err != nil {
+	payload, _, _, err := paths.ParseMeasurementID(*zmapID)
+	if err != nil {
 		log.Fatalf("invalid --zmap: %v", err)
+	}
+	if *replyType != "" && (*replyType != "synack" || payload != "tcp") {
+		log.Fatal("--reply-type only supports synack for TCP")
 	}
 	if *minimum < 1 {
 		log.Fatal("--minimum must be at least 1")
@@ -59,11 +66,16 @@ func main() {
 	outputPath := filepath.Join(directory, files.ZMapFixedBaseSampleFile)
 	metadataPath := filepath.Join(directory, files.ZMapFixedBaseSampleMetadataFile)
 
+	if *replyType == "synack" {
+		outputPath = filepath.Join(directory, files.ZMapConnectionSampleFile)
+		metadataPath = filepath.Join(directory, files.ZMapConnectionSampleMetadataFile)
+	}
+
 	if fileExists(outputPath) || fileExists(metadataPath) {
-		if err := validateExisting(inputPath, outputPath, metadataPath, *zmapID, *minimum, *percent); err != nil {
+		if err := validateExisting(inputPath, outputPath, metadataPath, *zmapID, *minimum, *percent, *replyType); err != nil {
 			log.Fatalf("reuse existing sample: %v", err)
 		}
-		log.Printf("reusing fixed-base target sample: %s", outputPath)
+		log.Printf("reusing target sample: %s", outputPath)
 		fmt.Println(outputPath)
 		return
 	}
@@ -78,20 +90,22 @@ func main() {
 	}
 
 	stats, err := zmapsample.WriteUniformSample(
-		inputPath, outputPath, *minimum, *percent, actualSeed,
+		inputPath, outputPath, *minimum, *percent, actualSeed, *replyType,
 	)
 	if err != nil {
-		log.Fatalf("create fixed-base target sample: %v", err)
+		log.Fatalf("create target sample: %v", err)
 	}
 	value := metadata{
-		Version:     metadataVersion,
-		ZMapID:      *zmapID,
-		SourceRows:  stats.SourceRows,
-		SampleRows:  stats.SampleRows,
-		MinimumRows: *minimum,
-		Percent:     *percent,
-		Seed:        stats.Seed,
-		CreatedAt:   time.Now().UTC(),
+		Version:      metadataVersion,
+		ZMapID:       *zmapID,
+		SourceRows:   stats.SourceRows,
+		EligibleRows: stats.EligibleRows,
+		ReplyType:    *replyType,
+		SampleRows:   stats.SampleRows,
+		MinimumRows:  *minimum,
+		Percent:      *percent,
+		Seed:         stats.Seed,
+		CreatedAt:    time.Now().UTC(),
 	}
 	if err := writeMetadata(metadataPath, value); err != nil {
 		_ = os.Remove(outputPath)
@@ -99,7 +113,7 @@ func main() {
 	}
 
 	log.Printf(
-		"fixed-base target sample completed: rows=%d/%d seed=%d path=%s",
+		"target sample completed: rows=%d/%d seed=%d path=%s",
 		stats.SampleRows, stats.SourceRows, stats.Seed, outputPath,
 	)
 	fmt.Println(outputPath)
@@ -121,7 +135,7 @@ func parquetRows(path string) (int64, error) {
 	return reader.NumRows(), nil
 }
 
-func validateExisting(inputPath, outputPath, metadataPath, zmapID string, minimum int64, percent int) error {
+func validateExisting(inputPath, outputPath, metadataPath, zmapID string, minimum int64, percent int, replyType string) error {
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
 		return fmt.Errorf("read metadata: %w", err)
@@ -131,7 +145,7 @@ func validateExisting(inputPath, outputPath, metadataPath, zmapID string, minimu
 		return fmt.Errorf("decode metadata: %w", err)
 	}
 	if value.Version != metadataVersion || value.ZMapID != zmapID ||
-		value.MinimumRows != minimum || value.Percent != percent {
+		value.MinimumRows != minimum || value.Percent != percent || value.ReplyType != replyType {
 		return fmt.Errorf("metadata does not match the requested sample")
 	}
 	sourceRows, err := parquetRows(inputPath)
@@ -142,7 +156,14 @@ func validateExisting(inputPath, outputPath, metadataPath, zmapID string, minimu
 	if err != nil {
 		return fmt.Errorf("inspect sample parquet: %w", err)
 	}
-	wanted := zmapsample.FixedBaseSampleSize(sourceRows, minimum, percent)
+	eligibleRows := sourceRows
+	if replyType != "" {
+		eligibleRows = value.EligibleRows
+		if eligibleRows < 1 || eligibleRows > sourceRows {
+			return fmt.Errorf("invalid eligible target count")
+		}
+	}
+	wanted := zmapsample.FixedBaseSampleSize(eligibleRows, minimum, percent)
 	if value.SourceRows != sourceRows || value.SampleRows != wanted || sampleRows != wanted {
 		return fmt.Errorf(
 			"row counts do not match: source=%d metadata_source=%d sample=%d metadata_sample=%d wanted=%d",

@@ -38,14 +38,14 @@ func TestWriteUniformSampleIsExactAndReproducible(t *testing.T) {
 
 	first := filepath.Join(root, "first.pq")
 	second := filepath.Join(root, "second.pq")
-	stats, err := WriteUniformSample(input, first, 20, 10, 42)
+	stats, err := WriteUniformSample(input, first, 20, 10, 42, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stats.SourceRows != 100 || stats.SampleRows != 20 {
 		t.Fatalf("unexpected stats: %+v", stats)
 	}
-	if _, err := WriteUniformSample(input, second, 20, 10, 42); err != nil {
+	if _, err := WriteUniformSample(input, second, 20, 10, 42, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,6 +56,52 @@ func TestWriteUniformSampleIsExactAndReproducible(t *testing.T) {
 	}
 	if !reflect.DeepEqual(firstRows, secondRows) {
 		t.Fatal("same seed did not reproduce the same sample")
+	}
+}
+
+func TestSYNACKSampleFiltersBeforeSizing(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "zmap.pq")
+	rows := make([]records.ZMap, 100)
+	for i := range rows {
+		rows[i] = records.ZMap{IPAddress: fmt.Sprintf("192.0.2.%d", i+1), ReplyType: "rst"}
+		if i < 20 {
+			rows[i].ReplyType = "synack"
+		}
+	}
+	rows[99].ReplyType = ""
+	if err := parquet.WriteFile(input, rows); err != nil {
+		t.Fatal(err)
+	}
+	first, second := filepath.Join(root, "first.pq"), filepath.Join(root, "second.pq")
+	stats, err := WriteUniformSample(input, first, 1, 50, 42, "synack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.SourceRows != 100 || stats.EligibleRows != 20 || stats.SampleRows != 10 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if _, err := WriteUniformSample(input, second, 1, 50, 42, "synack"); err != nil {
+		t.Fatal(err)
+	}
+	selected := readZMapRows(t, first)
+	if len(selected) != 10 || !reflect.DeepEqual(selected, readZMapRows(t, second)) {
+		t.Fatal("incorrect or non-reproducible sample")
+	}
+	for _, row := range selected {
+		if row.ReplyType != "synack" {
+			t.Fatalf("ineligible target: %+v", row)
+		}
+	}
+	if err := parquet.WriteFile(input, rows[20:]); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(root, "empty.pq")
+	if _, err := WriteUniformSample(input, empty, 1000000, 10, 42, "synack"); err == nil {
+		t.Fatal("expected error without SYN-ACK targets")
+	}
+	if _, err := os.Stat(empty); !os.IsNotExist(err) {
+		t.Fatal("empty target sample was published")
 	}
 }
 

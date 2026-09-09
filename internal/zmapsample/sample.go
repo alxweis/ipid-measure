@@ -21,9 +21,10 @@ const (
 )
 
 type SampleStats struct {
-	SourceRows int64
-	SampleRows int64
-	Seed       int64
+	EligibleRows int64
+	SourceRows   int64
+	SampleRows   int64
+	Seed         int64
 }
 
 // FixedBaseSampleSize returns min(total, max(ceil(total*percent/100), minimum)).
@@ -38,7 +39,7 @@ func FixedBaseSampleSize(total, minimum int64, percent int) int64 {
 
 // WriteUniformSample streams an exact-size uniform sample without holding the
 // selected population in memory. Rows retain their original order.
-func WriteUniformSample(inputPath, outputPath string, minimum int64, percent int, seed int64) (SampleStats, error) {
+func WriteUniformSample(inputPath, outputPath string, minimum int64, percent int, seed int64, replyType string) (SampleStats, error) {
 	input, err := os.Open(inputPath)
 	if err != nil {
 		return SampleStats{}, fmt.Errorf("open source parquet: %w", err)
@@ -49,10 +50,32 @@ func WriteUniformSample(inputPath, outputPath string, minimum int64, percent int
 	defer reader.Close()
 
 	total := reader.NumRows()
+	sourceRows := total
+	if replyType != "" {
+		total = 0
+		buffer := make([]records.ZMap, consts.ZMapReadBufferSize)
+		for {
+			n, err := reader.Read(buffer)
+			for _, row := range buffer[:n] {
+				if row.ReplyType == replyType {
+					total++
+				}
+			}
+			if err != nil && !errors.Is(err, io.EOF) {
+				return SampleStats{}, fmt.Errorf("count eligible targets: %w", err)
+			}
+			if errors.Is(err, io.EOF) || n == 0 {
+				break
+			}
+		}
+		if err := reader.SeekToRow(0); err != nil {
+			return SampleStats{}, err
+		}
+	}
 	wanted := FixedBaseSampleSize(total, minimum, percent)
-	stats := SampleStats{SourceRows: total, SampleRows: wanted, Seed: seed}
+	stats := SampleStats{SourceRows: sourceRows, EligibleRows: total, SampleRows: wanted, Seed: seed}
 	if total == 0 {
-		return stats, fmt.Errorf("source parquet is empty")
+		return stats, fmt.Errorf("no eligible targets for reply type %q", replyType)
 	}
 
 	temporary := outputPath + ".part"
@@ -105,6 +128,9 @@ func WriteUniformSample(inputPath, outputPath string, minimum int64, percent int
 	for {
 		count, readErr := reader.Read(readBuffer)
 		for i := 0; i < count; i++ {
+			if replyType != "" && readBuffer[i].ReplyType != replyType {
+				continue
+			}
 			take := remainingWanted == remainingRows
 			if !take && remainingWanted > 0 {
 				take = rng.Int63n(remainingRows) < remainingWanted
