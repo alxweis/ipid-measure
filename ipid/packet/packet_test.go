@@ -1,6 +1,7 @@
 package packet
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -8,7 +9,41 @@ import (
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
+
+func TestBuildTCPHandshakeACK(t *testing.T) {
+	previousPayload := payload.Active
+	payload.Active = payload.TCP
+	t.Cleanup(func() { payload.Active = previousPayload })
+	for _, sequence := range []uint32{1000, 1001, 1002, 1003, ^uint32(0)} {
+		ip := &layers.IPv4{Version: 4, IHL: 5, TTL: 64, Id: 1234, Protocol: layers.IPProtocolTCP,
+			SrcIP: net.IPv4(192, 0, 2, 1), DstIP: net.IPv4(198, 51, 100, 1)}
+		tcp := &layers.TCP{SrcPort: 40002, DstPort: 80, Seq: sequence, SYN: true, Window: 512}
+		if err := tcp.SetNetworkLayerForChecksum(ip); err != nil {
+			t.Fatal(err)
+		}
+		buffer := gopacket.NewSerializeBuffer()
+		options := gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}
+		if err := gopacket.SerializeLayers(buffer, options, ip, tcp); err != nil {
+			t.Fatal(err)
+		}
+		syn := append([]byte(nil), buffer.Bytes()...)
+		original := append([]byte(nil), syn...)
+		ack := BuildTCPHandshakeACK(syn, 0x12345678)
+		if !bytes.Equal(syn, original) {
+			t.Fatal("SYN template changed")
+		}
+		tcp.SYN, tcp.ACK, tcp.Seq, tcp.Ack = false, true, sequence+1, 0x12345678
+		if err := gopacket.SerializeLayers(buffer, options, ip, tcp); err != nil {
+			t.Fatal(err)
+		}
+		if len(ack) != 40 || !bytes.Equal(ack, buffer.Bytes()) {
+			t.Fatalf("incorrect ACK packet or checksum for sequence %d", sequence)
+		}
+	}
+}
 
 func TestSetTCPAcknowledgment(t *testing.T) {
 	previousPayload := payload.Active
