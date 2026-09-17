@@ -304,6 +304,12 @@ Only complete 16-reply results are saved, including direct 4 x 4 invocations.
 Fixed-interval replies may arrive out of order. RT keeps the target registered
 across all requests so replies to earlier requests remain attributable.
 Completed results are frozen; packets without an active target are ignored.
+TCP connection measurements acknowledge each accepted SYN-ACK with a separate
+empty ACK, without waiting for the other connections' SYN-ACKs. The measurement
+worker sends these ACKs, including while waiting between fixed-interval requests
+or for outstanding handshakes. They use the shared rate limiter and packet/byte
+counters, but do not occupy samples or advance the data-request sequence numbers.
+The 4 x 4 layout still records four SYN-ACKs and twelve data acknowledgments.
 The existing capture filters and accepted flag sets are unchanged. Packets
 excluded by capture filters or rejected before safe attribution remain outside
 this validation. The 4 x 25 Mass layout retains its existing loss tolerance and

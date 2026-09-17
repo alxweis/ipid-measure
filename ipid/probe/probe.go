@@ -38,11 +38,13 @@ type Probe struct {
 	failed     chan struct{}
 	replyReady chan struct{}
 
-	tcpAcknowledgments []atomic.Uint32
-	tcpAckReady        []atomic.Bool
-	tcpHandshakeCount  atomic.Uint32
-	tcpHandshakeDone   chan struct{}
-	tcpHandshakeOnce   sync.Once
+	tcpAcknowledgments  []atomic.Uint32
+	tcpAckReady         []atomic.Bool
+	tcpHandshakeCount   atomic.Uint32
+	tcpHandshakeDone    chan struct{}
+	tcpHandshakeOnce    sync.Once
+	tcpHandshakeReplies chan uint16
+	tcpHandshakeACK     func(uint16) bool
 }
 
 type Sample struct {
@@ -107,6 +109,11 @@ func Measure(target net.IP, packets [][]byte) bool {
 		probe.tcpAcknowledgments = make([]atomic.Uint32, measurement.Config.ConnectionCount)
 		probe.tcpAckReady = make([]atomic.Bool, measurement.Config.ConnectionCount)
 		probe.tcpHandshakeDone = make(chan struct{})
+		probe.tcpHandshakeReplies = make(chan uint16, measurement.Config.ConnectionCount)
+		probe.tcpHandshakeACK = func(connection uint16) bool {
+			ack := packet.BuildTCPHandshakeACK(packets[connection], probe.tcpAcknowledgments[connection].Load())
+			return sendPacket(sender.GetSender(connection), ack, nil, probe)
+		}
 		defer resetTCPConnections(probe, target4, basePort)
 	}
 
@@ -188,6 +195,10 @@ func measureRTBased(
 
 		select {
 		case <-entry.done:
+			if !probe.flushHandshakeACKs() {
+				Inflight.Deregister(targetKey, entry)
+				return false
+			}
 			// Sample filled by the receiver.
 			Inflight.Deregister(targetKey, entry)
 			if !probe.Samples[seqNum].IsReceived() {
@@ -248,6 +259,9 @@ func measureFixedInterval(
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		sndr := sender.GetSender(seqNum)
 		pkt := packets[seqNum]
+		if !probe.flushHandshakeACKs() {
+			return false
+		}
 
 		if !prepareTCPPacket(probe, seqNum, pkt) {
 			probe.fail(&stats.DropNotRecv)
@@ -393,6 +407,9 @@ func FulfillReply(
 		connectionIndex := seqnum.GetConnectionIndex(logicalSeq)
 		entry.Probe.tcpAcknowledgments[connectionIndex].Store(replyTCPSeq + 1)
 		entry.Probe.tcpAckReady[connectionIndex].Store(true)
+		if entry.Probe.tcpHandshakeReplies != nil {
+			entry.Probe.tcpHandshakeReplies <- connectionIndex
+		}
 		if entry.Probe.tcpHandshakeCount.Add(1) == uint32(measurement.Config.ConnectionCount) {
 			entry.Probe.tcpHandshakeOnce.Do(func() { close(entry.Probe.tcpHandshakeDone) })
 		}
@@ -511,17 +528,36 @@ func waitForTCPHandshakes(probe *Probe) bool {
 	timer := time.NewTimer(measurement.Config.MaximumToleratedRTT)
 	defer timer.Stop()
 
-	select {
-	case <-probe.failed:
-		return false
-	case <-probe.tcpHandshakeDone:
-		return true
-	case <-timer.C:
-		probe.fail(&stats.DropTimeout)
-		return false
-	case <-measurement.StopSignal:
-		probe.fail(&stats.DropInterrupt)
-		return false
+	for {
+		select {
+		case <-probe.failed:
+			return false
+		case <-probe.tcpHandshakeDone:
+			return probe.flushHandshakeACKs()
+		case connection := <-probe.tcpHandshakeReplies:
+			if !probe.tcpHandshakeACK(connection) {
+				return false
+			}
+		case <-timer.C:
+			probe.fail(&stats.DropTimeout)
+			return false
+		case <-measurement.StopSignal:
+			probe.fail(&stats.DropInterrupt)
+			return false
+		}
+	}
+}
+
+func (p *Probe) flushHandshakeACKs() bool {
+	for {
+		select {
+		case connection := <-p.tcpHandshakeReplies:
+			if !p.tcpHandshakeACK(connection) {
+				return false
+			}
+		default:
+			return true
+		}
 	}
 }
 

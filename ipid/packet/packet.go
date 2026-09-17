@@ -105,6 +105,14 @@ func SetTCPAcknowledgment(packet []byte, acknowledgment uint32) {
 	payload.Active.SetChecksum(packet)
 }
 
+func BuildTCPHandshakeACK(syn []byte, acknowledgment uint32) []byte {
+	ack := append([]byte(nil), syn...)
+	binary.BigEndian.PutUint32(ack[24:28], binary.BigEndian.Uint32(syn[24:28])+1)
+	ack[33] = 0x10
+	SetTCPAcknowledgment(ack, acknowledgment)
+	return ack
+}
+
 // BuildTCPResetPacket builds a RST+ACK packet for an established connection.
 // A reset releases peer state immediately and does not invite a reply.
 func BuildTCPResetPacket(

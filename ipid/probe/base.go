@@ -56,19 +56,25 @@ func (p *Probe) complete() bool {
 }
 
 func (p *Probe) waitInterval(interval time.Duration, timer *time.Timer) bool {
-	if !p.strict {
+	if !p.strict && p.tcpHandshakeReplies == nil {
 		time.Sleep(interval)
 		return true
 	}
 	timer.Reset(interval)
-	select {
-	case <-timer.C:
-		return true
-	case <-p.failed:
-		return false
-	case <-measurement.StopSignal:
-		p.fail(&stats.DropInterrupt)
-		return false
+	for {
+		select {
+		case <-timer.C:
+			return true
+		case <-p.failed:
+			return false
+		case connection := <-p.tcpHandshakeReplies:
+			if !p.tcpHandshakeACK(connection) {
+				return false
+			}
+		case <-measurement.StopSignal:
+			p.fail(&stats.DropInterrupt)
+			return false
+		}
 	}
 }
 
@@ -116,7 +122,7 @@ func waitForBaseReply(p *Probe, timer *time.Timer) bool {
 	timer.Reset(measurement.Config.MaximumToleratedRTT)
 	select {
 	case <-p.replyReady:
-		return true
+		return p.flushHandshakeACKs()
 	case <-p.failed:
 		return false
 	case <-timer.C:
@@ -186,6 +192,9 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 		connection := seqnum.GetConnectionIndex(seq)
 		p.tcpAcknowledgments[connection].Store(tcpSeq + 1)
 		p.tcpAckReady[connection].Store(true)
+		if p.tcpHandshakeReplies != nil {
+			p.tcpHandshakeReplies <- connection
+		}
 		if p.tcpHandshakeCount.Add(1) == uint32(measurement.Config.ConnectionCount) {
 			p.tcpHandshakeOnce.Do(func() { close(p.tcpHandshakeDone) })
 		}
