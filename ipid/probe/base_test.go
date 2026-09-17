@@ -259,3 +259,17 @@ func TestMassStillIgnoresDuplicate(t *testing.T) {
 		t.Fatal("Mass target aborted")
 	}
 }
+
+func TestBaseReceiverRejectionRequiresActiveTarget(t *testing.T) {
+	p, key := baseFixture(t)
+	before := atomic.LoadInt64(&stats.AbortBadPort)
+	RejectBaseReply([4]byte{203, 0, 113, 1}, &stats.AbortBadPort)
+	if p.status != probeActive || atomic.LoadInt64(&stats.AbortBadPort) != before {
+		t.Fatal("unrelated reply aborted target")
+	}
+	RejectBaseReply(key, &stats.AbortBadPort)
+	RejectBaseReply(key, &stats.AbortBadPort)
+	if p.status != probeFailed || atomic.LoadInt64(&stats.AbortBadPort) != before+1 {
+		t.Fatal("receiver rejection did not abort target exactly once")
+	}
+}

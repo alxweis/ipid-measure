@@ -73,3 +73,24 @@ func TestRateLimiterTargetCancellation(t *testing.T) {
 		t.Fatal("target cancellation stopped shared limiter")
 	}
 }
+
+func TestSenderCancelledWhileWaitingForSocket(t *testing.T) {
+	s := &Sender{Fd: -1}
+	s.mu.Lock()
+	ready := true
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.SendIf([]byte{1}, func() bool { return ready })
+		result <- err
+	}()
+	ready = false
+	s.mu.Unlock()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("cancelled send reached invalid socket: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled send remained blocked")
+	}
+}

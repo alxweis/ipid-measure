@@ -458,17 +458,31 @@ func sendPacket(sndr *sender.Sender, packetBytes []byte, sample *Sample, probe *
 		}
 		return false
 	}
+	locked := false
+	var ready func() bool
 	if probe != nil && probe.strict {
-		probe.mu.Lock()
-		defer probe.mu.Unlock()
-		if probe.status != probeActive {
-			return false
+		ready = func() bool {
+			probe.mu.Lock()
+			locked = true
+			if probe.status != probeActive {
+				return false
+			}
+			if sample != nil {
+				sample.MarkSent(time.Now().UnixMicro())
+			}
+			return true
 		}
-	}
-	if sample != nil {
+	} else if sample != nil {
 		sample.MarkSent(time.Now().UnixMicro())
 	}
-	if err := sndr.Send(packetBytes); err != nil {
+	sent, err := sndr.SendIf(packetBytes, ready)
+	if locked {
+		defer probe.mu.Unlock()
+	}
+	if !sent {
+		return false
+	}
+	if err != nil {
 		if probe != nil && probe.strict {
 			probe.failLocked(&stats.DropSendErr)
 		} else {
