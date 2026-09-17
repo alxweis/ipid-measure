@@ -3,6 +3,7 @@ package receiver
 import (
 	"fmt"
 	"net"
+	"slices"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -135,6 +136,17 @@ func Receive(iface config.Interface) {
 		}
 		if !ok {
 			atomic.AddInt64(&stats.DropProto, 1)
+			if protocol == layers.IPProtocolTCP && slices.Contains(decoded, layers.LayerTypeTCP) {
+				if measurement.Config.ZMapPort != nil && uint16(tcpL.SrcPort) != *measurement.Config.ZMapPort {
+					probe.RejectBaseReply(srcIP4, &stats.AbortBadPort)
+				} else if !measurement.TcpEstablishConnection && tcpL.Ack <= measurement.TcpSequenceNumOffset {
+					probe.RejectBaseReply(srcIP4, &stats.AbortSeqOOR)
+				}
+			}
+			if protocol == layers.IPProtocolUDP && slices.Contains(decoded, layers.LayerTypeUDP) &&
+				measurement.Config.ZMapPort != nil && uint16(udpL.SrcPort) != *measurement.Config.ZMapPort {
+				probe.RejectBaseReply(srcIP4, &stats.AbortBadPort)
+			}
 			continue
 		}
 

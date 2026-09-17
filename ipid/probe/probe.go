@@ -32,6 +32,12 @@ type Probe struct {
 	Target  net.IP
 	Samples []Sample
 
+	strict     bool
+	mu         sync.Mutex
+	status     int
+	failed     chan struct{}
+	replyReady chan struct{}
+
 	tcpAcknowledgments []atomic.Uint32
 	tcpAckReady        []atomic.Bool
 	tcpHandshakeCount  atomic.Uint32
@@ -91,6 +97,12 @@ func Measure(target net.IP, packets [][]byte) bool {
 		Target:  target4,
 		Samples: make([]Sample, measurement.RequestCount),
 	}
+	if measurement.Config.ConnectionCount == 4 && measurement.Config.RequestsPerConnection == 4 {
+		probe.strict = true
+		probe.failed = make(chan struct{})
+		probe.replyReady = make(chan struct{}, 1)
+		defer probe.fail(nil)
+	}
 	if measurement.TcpEstablishConnection {
 		probe.tcpAcknowledgments = make([]atomic.Uint32, measurement.Config.ConnectionCount)
 		probe.tcpAckReady = make([]atomic.Bool, measurement.Config.ConnectionCount)
@@ -112,14 +124,15 @@ func Measure(target net.IP, packets [][]byte) bool {
 }
 
 // measureRTBased: one outstanding request at a time.
-// For each seqNum we register a one-shot inflight entry, mark+send, then wait for it or timeout.
-// On timeout/duplicate/invalid the probe aborts.
 func measureRTBased(
 	probe *Probe,
 	targetKey [4]byte,
 	packets [][]byte,
 	basePort uint16,
 ) bool {
+	if probe.strict {
+		return measureBaseRT(probe, targetKey, packets, basePort)
+	}
 	rtt := measurement.Config.MaximumToleratedRTT
 	timer := time.NewTimer(rtt)
 	defer timer.Stop()
@@ -159,7 +172,7 @@ func measureRTBased(
 			atomic.AddInt64(&stats.DropNotRecv, 1)
 			return false
 		}
-		if !sendPacket(sndr, pkt, &probe.Samples[seqNum]) {
+		if !sendPacket(sndr, pkt, &probe.Samples[seqNum], probe) {
 			Inflight.Deregister(targetKey, entry)
 			return false
 		}
@@ -229,21 +242,25 @@ func measureFixedInterval(
 	defer Inflight.Deregister(targetKey, entry)
 
 	interval := measurement.Config.FixedIntervalConfig.RequestInterval
+	timer := time.NewTimer(measurement.Config.MaximumToleratedRTT)
+	defer timer.Stop()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		sndr := sender.GetSender(seqNum)
 		pkt := packets[seqNum]
 
 		if !prepareTCPPacket(probe, seqNum, pkt) {
-			atomic.AddInt64(&stats.DropNotRecv, 1)
+			probe.fail(&stats.DropNotRecv)
 			return false
 		}
-		if !sendPacket(sndr, pkt, &probe.Samples[seqNum]) {
+		if !sendPacket(sndr, pkt, &probe.Samples[seqNum], probe) {
 			return false
 		}
 
 		if interval > 0 && seqNum+1 < measurement.RequestCount {
-			time.Sleep(interval)
+			if !probe.waitInterval(interval, timer) {
+				return false
+			}
 		}
 
 		if measurement.TcpEstablishConnection &&
@@ -253,15 +270,15 @@ func measureFixedInterval(
 		}
 	}
 
-	// Wait for all expected replies or for the MaximumToleratedRTT to elapse.
-	timer := time.NewTimer(measurement.Config.MaximumToleratedRTT)
-	defer timer.Stop()
+	timer.Reset(measurement.Config.MaximumToleratedRTT)
 
 	select {
 	case <-entry.done:
+	case <-probe.failed:
+		return false
 	case <-timer.C:
 	case <-measurement.StopSignal:
-		atomic.AddInt64(&stats.DropInterrupt, 1)
+		probe.fail(&stats.DropInterrupt)
 		return false
 	}
 
@@ -274,11 +291,18 @@ func measureFixedInterval(
 	}
 
 	rate := float64(received) / float64(measurement.RequestCount)
-	if rate < measurement.Config.FixedIntervalConfig.MinimumReplyRate {
-		atomic.AddInt64(&stats.DropRateLow, 1)
+	minimumRate := measurement.Config.FixedIntervalConfig.MinimumReplyRate
+	if probe.strict {
+		minimumRate = 1
+	}
+	if rate < minimumRate {
+		probe.fail(&stats.DropRateLow)
 		return false
 	}
 
+	if !probe.complete() {
+		return false
+	}
 	select {
 	case SaveProbesChannel <- probe:
 	case <-measurement.StopSignal:
@@ -304,6 +328,10 @@ func FulfillReply(
 	if entry == nil {
 		atomic.AddInt64(&stats.DropNoEntry, 1)
 		return false
+	}
+
+	if entry.Probe.strict {
+		return fulfillBaseReply(entry, dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime)
 	}
 
 	// Destination IP must be one of the expectedDsts.
@@ -412,23 +440,40 @@ func resetTCPConnections(probe *Probe, target net.IP, basePort uint16) {
 			continue
 		}
 
-		_ = sendPacket(sndr, resetPacket, nil)
+		_ = sendPacket(sndr, resetPacket, nil, nil)
 	}
 }
 
-func sendPacket(sndr *sender.Sender, packetBytes []byte, sample *Sample) bool {
+func sendPacket(sndr *sender.Sender, packetBytes []byte, sample *Sample, probe *Probe) bool {
 	frameBytes := len(sndr.EthHeader) + len(packetBytes)
-	if sender.Limiter != nil && !sender.Limiter.Acquire(frameBytes) {
-		atomic.AddInt64(&stats.DropLimiterStop, 1)
+	var cancelled <-chan struct{}
+	if probe != nil {
+		cancelled = probe.failed
+	}
+	if sender.Limiter != nil && !sender.Limiter.AcquireUntil(frameBytes, cancelled) {
+		if probe != nil {
+			probe.fail(&stats.DropLimiterStop)
+		} else {
+			atomic.AddInt64(&stats.DropLimiterStop, 1)
+		}
 		return false
 	}
+	if probe != nil && probe.strict {
+		probe.mu.Lock()
+		defer probe.mu.Unlock()
+		if probe.status != probeActive {
+			return false
+		}
+	}
 	if sample != nil {
-		// Publish the send timestamp immediately before the syscall, after any
-		// rate-limit wait, so RTT validation does not include limiter delay.
 		sample.MarkSent(time.Now().UnixMicro())
 	}
 	if err := sndr.Send(packetBytes); err != nil {
-		atomic.AddInt64(&stats.DropSendErr, 1)
+		if probe != nil && probe.strict {
+			probe.failLocked(&stats.DropSendErr)
+		} else {
+			atomic.AddInt64(&stats.DropSendErr, 1)
+		}
 		return false
 	}
 	atomic.AddInt64(&stats.SentBytes, int64(frameBytes))
@@ -453,13 +498,15 @@ func waitForTCPHandshakes(probe *Probe) bool {
 	defer timer.Stop()
 
 	select {
+	case <-probe.failed:
+		return false
 	case <-probe.tcpHandshakeDone:
 		return true
 	case <-timer.C:
-		atomic.AddInt64(&stats.DropTimeout, 1)
+		probe.fail(&stats.DropTimeout)
 		return false
 	case <-measurement.StopSignal:
-		atomic.AddInt64(&stats.DropInterrupt, 1)
+		probe.fail(&stats.DropInterrupt)
 		return false
 	}
 }

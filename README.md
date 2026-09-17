@@ -297,6 +297,20 @@ For ICMP, TCP, and UDP-DNS the common order is:
 5. Stateless fixed-interval 4 x 4: ICMP and UDP-DNS use the original ZMap
    result; TCP uses the fixed-base target sample described below.
 
+The 4 x 4 layout uses strict Base validation in both measurement modes. An
+active target fails on a duplicate, an unsent or out-of-range request index,
+incorrect reply flags or addresses/ports, a connection reset, or a late reply.
+Only complete 16-reply results are saved, including direct 4 x 4 invocations.
+Fixed-interval replies may arrive out of order. RT keeps the target registered
+across all requests so replies to earlier requests remain attributable.
+Completed results are frozen; packets without an active target are ignored.
+The existing capture filters and accepted flag sets are unchanged. Packets
+excluded by capture filters or rejected before safe attribution remain outside
+this validation. The 4 x 25 Mass layout retains its existing loss tolerance and
+duplicate handling. `replies[...]` counts packets; the new validation reasons
+in `probes[...]` count each failed Base target once. Existing send-error counters
+also include failures when sending TCP cleanup resets.
+
 The stateless TCP fixed-base sample contains exactly
 `min(N, max(ceil(10% * N), 1,000,000))` uniformly selected rows from the
 original TCP `zmap.pq`. It is generated once per ZMap campaign and persisted as
