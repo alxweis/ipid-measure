@@ -1,0 +1,21 @@
+name: Probe tests
+on:
+  pull_request:
+    paths:
+      - 'ipid/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/probe-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - run: go test -race ./ipid/... ./internal/...

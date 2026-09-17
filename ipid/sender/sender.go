@@ -32,8 +32,17 @@ var (
 
 // Send transmits a single L3 packet by prepending the cached Ethernet header.
 func (s *Sender) Send(packet []byte) error {
+	_, err := s.SendIf(packet, nil)
+	return err
+}
+
+func (s *Sender) SendIf(packet []byte, ready func() bool) (bool, error) {
 	total := len(s.EthHeader) + len(packet)
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ready != nil && !ready() {
+		return false, nil
+	}
 	if cap(s.buf) < total {
 		s.buf = make([]byte, total)
 	}
@@ -42,8 +51,7 @@ func (s *Sender) Send(packet []byte) error {
 	copy(frame[len(s.EthHeader):], packet)
 
 	err := syscall.Sendmsg(s.Fd, frame, nil, &s.Addr, 0)
-	s.mu.Unlock()
-	return err
+	return true, err
 }
 
 // Setup wires up both senders. Registered into measurement.SetupSenders.

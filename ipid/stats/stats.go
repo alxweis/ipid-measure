@@ -13,6 +13,18 @@ import (
 )
 
 var (
+	DropUnsent    int64
+	AbortBadDst   int64
+	AbortBadPort  int64
+	AbortSeqOOR   int64
+	AbortUnsent   int64
+	AbortReset    int64
+	AbortBadFlags int64
+	AbortDup      int64
+	AbortLate     int64
+)
+
+var (
 	NumberOfTargetIPAddresses int64
 	ValidProbes               int64
 	ProbeCount                int64
@@ -145,6 +157,7 @@ func Log() {
 				kv{"seq_oor", atomic.LoadInt64(&DropSeqOOR)},
 				kv{"late", atomic.LoadInt64(&DropLate)},
 				kv{"dup", atomic.LoadInt64(&DropDup)},
+				kv{"unsent", atomic.LoadInt64(&DropUnsent)},
 			)
 			probeDrops := joinNonZero(
 				kv{"bad_target", atomic.LoadInt64(&DropBadTarget)},
@@ -154,6 +167,14 @@ func Log() {
 				kv{"interrupt", atomic.LoadInt64(&DropInterrupt)},
 				kv{"not_recv", atomic.LoadInt64(&DropNotRecv)},
 				kv{"rate_low", atomic.LoadInt64(&DropRateLow)},
+				kv{"bad_dst", atomic.LoadInt64(&AbortBadDst)},
+				kv{"bad_port", atomic.LoadInt64(&AbortBadPort)},
+				kv{"seq_oor", atomic.LoadInt64(&AbortSeqOOR)},
+				kv{"unsent", atomic.LoadInt64(&AbortUnsent)},
+				kv{"reset", atomic.LoadInt64(&AbortReset)},
+				kv{"bad_flags", atomic.LoadInt64(&AbortBadFlags)},
+				kv{"dup", atomic.LoadInt64(&AbortDup)},
+				kv{"late", atomic.LoadInt64(&AbortLate)},
 			)
 
 			var ms runtime.MemStats

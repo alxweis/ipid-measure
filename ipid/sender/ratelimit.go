@@ -64,6 +64,10 @@ func (rl *RateLimiter) refill(now time.Time) {
 }
 
 func (rl *RateLimiter) Acquire(frameBytes int) bool {
+	return rl.AcquireUntil(frameBytes, nil)
+}
+
+func (rl *RateLimiter) AcquireUntil(frameBytes int, cancelled <-chan struct{}) bool {
 	bytesNeeded := float64(frameBytes)
 
 	rl.mu.Lock()
@@ -74,6 +78,12 @@ func (rl *RateLimiter) Acquire(frameBytes int) bool {
 	}
 
 	for {
+		select {
+		case <-cancelled:
+			rl.mu.Unlock()
+			return false
+		default:
+		}
 		if rl.stopped {
 			rl.mu.Unlock()
 			return false
@@ -106,6 +116,9 @@ func (rl *RateLimiter) Acquire(frameBytes int) bool {
 		timer := time.NewTimer(time.Duration(waitSec * float64(time.Second)))
 		select {
 		case <-timer.C:
+		case <-cancelled:
+			timer.Stop()
+			return false
 		case <-rl.done:
 			if !timer.Stop() {
 				// Drain the channel so the timer can be GC'd promptly.
