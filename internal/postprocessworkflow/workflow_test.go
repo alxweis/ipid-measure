@@ -63,6 +63,12 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	measurements.ConnectionTarget = filepath.Join(sampleDirectory, "zmap-connection-sample.pq")
+	for _, name := range []string{"zmap-connection-sample.pq", "zmap-connection-sample.json"} {
+		if err := os.WriteFile(filepath.Join(sampleDirectory, name), []byte("sample"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	runner := &recordingRunner{}
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.FixedZone("CEST", 2*60*60))
 
@@ -79,8 +85,8 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	if requestURI != jobPrefix+"/request.json" {
 		t.Fatalf("unexpected request URI: %s", requestURI)
 	}
-	if len(runner.calls) != 4 {
-		t.Fatalf("expected four uploads, got %d", len(runner.calls))
+	if len(runner.calls) != 6 {
+		t.Fatalf("expected six uploads, got %d", len(runner.calls))
 	}
 	fixedBaseTargetURI := "s3://bucket/raw/zmap/" + measurements.ZMap + "/zmap-fixed-base-sample.pq"
 	if got := runner.calls[0][len(runner.calls[0])-1]; got != fixedBaseTargetURI {
@@ -89,10 +95,10 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	if got := runner.calls[1][len(runner.calls[1])-1]; got != "s3://bucket/raw/zmap/"+measurements.ZMap+"/zmap-fixed-base-sample.json" {
 		t.Fatalf("sample metadata must be uploaded second, got %s", got)
 	}
-	if got := runner.calls[2][len(runner.calls[2])-1]; got != jobPrefix+"/manifest.json" {
+	if got := runner.calls[4][len(runner.calls[4])-1]; got != jobPrefix+"/manifest.json" {
 		t.Fatalf("manifest must be uploaded first, got %s", got)
 	}
-	if got := runner.calls[3][len(runner.calls[3])-1]; got != requestURI {
+	if got := runner.calls[5][len(runner.calls[5])-1]; got != requestURI {
 		t.Fatalf("request must be uploaded last, got %s", got)
 	}
 
@@ -111,6 +117,13 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	if request.FixedBaseTargetURI != fixedBaseTargetURI {
 		t.Fatalf("unexpected fixed-base target URI: %s", request.FixedBaseTargetURI)
 	}
+	connectionURI := "s3://bucket/raw/zmap/" + measurements.ZMap + "/zmap-connection-sample.pq"
+	if request.ConnectionTargetURI != connectionURI || runner.calls[2][3] != connectionURI {
+		t.Fatal("connection sample was not published")
+	}
+	if runner.calls[3][3] != "s3://bucket/raw/zmap/"+measurements.ZMap+"/zmap-connection-sample.json" {
+		t.Fatal("connection sample metadata was not published")
+	}
 	if request.CreatedAt.Location() != time.UTC || !request.CreatedAt.Equal(now) {
 		t.Fatalf("unexpected creation time: %s", request.CreatedAt)
 	}
@@ -122,6 +135,9 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	}
 	if err := json.Unmarshal(data, &gotManifest); err != nil {
 		t.Fatal(err)
+	}
+	if gotManifest["tcp"].ConnectionTarget != "zmap-connection-sample.pq" {
+		t.Fatal("manifest lost the connection target")
 	}
 	wantManifest := manifest("tcp", measurements)
 	if !reflect.DeepEqual(gotManifest, wantManifest) {

@@ -187,7 +187,7 @@ DNS_PROBE="A,www.example.com"
 
 PROTOS=("${SELECTED_PROTOS[@]}")
 
-declare -A ZMAP OS RT_BASE FIXED_MASS FIXED_BASE FIXED_BASE_TARGET CONNECTION_RT CONNECTION_FIXED
+declare -A ZMAP OS RT_BASE FIXED_MASS FIXED_BASE FIXED_BASE_TARGET CONNECTION_TARGET CONNECTION_RT CONNECTION_FIXED
 
 zmap_flags() {
     case "$1" in
@@ -277,9 +277,6 @@ for proto in "${PROTOS[@]}"; do
     run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" false
     FIXED_MASS[$proto]=$LAST_IPID_ID
 
-    # TCP fixed-interval base measurements share one exact-size uniform sample:
-    # min(N, max(ceil(10% * N), 1,000,000)). Other protocols keep the full
-    # original ZMap target population.
     fixed_base_target=
     if [[ "$proto" == "tcp-80" ]]; then
         fixed_base_target=$(./bin/sample-zmap \
@@ -292,9 +289,13 @@ for proto in "${PROTOS[@]}"; do
     run_ipid "$proto" "$id" false "${MODES[1]}" "$fixed_base_target" false
     FIXED_BASE[$proto]=$LAST_IPID_ID
     if [[ "$proto" == "tcp-80" ]]; then
-        run_ipid "$proto" "$id" true  "${MODES[0]}" "" false
+        connection_target=$(./bin/sample-zmap --zmap "$id" --reply-type synack \
+            --percent "$TCP_FIXED_BASE_SAMPLE_PERCENT" \
+            --minimum "$TCP_FIXED_BASE_SAMPLE_MINIMUM" | tail -n1)
+        CONNECTION_TARGET[$proto]=$connection_target
+        run_ipid "$proto" "$id" true  "${MODES[0]}" "$connection_target" false
         CONNECTION_RT[$proto]=$LAST_IPID_ID
-        run_ipid "$proto" "$id" true  "${MODES[1]}" "$fixed_base_target" false
+        run_ipid "$proto" "$id" true  "${MODES[1]}" "$connection_target" false
         CONNECTION_FIXED[$proto]=$LAST_IPID_ID
     fi
 done
@@ -310,7 +311,8 @@ for proto in "${PROTOS[@]}"; do
                   --fixed-mass "${FIXED_MASS[$proto]}"
                   --fixed-base "${FIXED_BASE[$proto]}")
     if [[ "$proto" == "tcp-80" ]]; then
-        publish_args+=(--fixed-base-target "${FIXED_BASE_TARGET[$proto]}"
+        publish_args+=(--connection-target "${CONNECTION_TARGET[$proto]}"
+                       --fixed-base-target "${FIXED_BASE_TARGET[$proto]}"
                        --connection-rt-base "${CONNECTION_RT[$proto]}"
                        --connection-fixed-base "${CONNECTION_FIXED[$proto]}")
     fi
