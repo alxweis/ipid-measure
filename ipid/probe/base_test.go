@@ -59,7 +59,7 @@ func baseFixture(t *testing.T) (*Probe, [4]byte) {
 func reply(t *testing.T, key [4]byte, seq uint16, flags sets.Set[string]) bool {
 	t.Helper()
 	return FulfillReply(key, sender.GetSender(seq).IPBytes, 40000+seq%4,
-		uint32(seq), 2000, 42+seq, flags, 200)
+		uint32(seq), 2000, 42+seq, flags, 200, 0)
 }
 
 func TestBaseInvalidReplyAbortsOnce(t *testing.T) {
@@ -92,7 +92,7 @@ func TestBaseInvalidReplyAbortsOnce(t *testing.T) {
 				seq, flags, counter = 1001, sets.New(types.TCPFlagRST), &stats.AbortReset
 			}
 			before := atomic.LoadInt64(counter)
-			if FulfillReply(key, dst, port, seq, 2000, 99, flags, received) {
+			if FulfillReply(key, dst, port, seq, 2000, 99, flags, received, 0) {
 				t.Fatal("invalid reply accepted")
 			}
 			if p.complete() {
@@ -179,7 +179,11 @@ func TestBaseConnectionHandshakeAndDataReplies(t *testing.T) {
 			flags = types.SynAckFlagSet
 		}
 		ack := uint32(1001 + seq%4 + seq/4)
-		if !FulfillReply(key, sender.GetSender(seq).IPBytes, 40000+seq%4, ack, 2000, seq, flags, 200) {
+		serverSequence := uint32(2001)
+		if seq < 4 {
+			serverSequence = 2000
+		}
+		if !FulfillReply(key, sender.GetSender(seq).IPBytes, 40000+seq%4, ack, serverSequence, seq, flags, 200, 0) {
 			t.Fatalf("connection reply %d rejected", seq)
 		}
 	}

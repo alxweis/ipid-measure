@@ -38,13 +38,13 @@ type Probe struct {
 	failed     chan struct{}
 	replyReady chan struct{}
 
-	tcpAcknowledgments  []atomic.Uint32
-	tcpAckReady         []atomic.Bool
-	tcpHandshakeCount   atomic.Uint32
-	tcpHandshakeDone    chan struct{}
-	tcpHandshakeOnce    sync.Once
-	tcpHandshakeReplies chan uint16
-	tcpHandshakeACK     func(uint16) bool
+	tcpAcknowledgments []atomic.Uint32
+	tcpAckReady        []atomic.Bool
+	tcpHandshakeCount  atomic.Uint32
+	tcpHandshakeDone   chan struct{}
+	tcpHandshakeOnce   sync.Once
+	tcpACKReplies      chan uint16
+	tcpSendACK         func(uint16) bool
 }
 
 type Sample struct {
@@ -53,6 +53,7 @@ type Sample struct {
 	SentTime    int64
 	ReceiveTime int64
 	IpID        uint16
+	tcpSequence uint32
 }
 
 func (s *Sample) MarkSent(now int64) {
@@ -109,9 +110,10 @@ func Measure(target net.IP, packets [][]byte) bool {
 		probe.tcpAcknowledgments = make([]atomic.Uint32, measurement.Config.ConnectionCount)
 		probe.tcpAckReady = make([]atomic.Bool, measurement.Config.ConnectionCount)
 		probe.tcpHandshakeDone = make(chan struct{})
-		probe.tcpHandshakeReplies = make(chan uint16, measurement.Config.ConnectionCount)
-		probe.tcpHandshakeACK = func(connection uint16) bool {
-			ack := packet.BuildTCPHandshakeACK(packets[connection], probe.tcpAcknowledgments[connection].Load())
+		probe.tcpACKReplies = make(chan uint16, measurement.RequestCount)
+		probe.tcpSendACK = func(connection uint16) bool {
+			sequence := measurement.TcpSequenceNumOffset + uint32(connection) + uint32(nextTCPRequestIndex(probe, connection))
+			ack := packet.BuildTCPACK(packets[connection], sequence, probe.tcpAcknowledgments[connection].Load())
 			return sendPacket(sender.GetSender(connection), ack, nil, probe)
 		}
 		defer resetTCPConnections(probe, target4, basePort)
@@ -195,7 +197,7 @@ func measureRTBased(
 
 		select {
 		case <-entry.done:
-			if !probe.flushHandshakeACKs() {
+			if !probe.flushTCPACKs() {
 				Inflight.Deregister(targetKey, entry)
 				return false
 			}
@@ -259,7 +261,7 @@ func measureFixedInterval(
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		sndr := sender.GetSender(seqNum)
 		pkt := packets[seqNum]
-		if !probe.flushHandshakeACKs() {
+		if !probe.flushTCPACKs() {
 			return false
 		}
 
@@ -285,14 +287,7 @@ func measureFixedInterval(
 	}
 
 	timer.Reset(measurement.Config.MaximumToleratedRTT)
-
-	select {
-	case <-entry.done:
-	case <-probe.failed:
-		return false
-	case <-timer.C:
-	case <-measurement.StopSignal:
-		probe.fail(&stats.DropInterrupt)
+	if !waitForFixedReplies(probe, entry, timer) {
 		return false
 	}
 
@@ -337,6 +332,7 @@ func FulfillReply(
 	ipID uint16,
 	replyFlags sets.Set[string],
 	receiveTime int64,
+	tcpPayloadLength uint16,
 ) bool {
 	entry := Inflight.Lookup(srcIP4)
 	if entry == nil {
@@ -345,7 +341,7 @@ func FulfillReply(
 	}
 
 	if entry.Probe.strict {
-		return fulfillBaseReply(entry, dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime)
+		return fulfillBaseReply(entry, dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
 	}
 
 	// Destination IP must be one of the expectedDsts.
@@ -407,8 +403,8 @@ func FulfillReply(
 		connectionIndex := seqnum.GetConnectionIndex(logicalSeq)
 		entry.Probe.tcpAcknowledgments[connectionIndex].Store(replyTCPSeq + 1)
 		entry.Probe.tcpAckReady[connectionIndex].Store(true)
-		if entry.Probe.tcpHandshakeReplies != nil {
-			entry.Probe.tcpHandshakeReplies <- connectionIndex
+		if entry.Probe.tcpACKReplies != nil {
+			entry.Probe.tcpACKReplies <- connectionIndex
 		}
 		if entry.Probe.tcpHandshakeCount.Add(1) == uint32(measurement.Config.ConnectionCount) {
 			entry.Probe.tcpHandshakeOnce.Do(func() { close(entry.Probe.tcpHandshakeDone) })
@@ -533,9 +529,9 @@ func waitForTCPHandshakes(probe *Probe) bool {
 		case <-probe.failed:
 			return false
 		case <-probe.tcpHandshakeDone:
-			return probe.flushHandshakeACKs()
-		case connection := <-probe.tcpHandshakeReplies:
-			if !probe.tcpHandshakeACK(connection) {
+			return probe.flushTCPACKs()
+		case connection := <-probe.tcpACKReplies:
+			if !probe.tcpSendACK(connection) {
 				return false
 			}
 		case <-timer.C:
@@ -548,15 +544,35 @@ func waitForTCPHandshakes(probe *Probe) bool {
 	}
 }
 
-func (p *Probe) flushHandshakeACKs() bool {
+func (p *Probe) flushTCPACKs() bool {
 	for {
 		select {
-		case connection := <-p.tcpHandshakeReplies:
-			if !p.tcpHandshakeACK(connection) {
+		case connection := <-p.tcpACKReplies:
+			if !p.tcpSendACK(connection) {
 				return false
 			}
 		default:
 			return true
+		}
+	}
+}
+
+func waitForFixedReplies(probe *Probe, entry *InflightEntry, timer *time.Timer) bool {
+	for {
+		select {
+		case <-entry.done:
+			return probe.flushTCPACKs()
+		case <-probe.failed:
+			return false
+		case <-timer.C:
+			return probe.flushTCPACKs()
+		case connection := <-probe.tcpACKReplies:
+			if !probe.tcpSendACK(connection) {
+				return false
+			}
+		case <-measurement.StopSignal:
+			probe.fail(&stats.DropInterrupt)
+			return false
 		}
 	}
 }

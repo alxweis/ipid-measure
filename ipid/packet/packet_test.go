@@ -13,7 +13,7 @@ import (
 	"github.com/google/gopacket/layers"
 )
 
-func TestBuildTCPHandshakeACK(t *testing.T) {
+func TestBuildTCPACK(t *testing.T) {
 	previousPayload := payload.Active
 	payload.Active = payload.TCP
 	t.Cleanup(func() { payload.Active = previousPayload })
@@ -31,11 +31,11 @@ func TestBuildTCPHandshakeACK(t *testing.T) {
 		}
 		syn := append([]byte(nil), buffer.Bytes()...)
 		original := append([]byte(nil), syn...)
-		ack := BuildTCPHandshakeACK(syn, 0x12345678)
+		ack := BuildTCPACK(syn, sequence+4, 0x12345678)
 		if !bytes.Equal(syn, original) {
 			t.Fatal("SYN template changed")
 		}
-		tcp.SYN, tcp.ACK, tcp.Seq, tcp.Ack = false, true, sequence+1, 0x12345678
+		tcp.SYN, tcp.ACK, tcp.Seq, tcp.Ack = false, true, sequence+4, 0x12345678
 		if err := gopacket.SerializeLayers(buffer, options, ip, tcp); err != nil {
 			t.Fatal(err)
 		}

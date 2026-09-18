@@ -114,13 +114,14 @@ func Receive(iface config.Interface) {
 		}
 
 		var (
-			srcIP4    [4]byte
-			dstIP4    [4]byte
-			dstPort   uint16
-			seqNum    uint32
-			tcpSeq    uint32
-			replyFlgs sets.Set[string]
-			ok        bool
+			srcIP4           [4]byte
+			dstIP4           [4]byte
+			dstPort          uint16
+			seqNum           uint32
+			tcpSeq           uint32
+			tcpPayloadLength uint16
+			replyFlgs        sets.Set[string]
+			ok               bool
 		)
 
 		copy(srcIP4[:], ipv4.SrcIP.To4())
@@ -129,6 +130,7 @@ func Receive(iface config.Interface) {
 		switch protocol {
 		case layers.IPProtocolTCP:
 			seqNum, tcpSeq, dstPort, replyFlgs, ok = extractTCP(&tcpL, decoded)
+			tcpPayloadLength = uint16(len(tcpL.Payload))
 		case layers.IPProtocolUDP:
 			seqNum, dstPort, replyFlgs, ok = extractUDPDNS(&udpL, &dnsL, decoded)
 		case layers.IPProtocolICMPv4:
@@ -151,7 +153,7 @@ func Receive(iface config.Interface) {
 		}
 
 		now := time.Now().UnixMicro()
-		probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, tcpSeq, ipv4.Id, replyFlgs, now)
+		probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, tcpSeq, ipv4.Id, replyFlgs, now, tcpPayloadLength)
 	}
 }
 
