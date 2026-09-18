@@ -1,6 +1,10 @@
 package stats
 
 import (
+	"bytes"
+	"log"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/alxweis/ipid-measure/ipid/measurement"
@@ -18,4 +22,26 @@ func TestStartStatsInitializesSequenceCountersSynchronously(t *testing.T) {
 
 	close(measurement.StopLogs)
 	measurement.LogsWg.Wait()
+}
+
+func TestFinalCountersWithoutPeriodicTick(t *testing.T) {
+	var output bytes.Buffer
+	previousWriter, previousStop := log.Writer(), measurement.StopLogs
+	previous := atomic.LoadInt64(&DropRateLow)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		measurement.StopLogs = previousStop
+		atomic.StoreInt64(&DropRateLow, previous)
+	})
+	log.SetOutput(&output)
+	atomic.StoreInt64(&DropRateLow, 290)
+	measurement.StopLogs = make(chan struct{})
+	close(measurement.StopLogs)
+	measurement.LogsWg.Add(1)
+	Log()
+	for _, want := range []string{"replies_final[", "probes_final[", "rate_low=290", "capture_final[packets=", "dropped=", "errors="} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("missing %s in %s", want, output.String())
+		}
+	}
 }

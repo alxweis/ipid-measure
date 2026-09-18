@@ -13,17 +13,21 @@ import (
 )
 
 var (
-	DropUnsent       int64
-	AbortBadDst      int64
-	AbortBadPort     int64
-	AbortSeqOOR      int64
-	AbortUnsent      int64
-	AbortReset       int64
-	AbortBadFlags    int64
-	AbortDup         int64
-	AbortLate        int64
-	DropTCPSequence  int64
-	AbortTCPSequence int64
+	AbortProto         int64
+	CapturePackets     int64
+	CaptureDrops       int64
+	CaptureStatsErrors int64
+	DropUnsent         int64
+	AbortBadDst        int64
+	AbortBadPort       int64
+	AbortSeqOOR        int64
+	AbortUnsent        int64
+	AbortReset         int64
+	AbortBadFlags      int64
+	AbortDup           int64
+	AbortLate          int64
+	DropTCPSequence    int64
+	AbortTCPSequence   int64
 )
 
 var (
@@ -77,6 +81,7 @@ func Log() {
 	for {
 		select {
 		case <-measurement.StopLogs:
+			log.Printf("replies_final[matched=%d %s] probes_final[%s] capture_final[%s]", atomic.LoadInt64(&MatchedReplies), replyDropSummary(), probeDropSummary(), captureSummary())
 			if flags := TCPBadFlagsSummary(); flags != "" {
 				log.Printf("tcp_bad_flags_final[%s]", flags)
 			}
@@ -150,40 +155,6 @@ func Log() {
 				}
 			}
 
-			matched := atomic.LoadInt64(&MatchedReplies)
-
-			replyDrops := joinNonZero(
-				kv{"decode", atomic.LoadInt64(&DropDecode)},
-				kv{"proto", atomic.LoadInt64(&DropProto)},
-				kv{"no_entry", atomic.LoadInt64(&DropNoEntry)},
-				kv{"bad_dst", atomic.LoadInt64(&DropBadDst)},
-				kv{"bad_port", atomic.LoadInt64(&DropBadPort)},
-				kv{"bad_flags", atomic.LoadInt64(&DropBadFlags)},
-				kv{"seq_oor", atomic.LoadInt64(&DropSeqOOR)},
-				kv{"late", atomic.LoadInt64(&DropLate)},
-				kv{"dup", atomic.LoadInt64(&DropDup)},
-				kv{"unsent", atomic.LoadInt64(&DropUnsent)},
-				kv{"tcp_seq", atomic.LoadInt64(&DropTCPSequence)},
-			)
-			probeDrops := joinNonZero(
-				kv{"bad_target", atomic.LoadInt64(&DropBadTarget)},
-				kv{"limiter_stop", atomic.LoadInt64(&DropLimiterStop)},
-				kv{"send_err", atomic.LoadInt64(&DropSendErr)},
-				kv{"timeout", atomic.LoadInt64(&DropTimeout)},
-				kv{"interrupt", atomic.LoadInt64(&DropInterrupt)},
-				kv{"not_recv", atomic.LoadInt64(&DropNotRecv)},
-				kv{"rate_low", atomic.LoadInt64(&DropRateLow)},
-				kv{"bad_dst", atomic.LoadInt64(&AbortBadDst)},
-				kv{"bad_port", atomic.LoadInt64(&AbortBadPort)},
-				kv{"seq_oor", atomic.LoadInt64(&AbortSeqOOR)},
-				kv{"unsent", atomic.LoadInt64(&AbortUnsent)},
-				kv{"reset", atomic.LoadInt64(&AbortReset)},
-				kv{"bad_flags", atomic.LoadInt64(&AbortBadFlags)},
-				kv{"dup", atomic.LoadInt64(&AbortDup)},
-				kv{"late", atomic.LoadInt64(&AbortLate)},
-				kv{"tcp_seq", atomic.LoadInt64(&AbortTCPSequence)},
-			)
-
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
 			inFlight := atomic.LoadInt64(&InFlightProbes)
@@ -201,7 +172,7 @@ func Log() {
 					"heap=[%dMB] "+
 					"in_flight=[%d]\n"+
 					"replies[matched=%d %s] "+
-					"probes[%s]%s ",
+					"probes[%s] capture[%s]%s ",
 				timeLeft,
 				deltaProbeCount,
 				probeCountPercentage,
@@ -211,8 +182,9 @@ func Log() {
 				sentPps,
 				ms.HeapAlloc>>20,
 				inFlight,
-				matched, replyDrops,
-				probeDrops,
+				atomic.LoadInt64(&MatchedReplies), replyDropSummary(),
+				probeDropSummary(),
+				captureSummary(),
 				tcpFlags,
 			)
 
@@ -254,4 +226,46 @@ func joinNonZero(items ...kv) string {
 		return "none"
 	}
 	return sb.String()
+}
+
+func replyDropSummary() string {
+	return joinNonZero(
+		kv{"decode", atomic.LoadInt64(&DropDecode)},
+		kv{"proto", atomic.LoadInt64(&DropProto)},
+		kv{"no_entry", atomic.LoadInt64(&DropNoEntry)},
+		kv{"bad_dst", atomic.LoadInt64(&DropBadDst)},
+		kv{"bad_port", atomic.LoadInt64(&DropBadPort)},
+		kv{"bad_flags", atomic.LoadInt64(&DropBadFlags)},
+		kv{"seq_oor", atomic.LoadInt64(&DropSeqOOR)},
+		kv{"late", atomic.LoadInt64(&DropLate)},
+		kv{"dup", atomic.LoadInt64(&DropDup)},
+		kv{"unsent", atomic.LoadInt64(&DropUnsent)},
+		kv{"tcp_seq", atomic.LoadInt64(&DropTCPSequence)},
+	)
+}
+
+func probeDropSummary() string {
+	return joinNonZero(
+		kv{"proto", atomic.LoadInt64(&AbortProto)},
+		kv{"bad_target", atomic.LoadInt64(&DropBadTarget)},
+		kv{"limiter_stop", atomic.LoadInt64(&DropLimiterStop)},
+		kv{"send_err", atomic.LoadInt64(&DropSendErr)},
+		kv{"timeout", atomic.LoadInt64(&DropTimeout)},
+		kv{"interrupt", atomic.LoadInt64(&DropInterrupt)},
+		kv{"not_recv", atomic.LoadInt64(&DropNotRecv)},
+		kv{"rate_low", atomic.LoadInt64(&DropRateLow)},
+		kv{"bad_dst", atomic.LoadInt64(&AbortBadDst)},
+		kv{"bad_port", atomic.LoadInt64(&AbortBadPort)},
+		kv{"seq_oor", atomic.LoadInt64(&AbortSeqOOR)},
+		kv{"unsent", atomic.LoadInt64(&AbortUnsent)},
+		kv{"reset", atomic.LoadInt64(&AbortReset)},
+		kv{"bad_flags", atomic.LoadInt64(&AbortBadFlags)},
+		kv{"dup", atomic.LoadInt64(&AbortDup)},
+		kv{"late", atomic.LoadInt64(&AbortLate)},
+		kv{"tcp_seq", atomic.LoadInt64(&AbortTCPSequence)},
+	)
+}
+
+func captureSummary() string {
+	return fmt.Sprintf("packets=%d dropped=%d errors=%d", atomic.LoadInt64(&CapturePackets), atomic.LoadInt64(&CaptureDrops), atomic.LoadInt64(&CaptureStatsErrors))
 }

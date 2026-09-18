@@ -3,7 +3,6 @@ package receiver
 import (
 	"fmt"
 	"net"
-	"slices"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -19,8 +18,6 @@ import (
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/ipid/dns"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
-	"github.com/alxweis/ipid-measure/ipid/payload"
-	"github.com/alxweis/ipid-measure/ipid/probe"
 	"github.com/alxweis/ipid-measure/ipid/stats"
 	"github.com/alxweis/ipid-measure/ipid/tcp"
 )
@@ -60,8 +57,7 @@ func Receive(iface config.Interface) {
 	}
 
 	// Kernel BPF prefilter: drop irrelevant traffic before it ever reaches us.
-	bpfFilter := fmt.Sprintf("ether dst %s and ip and (%s) and dst host %s", ifc.HardwareAddr,
-		payload.Active.ReceiveFilter, iface.IP)
+	bpfFilter := captureFilter(ifc.HardwareAddr, iface.IP)
 	bpfInstr, err := pcap.CompileBPFFilter(layers.LinkTypeEthernet, ifc.MTU, bpfFilter)
 	if err != nil {
 		panic(err)
@@ -70,24 +66,10 @@ func Receive(iface config.Interface) {
 		panic(bpfErr)
 	}
 
-	// Per-goroutine decoder state, reused for every captured frame.
-	var (
-		eth     layers.Ethernet
-		ipv4    layers.IPv4
-		tcpL    layers.TCP
-		udpL    layers.UDP
-		dnsL    layers.DNS
-		icmpL   layers.ICMPv4
-		decoded []gopacket.LayerType
-	)
-	parser := gopacket.NewDecodingLayerParser(
-		layers.LayerTypeEthernet,
-		&eth, &ipv4, &tcpL, &udpL, &dnsL, &icmpL,
-	)
-	parser.IgnoreUnsupported = true
-	decoded = make([]gopacket.LayerType, 0, 6)
-
-	protocol := payload.Active.ProtocolID
+	decoder := newPacketDecoder()
+	lastStats := time.Now()
+	packetsSinceStats := 0
+	defer collectCaptureStats(handle.Stats)
 
 	for {
 		select {
@@ -97,64 +79,32 @@ func Receive(iface config.Interface) {
 		}
 
 		data, _, err := handle.ZeroCopyReadPacketData()
-		if err != nil {
-			// Either no packet arrived within the SO_RCVTIMEO window (EAGAIN) or a transient read error.
-			select {
-			case <-measurement.StopReceiving:
-				return
-			default:
-				continue
+		packetsSinceStats++
+		if err != nil || packetsSinceStats >= 256 {
+			packetsSinceStats = 0
+			if time.Since(lastStats) >= time.Second {
+				collectCaptureStats(handle.Stats)
+				lastStats = time.Now()
 			}
 		}
-
-		if perr := parser.DecodeLayers(data, &decoded); perr != nil {
-			// Truncated/malformed packet; count it and move on, never panic.
-			atomic.AddInt64(&stats.DropDecode, 1)
-			continue
+		if err == nil {
+			decoder.process(data)
 		}
-
-		var (
-			srcIP4           [4]byte
-			dstIP4           [4]byte
-			dstPort          uint16
-			seqNum           uint32
-			tcpSeq           uint32
-			tcpPayloadLength uint16
-			replyFlgs        sets.Set[string]
-			ok               bool
-		)
-
-		copy(srcIP4[:], ipv4.SrcIP.To4())
-		copy(dstIP4[:], ipv4.DstIP.To4())
-
-		switch protocol {
-		case layers.IPProtocolTCP:
-			seqNum, tcpSeq, dstPort, replyFlgs, ok = extractTCP(&tcpL, decoded)
-			tcpPayloadLength = uint16(len(tcpL.Payload))
-		case layers.IPProtocolUDP:
-			seqNum, dstPort, replyFlgs, ok = extractUDPDNS(&udpL, &dnsL, decoded)
-		case layers.IPProtocolICMPv4:
-			seqNum, dstPort, replyFlgs, ok = extractICMP(&icmpL, decoded)
-		}
-		if !ok {
-			atomic.AddInt64(&stats.DropProto, 1)
-			if protocol == layers.IPProtocolTCP && slices.Contains(decoded, layers.LayerTypeTCP) {
-				if measurement.Config.ZMapPort != nil && uint16(tcpL.SrcPort) != *measurement.Config.ZMapPort {
-					probe.RejectBaseReply(srcIP4, &stats.AbortBadPort)
-				} else if !measurement.TcpEstablishConnection && tcpL.Ack <= measurement.TcpSequenceNumOffset {
-					probe.RejectBaseReply(srcIP4, &stats.AbortSeqOOR)
-				}
-			}
-			if protocol == layers.IPProtocolUDP && slices.Contains(decoded, layers.LayerTypeUDP) &&
-				measurement.Config.ZMapPort != nil && uint16(udpL.SrcPort) != *measurement.Config.ZMapPort {
-				probe.RejectBaseReply(srcIP4, &stats.AbortBadPort)
-			}
-			continue
-		}
-
-		now := time.Now().UnixMicro()
-		probe.FulfillReply(srcIP4, dstIP4, dstPort, seqNum, tcpSeq, ipv4.Id, replyFlgs, now, tcpPayloadLength)
 	}
+}
+
+func captureFilter(mac net.HardwareAddr, ip string) string {
+	return fmt.Sprintf("ether dst %s and ip and dst host %s", mac, ip)
+}
+
+func collectCaptureStats(read func() (*unix.TpacketStats, error)) {
+	snapshot, err := read()
+	if err != nil {
+		atomic.AddInt64(&stats.CaptureStatsErrors, 1)
+		return
+	}
+	atomic.AddInt64(&stats.CapturePackets, int64(snapshot.Packets))
+	atomic.AddInt64(&stats.CaptureDrops, int64(snapshot.Drops))
 }
 
 func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint32, uint32, uint16, sets.Set[string], bool) {
