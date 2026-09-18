@@ -13,6 +13,7 @@ import (
 	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/sender"
 	"github.com/alxweis/ipid-measure/ipid/stats"
+	"github.com/google/gopacket/layers"
 )
 
 func baseFixture(t *testing.T) (*Probe, [4]byte) {
@@ -275,5 +276,37 @@ func TestBaseReceiverRejectionRequiresActiveTarget(t *testing.T) {
 	RejectBaseReply(key, &stats.AbortBadPort)
 	if p.status != probeFailed || atomic.LoadInt64(&stats.AbortBadPort) != before+1 {
 		t.Fatal("receiver rejection did not abort target exactly once")
+	}
+}
+
+func TestUnexpectedProtocolPolicy(t *testing.T) {
+	for _, mode := range []types.MeasurementMode{types.MeasurementModeRTBased, types.MeasurementModeFixedInterval} {
+		for _, strict := range []bool{true, false} {
+			t.Run(string(mode), func(t *testing.T) {
+				p, key := baseFixture(t)
+				p.strict = strict
+				measurement.Config.MeasurementMode = mode
+				entry := Inflight.Lookup(key)
+				before := atomic.LoadInt64(&stats.AbortProto)
+				if !entry.AcceptProtocol(layers.IPProtocolTCP) || entry.AcceptProtocol(layers.IPProtocolICMPv4) {
+					t.Fatal("wrong protocol acceptance")
+				}
+				entry.AcceptProtocol(layers.IPProtocolICMPv4)
+				want := before
+				if strict {
+					want++
+				}
+				if atomic.LoadInt64(&stats.AbortProto) != want || p.complete() == strict {
+					t.Fatal("unexpected protocol did not preserve Base/Mass policy")
+				}
+				if strict {
+					select {
+					case <-p.failed:
+					default:
+						t.Fatal("worker not notified")
+					}
+				}
+			})
+		}
 	}
 }

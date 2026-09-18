@@ -339,7 +339,13 @@ func FulfillReply(
 		atomic.AddInt64(&stats.DropNoEntry, 1)
 		return false
 	}
+	return entry.FulfillReply(dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+}
 
+func (entry *InflightEntry) FulfillReply(
+	dstIP4 [4]byte, dstPort uint16, recoveredSeq, replyTCPSeq uint32,
+	ipID uint16, replyFlags sets.Set[string], receiveTime int64, tcpPayloadLength uint16,
+) bool {
 	if entry.Probe.strict {
 		return fulfillBaseReply(entry, dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
 	}

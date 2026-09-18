@@ -321,12 +321,26 @@ Invalid server sequences, payload gaps and overlaps abort as `tcp_seq`; there is
 no server-data reassembly buffer. Fixed-interval pure ACK replies can still arrive
 out of order, including delayed ACKs within the already observed server sequence
 range. These changes apply only to strict Base reply validation.
-The existing capture filters and configured no-connection flag sets are unchanged. Packets
-excluded by capture filters or rejected before safe attribution remain outside
-this validation. The 4 x 25 Mass layout retains its existing loss tolerance and
+Capture accepts IPv4 packets addressed to each receiver's local IP and MAC.
+The outer IPv4 source is looked up before transport decoding. An unexpected IP
+protocol from a registered target aborts an active Base measurement as `proto`;
+for ICMP measurements, non-Echo-Reply ICMP messages also abort as `proto`.
+ICMP errors from routers are not attributed through their quoted inner packet.
+Malformed packets and fragments of the expected protocol remain excluded from
+samples without a new immediate abort rule. Configured no-connection flag sets
+are unchanged. The 4 x 25 Mass layout retains its existing loss tolerance and
 duplicate handling. `replies[...]` counts packets; the new validation reasons
 in `probes[...]` count each failed Base target once. Existing send-error counters
 also include failures when sending TCP cleanup resets.
+
+`capture[packets=... dropped=... errors=...]` accumulates kernel packet-socket
+statistics across both receivers. Kernel packet totals include dropped packets;
+`errors` counts statistics-read failures, so zero reported drops with errors does
+not prove loss-free capture. Statistics are sampled approximately once per second
+and once before each capture socket closes. After all workers and receivers stop,
+`replies_final[...]`, `probes_final[...]` and `capture_final[...]` report the final
+counters. Capture drops are not assigned to individual targets. The broader
+filter can increase receive load and reveal additional Base aborts.
 
 For TCP Base runs, `tcp_bad_flags[handshake:A=2 data:PA=3]` breaks down
 `probes[bad_flags]` by the matched request's phase and received flag combination.

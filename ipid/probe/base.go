@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/gopacket/layers"
+
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
@@ -248,4 +250,15 @@ func RejectBaseReply(src [4]byte, reason *int64) {
 		return
 	}
 	entry.Probe.fail(reason)
+}
+
+func (entry *InflightEntry) AcceptProtocol(protocol layers.IPProtocol) bool {
+	if protocol == payload.Active.ProtocolID {
+		return true
+	}
+	atomic.AddInt64(&stats.DropProto, 1)
+	if entry.Probe.strict {
+		entry.Probe.fail(&stats.AbortProto)
+	}
+	return false
 }
