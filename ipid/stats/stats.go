@@ -75,6 +75,9 @@ func Log() {
 	for {
 		select {
 		case <-measurement.StopLogs:
+			if flags := TCPBadFlagsSummary(); flags != "" {
+				log.Printf("tcp_bad_flags_final[%s]", flags)
+			}
 			return
 
 		case <-ticker.C:
@@ -180,6 +183,10 @@ func Log() {
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
 			inFlight := atomic.LoadInt64(&InFlightProbes)
+			tcpFlags := ""
+			if flags := TCPBadFlagsSummary(); flags != "" {
+				tcpFlags = " tcp_bad_flags[" + flags + "]"
+			}
 
 			log.Printf(
 				"estimated_time_left=[%s] "+
@@ -190,7 +197,7 @@ func Log() {
 					"heap=[%dMB] "+
 					"in_flight=[%d]\n"+
 					"replies[matched=%d %s] "+
-					"probes[%s] ",
+					"probes[%s]%s ",
 				timeLeft,
 				deltaProbeCount,
 				probeCountPercentage,
@@ -202,6 +209,7 @@ func Log() {
 				inFlight,
 				matched, replyDrops,
 				probeDrops,
+				tcpFlags,
 			)
 
 			lastProbeCount = probeCount
