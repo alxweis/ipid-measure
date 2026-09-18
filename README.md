@@ -317,6 +317,15 @@ duplicate handling. `replies[...]` counts packets; the new validation reasons
 in `probes[...]` count each failed Base target once. Existing send-error counters
 also include failures when sending TCP cleanup resets.
 
+For TCP Base runs, `tcp_bad_flags[handshake:A=2 data:PA=3]` breaks down
+`probes[bad_flags]` by the matched request's phase and received flag combination.
+No-connection runs use `no_connection`; RT/FI is identified by the run's
+`measurement_mode`. Counts are cumulative, once per failed target, and exclude
+connection resets, non-TCP replies and Mass measurements. Flag letters use
+`FSRPAUECN` order; `NONE` means no flags. Only nonzero counts are logged, with
+`tcp_bad_flags_final[...]` emitted after receivers stop so the final counts
+include failures since the last periodic snapshot. Reply acceptance is unchanged.
+
 The stateless TCP fixed-base sample contains exactly
 `min(N, max(ceil(10% * N), 1,000,000))` uniformly selected rows from the
 original TCP `zmap.pq`. It is generated once per ZMap campaign and persisted as

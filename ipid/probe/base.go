@@ -7,6 +7,7 @@ import (
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/port"
 	"github.com/alxweis/ipid-measure/ipid/sender"
 	"github.com/alxweis/ipid-measure/ipid/seqnum"
@@ -177,6 +178,15 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 		}
 	}
 	if !flagsMatch(expected, flags) {
+		if payload.Active.ID == types.PayloadTCP {
+			phase := stats.TCPNoConnection
+			if expected == FlagsSynAck {
+				phase = stats.TCPHandshake
+			} else if expected == FlagsAck {
+				phase = stats.TCPData
+			}
+			stats.RecordTCPBadFlags(phase, flags)
+		}
 		return reject(&stats.DropBadFlags, &stats.AbortBadFlags)
 	}
 	if SampleState(sample.state.Load()) != SampleSent {
