@@ -105,9 +105,9 @@ func SetTCPAcknowledgment(packet []byte, acknowledgment uint32) {
 	payload.Active.SetChecksum(packet)
 }
 
-func BuildTCPHandshakeACK(syn []byte, acknowledgment uint32) []byte {
+func BuildTCPACK(syn []byte, sequence, acknowledgment uint32) []byte {
 	ack := append([]byte(nil), syn...)
-	binary.BigEndian.PutUint32(ack[24:28], binary.BigEndian.Uint32(syn[24:28])+1)
+	binary.BigEndian.PutUint32(ack[24:28], sequence)
 	ack[33] = 0x10
 	SetTCPAcknowledgment(ack, acknowledgment)
 	return ack

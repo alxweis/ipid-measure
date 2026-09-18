@@ -57,7 +57,7 @@ func (p *Probe) complete() bool {
 }
 
 func (p *Probe) waitInterval(interval time.Duration, timer *time.Timer) bool {
-	if !p.strict && p.tcpHandshakeReplies == nil {
+	if !p.strict && p.tcpACKReplies == nil {
 		time.Sleep(interval)
 		return true
 	}
@@ -68,8 +68,8 @@ func (p *Probe) waitInterval(interval time.Duration, timer *time.Timer) bool {
 			return true
 		case <-p.failed:
 			return false
-		case connection := <-p.tcpHandshakeReplies:
-			if !p.tcpHandshakeACK(connection) {
+		case connection := <-p.tcpACKReplies:
+			if !p.tcpSendACK(connection) {
 				return false
 			}
 		case <-measurement.StopSignal:
@@ -123,7 +123,7 @@ func waitForBaseReply(p *Probe, timer *time.Timer) bool {
 	timer.Reset(measurement.Config.MaximumToleratedRTT)
 	select {
 	case <-p.replyReady:
-		return p.flushHandshakeACKs()
+		return p.flushTCPACKs()
 	case <-p.failed:
 		return false
 	case <-timer.C:
@@ -135,7 +135,7 @@ func waitForBaseReply(p *Probe, timer *time.Timer) bool {
 	}
 }
 
-func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64) bool {
+func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64, tcpPayloadLength uint16) bool {
 	p := entry.Probe
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -167,6 +167,9 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 	if SampleState(sample.state.Load()) == SampleEmpty {
 		return reject(&stats.DropUnsent, &stats.AbortUnsent)
 	}
+	if SampleState(sample.state.Load()) != SampleSent {
+		return reject(&stats.DropDup, &stats.AbortDup)
+	}
 	if measurement.TcpEstablishConnection && flags.Contains(types.TCPFlagRST) {
 		return reject(&stats.DropBadFlags, &stats.AbortReset)
 	}
@@ -177,7 +180,12 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 			expected = FlagsSynAck
 		}
 	}
-	if !flagsMatch(expected, flags) {
+	validFlags := flagsMatch(expected, flags)
+	if expected == FlagsAck {
+		validFlags = flags.Contains(types.TCPFlagACK) &&
+			(len(flags) == 1 || (len(flags) == 2 && flags.Contains(types.TCPFlagPSH)))
+	}
+	if !validFlags {
 		if payload.Active.ID == types.PayloadTCP {
 			phase := stats.TCPNoConnection
 			if expected == FlagsSynAck {
@@ -189,24 +197,36 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 		}
 		return reject(&stats.DropBadFlags, &stats.AbortBadFlags)
 	}
-	if SampleState(sample.state.Load()) != SampleSent {
-		return reject(&stats.DropDup, &stats.AbortDup)
-	}
 	if received-sample.SentTime > measurement.Config.MaximumToleratedRTT.Microseconds() {
 		return reject(&stats.DropLate, &stats.AbortLate)
 	}
+	connection := seqnum.GetConnectionIndex(seq)
+	if measurement.TcpEstablishConnection && expected == FlagsAck {
+		start := p.Samples[connection].tcpSequence + 1
+		next := p.tcpAcknowledgments[connection].Load()
+		if !p.tcpAckReady[connection].Load() ||
+			(tcpPayloadLength > 0 && tcpSeq != next) ||
+			(tcpPayloadLength == 0 && tcpSeq-start > next-start) {
+			return reject(&stats.DropTCPSequence, &stats.AbortTCPSequence)
+		}
+	}
+	sample.tcpSequence = tcpSeq
 	if !sample.TryFill(ipID, received) {
 		return reject(&stats.DropDup, &stats.AbortDup)
 	}
 	if measurement.TcpEstablishConnection && expected == FlagsSynAck {
-		connection := seqnum.GetConnectionIndex(seq)
-		p.tcpAcknowledgments[connection].Store(tcpSeq + 1)
+		p.tcpAcknowledgments[connection].Store(tcpSeq + 1 + uint32(tcpPayloadLength))
 		p.tcpAckReady[connection].Store(true)
-		if p.tcpHandshakeReplies != nil {
-			p.tcpHandshakeReplies <- connection
+		if p.tcpACKReplies != nil {
+			p.tcpACKReplies <- connection
 		}
 		if p.tcpHandshakeCount.Add(1) == uint32(measurement.Config.ConnectionCount) {
 			p.tcpHandshakeOnce.Do(func() { close(p.tcpHandshakeDone) })
+		}
+	} else if measurement.TcpEstablishConnection && tcpPayloadLength > 0 {
+		p.tcpAcknowledgments[connection].Store(tcpSeq + uint32(tcpPayloadLength))
+		if p.tcpACKReplies != nil {
+			p.tcpACKReplies <- connection
 		}
 	}
 	if entry.validCount.Add(1) >= uint32(entry.expectedCount) {

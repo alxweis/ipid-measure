@@ -13,15 +13,17 @@ import (
 )
 
 var (
-	DropUnsent    int64
-	AbortBadDst   int64
-	AbortBadPort  int64
-	AbortSeqOOR   int64
-	AbortUnsent   int64
-	AbortReset    int64
-	AbortBadFlags int64
-	AbortDup      int64
-	AbortLate     int64
+	DropUnsent       int64
+	AbortBadDst      int64
+	AbortBadPort     int64
+	AbortSeqOOR      int64
+	AbortUnsent      int64
+	AbortReset       int64
+	AbortBadFlags    int64
+	AbortDup         int64
+	AbortLate        int64
+	DropTCPSequence  int64
+	AbortTCPSequence int64
 )
 
 var (
@@ -161,6 +163,7 @@ func Log() {
 				kv{"late", atomic.LoadInt64(&DropLate)},
 				kv{"dup", atomic.LoadInt64(&DropDup)},
 				kv{"unsent", atomic.LoadInt64(&DropUnsent)},
+				kv{"tcp_seq", atomic.LoadInt64(&DropTCPSequence)},
 			)
 			probeDrops := joinNonZero(
 				kv{"bad_target", atomic.LoadInt64(&DropBadTarget)},
@@ -178,6 +181,7 @@ func Log() {
 				kv{"bad_flags", atomic.LoadInt64(&AbortBadFlags)},
 				kv{"dup", atomic.LoadInt64(&AbortDup)},
 				kv{"late", atomic.LoadInt64(&AbortLate)},
+				kv{"tcp_seq", atomic.LoadInt64(&AbortTCPSequence)},
 			)
 
 			var ms runtime.MemStats

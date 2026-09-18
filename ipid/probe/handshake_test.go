@@ -13,9 +13,9 @@ func handshakeFixture(t *testing.T) (*Probe, [4]byte, <-chan uint16) {
 	t.Helper()
 	p, key := baseFixture(t)
 	measurement.TcpEstablishConnection = true
-	p.tcpHandshakeReplies = make(chan uint16, 4)
+	p.tcpACKReplies = make(chan uint16, 4)
 	acks := make(chan uint16, 4)
-	p.tcpHandshakeACK = func(connection uint16) bool {
+	p.tcpSendACK = func(connection uint16) bool {
 		acks <- connection
 		return true
 	}
@@ -26,7 +26,7 @@ func deliverSYNACK(t *testing.T, p *Probe, key [4]byte, connection uint16) {
 	t.Helper()
 	p.Samples[connection].MarkSent(100)
 	if !FulfillReply(key, sender.GetSender(connection).IPBytes, 40000+connection,
-		1001+uint32(connection), 2000, 42, types.SynAckFlagSet, 200) {
+		1001+uint32(connection), 2000, 42, types.SynAckFlagSet, 200, 0) {
 		t.Fatal("valid SYN-ACK rejected")
 	}
 }
@@ -96,7 +96,7 @@ func TestHandshakeWaitConfirmsRepliesAsTheyArrive(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handshake wait did not finish")
 	}
-	if !p.flushHandshakeACKs() {
+	if !p.flushTCPACKs() {
 		t.Fatal("empty queue failed")
 	}
 	select {
@@ -111,8 +111,8 @@ func TestHandshakeACKFailureStopsQueue(t *testing.T) {
 	deliverSYNACK(t, p, key, 0)
 	deliverSYNACK(t, p, key, 1)
 	calls := 0
-	p.tcpHandshakeACK = func(uint16) bool { calls++; p.fail(nil); return false }
-	if p.flushHandshakeACKs() || calls != 1 || p.complete() {
+	p.tcpSendACK = func(uint16) bool { calls++; p.fail(nil); return false }
+	if p.flushTCPACKs() || calls != 1 || p.complete() {
 		t.Fatal("ACK failure did not stop target")
 	}
 }
@@ -120,14 +120,14 @@ func TestHandshakeACKFailureStopsQueue(t *testing.T) {
 func TestDuplicateSYNACKStillAbortsWithoutAnotherACK(t *testing.T) {
 	p, key, acks := handshakeFixture(t)
 	deliverSYNACK(t, p, key, 0)
-	if !p.flushHandshakeACKs() {
+	if !p.flushTCPACKs() {
 		t.Fatal("ACK failed")
 	}
 	expectHandshakeACK(t, acks, 0)
-	if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, 2000, 42, types.SynAckFlagSet, 201) || p.complete() {
+	if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, 2000, 42, types.SynAckFlagSet, 201, 0) || p.complete() {
 		t.Fatal("duplicate policy changed")
 	}
-	if len(p.tcpHandshakeReplies) != 0 {
+	if len(p.tcpACKReplies) != 0 {
 		t.Fatal("duplicate queued another ACK")
 	}
 }

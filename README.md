@@ -310,7 +310,18 @@ worker sends these ACKs, including while waiting between fixed-interval requests
 or for outstanding handshakes. They use the shared rate limiter and packet/byte
 counters, but do not occupy samples or advance the data-request sequence numbers.
 The 4 x 4 layout still records four SYN-ACKs and twelve data acknowledgments.
-The existing capture filters and accepted flag sets are unchanged. Packets
+TCP Base connection data replies require ACK and permit PSH as the only optional
+flag. SYN-ACK flags remain exact; FIN, RST and unnegotiated control flags are not
+accepted as data samples. An already answered sample aborts as `dup` before flag
+validation, so later ACK/FIN/data packets cannot replace its SYN-ACK.
+Contiguous server payload is acknowledged by the worker with a separate empty
+ACK and by later requests; SYN-ACK payload is included in its acknowledgment.
+Control ACKs use the client's next send sequence and consume no sample slots.
+Invalid server sequences, payload gaps and overlaps abort as `tcp_seq`; there is
+no server-data reassembly buffer. Fixed-interval pure ACK replies can still arrive
+out of order, including delayed ACKs within the already observed server sequence
+range. These changes apply only to strict Base reply validation.
+The existing capture filters and configured no-connection flag sets are unchanged. Packets
 excluded by capture filters or rejected before safe attribution remain outside
 this validation. The 4 x 25 Mass layout retains its existing loss tolerance and
 duplicate handling. `replies[...]` counts packets; the new validation reasons
