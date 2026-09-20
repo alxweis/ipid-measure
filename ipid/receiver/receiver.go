@@ -1,7 +1,9 @@
 package receiver
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync/atomic"
 	"time"
@@ -24,6 +26,7 @@ import (
 )
 
 const receiveTimeoutMs = 200
+const receiveBufferBytes = 4 << 20
 
 func StartAll() {
 	diagnostics.Begin()
@@ -53,6 +56,14 @@ func Receive(iface config.Interface) {
 	// Set a periodic read timeout so the blocking recvmsg() in ZeroCopyReadPacketData returns
 	// regularly and the loop can observe StopReceiving.
 	fd := *(*int)(unsafe.Pointer(handle))
+	buffer, bufferErr := configureReceiveBuffer(fd)
+	if bufferErr != nil {
+		diag.SocketErrors.Add(1)
+		log.Printf("WARNING receive buffer for %s (%s): requested_bytes=%d effective_bytes=%d: %v", iface.Name, iface.IP, receiveBufferBytes, buffer, bufferErr)
+	} else if buffer < 2*receiveBufferBytes {
+		log.Printf("WARNING receive buffer for %s (%s): requested_bytes=%d effective_bytes=%d expected_bytes=%d; net.core.rmem_max may limit SO_RCVBUF; configure net.core.rmem_max to at least %d to grant the full request", iface.Name, iface.IP, receiveBufferBytes, buffer, 2*receiveBufferBytes, receiveBufferBytes)
+	}
+	diag.ReceiveBuffer.Store(int64(buffer))
 	tv := unix.Timeval{Sec: 0, Usec: int64((receiveTimeoutMs * time.Millisecond) / time.Microsecond)}
 	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv); err != nil {
 		panic(fmt.Errorf("set SO_RCVTIMEO on %s: %w", iface.Name, err))
@@ -74,12 +85,6 @@ func Receive(iface config.Interface) {
 	}
 
 	decoder := newPacketDecoder()
-	buffer, bufferErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF)
-	if bufferErr != nil {
-		buffer = -1
-		diag.SocketErrors.Add(1)
-	}
-	diag.ReceiveBuffer.Store(int64(buffer))
 	diag.Snaplen.Store(int64(handle.GetCaptureLength()))
 	timestampNS, nsErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TIMESTAMPNS)
 	timestampUS, usErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TIMESTAMP)
@@ -128,6 +133,25 @@ func Receive(iface config.Interface) {
 			diag.Process.End(processStart)
 		}
 	}
+}
+
+func configureReceiveBuffer(fd int) (int, error) {
+	current, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF)
+	if err != nil {
+		return -1, fmt.Errorf("read SO_RCVBUF: %w", err)
+	}
+	if current >= 2*receiveBufferBytes {
+		return current, nil
+	}
+	var setErr error
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF, receiveBufferBytes); err != nil {
+		setErr = fmt.Errorf("set SO_RCVBUF: %w", err)
+	}
+	actual, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF)
+	if err != nil {
+		return -1, errors.Join(setErr, fmt.Errorf("read configured SO_RCVBUF: %w", err))
+	}
+	return actual, setErr
 }
 
 func captureFilter(mac net.HardwareAddr, ip string) string {

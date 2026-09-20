@@ -347,7 +347,22 @@ no test-run settings need to change. `receiver_diag` identifies receiver `0` as
 IP A and `1` as IP B. It reports the actual kernel `SO_RCVBUF` value (including
 Linux's accounting overhead), capture length, timestamp support, and per-socket
 packet/drop totals. A buffer value of `-1` or `socket_errors>0` means a socket
-option could not be queried. The diagnostic does not resize buffers.
+option could not be queried or the receive buffer could not be configured.
+Each receiver requests a 4 MiB `SO_RCVBUF` before reading packets, retaining an
+existing buffer if it is already at least the full requested size. Linux normally
+reports 8 MiB for this request because it includes additional memory accounting.
+The existing `rcvbuf_bytes` field reports the actual granted value, not the request.
+If the value is smaller, a startup warning reports the requested, actual and
+expected sizes. Configuration/read failures are also warned and counted in
+`socket_errors`; capture continues with the available buffer.
+
+The program does not change system-wide sysctls or use `SO_RCVBUFFORCE`.
+To grant the full request, configure `net.core.rmem_max` to at least `4194304`
+on the measurement VM (preserve a higher existing limit). A successful socket
+option call alone does not establish that the full buffer was granted. Larger
+buffers provide reserve for short receive bursts and scheduling delays, but do
+not guarantee loss-free capture or resolve a sustained processing bottleneck.
+
 `ready_ms` and `first_send_ms` are offsets from a common process-local epoch;
 zero means not observed yet. `send_before_ready` compares the first send attempt
 for that IP with the receiver's readiness. It is an observation, not a startup
