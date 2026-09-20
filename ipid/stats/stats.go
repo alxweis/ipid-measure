@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/consts"
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
 
@@ -81,6 +82,9 @@ func Log() {
 	for {
 		select {
 		case <-measurement.StopLogs:
+			var ms runtime.MemStats
+			runtime.ReadMemStats(&ms)
+			diagnostics.Log(ms, true)
 			log.Printf("replies_final[matched=%d %s] probes_final[%s] capture_final[%s]", atomic.LoadInt64(&MatchedReplies), replyDropSummary(), probeDropSummary(), captureSummary())
 			if flags := TCPBadFlagsSummary(); flags != "" {
 				log.Printf("tcp_bad_flags_final[%s]", flags)
@@ -187,6 +191,7 @@ func Log() {
 				captureSummary(),
 				tcpFlags,
 			)
+			diagnostics.Log(ms, false)
 
 			lastProbeCount = probeCount
 			lastValidProbes = validProbes

@@ -342,6 +342,38 @@ and once before each capture socket closes. After all workers and receivers stop
 counters. Capture drops are not assigned to individual targets. The broader
 filter can increase receive load and reveal additional Base aborts.
 
+Receive-path diagnostics accompany the periodic and final counters automatically;
+no test-run settings need to change. `receiver_diag` identifies receiver `0` as
+IP A and `1` as IP B. It reports the actual kernel `SO_RCVBUF` value (including
+Linux's accounting overhead), capture length, timestamp support, and per-socket
+packet/drop totals. A buffer value of `-1` or `socket_errors>0` means a socket
+option could not be queried. The diagnostic does not resize buffers.
+`ready_ms` and `first_send_ms` are offsets from a common process-local epoch;
+zero means not observed yet. `send_before_ready` compares the first send attempt
+for that IP with the receiver's readiness. It is an observation, not a startup
+barrier. Drop timestamps indicate when statistics reported drops, not their exact
+occurrence time. Startup drops may include traffic queued before BPF attachment.
+
+`receive_timing` samples the first and every subsequent 256th call at each site:
+header/transport decoding, registry lookup, Base reply/failure lock waits, sender
+lock waits, the send syscall, and the sender's Base probe-lock holding time.
+Each timing reports observed samples, average/maximum microseconds and sampled
+durations of at least 1 ms. These are cumulative sampled values, not full-run
+worst-case bounds; short or rare stalls can be missed. The per-receiver `read`
+timing includes normal idle waiting and read timeouts. `capture_age` measures
+kernel timestamp to userspace read completion when kernel timestamps are enabled;
+clock adjustments can distort it. `process` covers the complete decoder/validation
+call, including waits. Timings overlap and must not be summed.
+
+`receive_runtime` reports interval process CPU usage (100% is one CPU core),
+process peak RSS in KiB, newly allocated MiB, GC count/pause deltas, GOMAXPROCS and
+goroutine count. These cover the whole process, not just the receiver. Sampling
+adds atomic counters and occasional clock reads; logging and resource collection
+also have overhead. These diagnostics help identify bottlenecks but do not measure
+VM-host contention or NIC/network loss. The `_final` variants are emitted after
+workers and receivers stop. Validation, pacing, concurrency, capture filters and
+sample timestamps are unchanged.
+
 For TCP Base runs, `tcp_bad_flags[handshake:A=2 data:PA=3]` breaks down
 `probes[bad_flags]` by the matched request's phase and received flag combination.
 No-connection runs use `no_connection`; RT/FI is identified by the run's
