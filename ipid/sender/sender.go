@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
+
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 )
@@ -38,7 +40,9 @@ func (s *Sender) Send(packet []byte) error {
 
 func (s *Sender) SendIf(packet []byte, ready func() bool) (bool, error) {
 	total := len(s.EthHeader) + len(packet)
+	lockStart := diagnostics.SendLock.Start()
 	s.mu.Lock()
+	diagnostics.SendLock.End(lockStart)
 	defer s.mu.Unlock()
 	if ready != nil && !ready() {
 		return false, nil
@@ -50,7 +54,14 @@ func (s *Sender) SendIf(packet []byte, ready func() bool) (bool, error) {
 	copy(frame, s.EthHeader)
 	copy(frame[len(s.EthHeader):], packet)
 
+	if s == SenderA {
+		diagnostics.Captures[0].MarkSend()
+	} else if s == SenderB {
+		diagnostics.Captures[1].MarkSend()
+	}
+	sendStart := diagnostics.Sendmsg.Start()
 	err := syscall.Sendmsg(s.Fd, frame, nil, &s.Addr, 0)
+	diagnostics.Sendmsg.End(sendStart)
 	return true, err
 }
 

@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
+
 	"github.com/parquet-go/parquet-go/bloom/xxhash"
 )
 
@@ -87,9 +89,11 @@ func (r *inflightRegistry) Deregister(target [4]byte, entry *InflightEntry) {
 }
 
 func (r *inflightRegistry) Lookup(target [4]byte) *InflightEntry {
+	start := diagnostics.Lookup.Start()
 	sh := r.shardFor(target)
 	sh.mu.RLock()
 	e := sh.entries[target]
 	sh.mu.RUnlock()
+	diagnostics.Lookup.End(start)
 	return e
 }

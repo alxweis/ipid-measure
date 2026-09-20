@@ -16,6 +16,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/dns"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/stats"
@@ -25,6 +26,7 @@ import (
 const receiveTimeoutMs = 200
 
 func StartAll() {
+	diagnostics.Begin()
 	measurement.ReceiverWg.Add(1)
 	go Receive(measurement.Config.Interfaces.A())
 
@@ -36,6 +38,11 @@ func StartAll() {
 // hands matching replies to probe.FulfillReply for in-place sample filling.
 func Receive(iface config.Interface) {
 	defer measurement.ReceiverWg.Done()
+	index := 0
+	if iface.IP == measurement.Config.Interfaces.IPB {
+		index = 1
+	}
+	diag := &diagnostics.Captures[index]
 
 	handle, err := pcapgo.NewEthernetHandle(iface.Name)
 	if err != nil {
@@ -67,9 +74,32 @@ func Receive(iface config.Interface) {
 	}
 
 	decoder := newPacketDecoder()
+	buffer, bufferErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF)
+	if bufferErr != nil {
+		buffer = -1
+		diag.SocketErrors.Add(1)
+	}
+	diag.ReceiveBuffer.Store(int64(buffer))
+	diag.Snaplen.Store(int64(handle.GetCaptureLength()))
+	timestampNS, nsErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TIMESTAMPNS)
+	timestampUS, usErr := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TIMESTAMP)
+	if timestampNS > 0 || timestampUS > 0 {
+		diag.KernelTimestamp.Store(1)
+	} else if nsErr != nil || usErr != nil {
+		diag.KernelTimestamp.Store(-1)
+		diag.SocketErrors.Add(1)
+	}
+	readStats := func() (*unix.TpacketStats, error) {
+		snapshot, err := handle.Stats()
+		if err == nil {
+			diag.Record(snapshot.Packets, snapshot.Drops)
+		}
+		return snapshot, err
+	}
 	lastStats := time.Now()
 	packetsSinceStats := 0
-	defer collectCaptureStats(handle.Stats)
+	defer collectCaptureStats(readStats)
+	diag.ReadyNS.Store(diagnostics.NowNS())
 
 	for {
 		select {
@@ -78,17 +108,24 @@ func Receive(iface config.Interface) {
 		default:
 		}
 
-		data, _, err := handle.ZeroCopyReadPacketData()
+		readStart := diag.Read.Start()
+		data, info, err := handle.ZeroCopyReadPacketData()
+		diag.Read.End(readStart)
+		if err == nil && !readStart.IsZero() && diag.KernelTimestamp.Load() == 1 {
+			diag.Age.Observe(time.Since(info.Timestamp))
+		}
 		packetsSinceStats++
 		if err != nil || packetsSinceStats >= 256 {
 			packetsSinceStats = 0
 			if time.Since(lastStats) >= time.Second {
-				collectCaptureStats(handle.Stats)
+				collectCaptureStats(readStats)
 				lastStats = time.Now()
 			}
 		}
 		if err == nil {
+			processStart := diag.Process.Start()
 			decoder.process(data)
+			diag.Process.End(processStart)
 		}
 	}
 }

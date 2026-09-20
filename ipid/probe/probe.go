@@ -10,6 +10,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/packet"
 	"github.com/alxweis/ipid-measure/ipid/payload"
@@ -478,10 +479,12 @@ func sendPacket(sndr *sender.Sender, packetBytes []byte, sample *Sample, probe *
 		return false
 	}
 	locked := false
+	var holdStart time.Time
 	var ready func() bool
 	if probe != nil && probe.strict {
 		ready = func() bool {
 			probe.mu.Lock()
+			holdStart = diagnostics.SendProbeHold.Start()
 			locked = true
 			if probe.status != probeActive {
 				return false
@@ -496,7 +499,10 @@ func sendPacket(sndr *sender.Sender, packetBytes []byte, sample *Sample, probe *
 	}
 	sent, err := sndr.SendIf(packetBytes, ready)
 	if locked {
-		defer probe.mu.Unlock()
+		defer func() {
+			probe.mu.Unlock()
+			diagnostics.SendProbeHold.End(holdStart)
+		}()
 	}
 	if !sent {
 		return false

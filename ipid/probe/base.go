@@ -8,6 +8,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/sets"
 	"github.com/alxweis/ipid-measure/internal/types"
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/port"
@@ -40,7 +41,9 @@ func (p *Probe) fail(reason *int64) {
 		}
 		return
 	}
+	start := diagnostics.FailLock.Start()
 	p.mu.Lock()
+	diagnostics.FailLock.End(start)
 	defer p.mu.Unlock()
 	p.failLocked(reason)
 }
@@ -139,7 +142,9 @@ func waitForBaseReply(p *Probe, timer *time.Timer) bool {
 
 func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64, tcpPayloadLength uint16) bool {
 	p := entry.Probe
+	start := diagnostics.ReplyLock.Start()
 	p.mu.Lock()
+	diagnostics.ReplyLock.End(start)
 	defer p.mu.Unlock()
 	if p.status != probeActive {
 		return false

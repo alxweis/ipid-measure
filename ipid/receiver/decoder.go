@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/probe"
@@ -35,7 +36,10 @@ func newPacketDecoder() *packetDecoder {
 }
 
 func (d *packetDecoder) process(data []byte) {
-	if err := d.headers.DecodeLayers(data, &d.decoded); err != nil ||
+	headerStart := diagnostics.Headers.Start()
+	headerErr := d.headers.DecodeLayers(data, &d.decoded)
+	diagnostics.Headers.End(headerStart)
+	if headerErr != nil ||
 		!slices.Contains(d.decoded, layers.LayerTypeIPv4) || d.ipv4.Version != 4 {
 		atomic.AddInt64(&stats.DropDecode, 1)
 		return
@@ -55,7 +59,10 @@ func (d *packetDecoder) process(data []byte) {
 		atomic.AddInt64(&stats.DropProto, 1)
 		return
 	}
-	if err := d.transport.DecodeLayers(d.ipv4.Payload, &d.decoded); err != nil {
+	transportStart := diagnostics.Transport.Start()
+	transportErr := d.transport.DecodeLayers(d.ipv4.Payload, &d.decoded)
+	diagnostics.Transport.End(transportStart)
+	if transportErr != nil {
 		atomic.AddInt64(&stats.DropDecode, 1)
 		return
 	}

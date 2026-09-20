@@ -39,7 +39,7 @@ func TestFinalCountersWithoutPeriodicTick(t *testing.T) {
 	close(measurement.StopLogs)
 	measurement.LogsWg.Add(1)
 	Log()
-	for _, want := range []string{"replies_final[", "probes_final[", "rate_low=290", "capture_final[packets=", "dropped=", "errors="} {
+	for _, want := range []string{"replies_final[", "probes_final[", "rate_low=290", "capture_final[packets=", "dropped=", "errors=", "receive_timing_final[", "receiver_diag_final[receiver=0", "receiver_diag_final[receiver=1"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("missing %s in %s", want, output.String())
 		}
