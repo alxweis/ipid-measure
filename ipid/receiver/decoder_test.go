@@ -185,7 +185,7 @@ func TestDecoderUsesCaptureTimestampForRTT(t *testing.T) {
 		body    []byte
 	}{
 		{payload.TCP, []byte{0, 80, 156, 64, 0, 0, 0, 1, 0, 0, 0, 1, 80, 18, 2, 0, 0, 0, 0, 0}},
-		{payload.UdpDns, []byte{0, 53, 156, 64, 0, 20, 0, 0, 0, 0, 132, 0, 0, 0, 0, 0, 0, 0}},
+		{payload.UdpDns, []byte{0, 53, 156, 64, 0, 20, 0, 0, 0, 0, 132, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
 		{payload.ICMP, []byte{0, 0, 0, 0, 0, 1, 0, 0}},
 	} {
 		t.Run(string(test.payload.ID), func(t *testing.T) {
