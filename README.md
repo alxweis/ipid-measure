@@ -333,6 +333,25 @@ duplicate handling. `replies[...]` counts packets; the new validation reasons
 in `probes[...]` count each failed Base target once. Existing send-error counters
 also include failures when sending TCP cleanup resets.
 
+Reply timestamps in Parquet and per-reply RTT validation use the capture
+timestamp supplied by pcapgo, converted to Unix microseconds. With kernel
+timestamping enabled, this is the kernel receive time rather than the time Go
+decodes the packet; socket queueing and decoder delays are not added to it.
+This applies to every protocol and both Base and Mass measurements. Send
+timestamps remain userspace timestamps recorded before sending. A reply captured
+before its sample's send timestamp is rejected as `unsent` (aborting Base,
+discarding the reply for Mass). The maximum tolerated RTT remains inclusive.
+Worker timeouts and terminal probe states are unchanged: a packet still queued
+when its measurement ends does not revive that measurement. Samples remain in
+request-index order, so Fixed-Interval receive timestamps may be non-monotonic.
+
+pcapgo falls back to userspace read time if a packet has no kernel timestamp.
+`kernel_timestamp=1` confirms socket timestamp support, not a hardware timestamp;
+unavailable or unverified support triggers a startup warning. Send and receive
+timestamps use the host wall clock, so clock steps can distort RTTs. The Parquet
+schema and timestamp units are unchanged; older files retain their original
+userspace processing timestamps.
+
 `capture[packets=... dropped=... errors=...]` accumulates kernel packet-socket
 statistics across both receivers. Kernel packet totals include dropped packets;
 `errors` counts statistics-read failures, so zero reported drops with errors does
@@ -386,8 +405,8 @@ goroutine count. These cover the whole process, not just the receiver. Sampling
 adds atomic counters and occasional clock reads; logging and resource collection
 also have overhead. These diagnostics help identify bottlenecks but do not measure
 VM-host contention or NIC/network loss. The `_final` variants are emitted after
-workers and receivers stop. Validation, pacing, concurrency, capture filters and
-sample timestamps are unchanged.
+workers and receivers stop. The diagnostics themselves do not change validation,
+pacing, concurrency, capture filters or sample timestamps.
 
 For TCP Base runs, `tcp_bad_flags[handshake:A=2 data:PA=3]` breaks down
 `probes[bad_flags]` by the matched request's phase and received flag combination.

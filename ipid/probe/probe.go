@@ -393,6 +393,14 @@ func (entry *InflightEntry) FulfillReply(
 	}
 
 	sample := &entry.Probe.Samples[logicalSeq]
+	if !sample.WasSent() {
+		atomic.AddInt64(&stats.DropDup, 1)
+		return false
+	}
+	if receiveTime < sample.SentTime {
+		atomic.AddInt64(&stats.DropUnsent, 1)
+		return false
+	}
 
 	// Late reply: reject if RTT exceeds tolerance.
 	if receiveTime-sample.SentTime > measurement.Config.MaximumToleratedRTT.Microseconds() {

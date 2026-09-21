@@ -35,7 +35,7 @@ func newPacketDecoder() *packetDecoder {
 	return d
 }
 
-func (d *packetDecoder) process(data []byte) {
+func (d *packetDecoder) process(data []byte, received time.Time) {
 	headerStart := diagnostics.Headers.Start()
 	headerErr := d.headers.DecodeLayers(data, &d.decoded)
 	diagnostics.Headers.End(headerStart)
@@ -103,5 +103,5 @@ func (d *packetDecoder) process(data []byte) {
 		}
 		return
 	}
-	entry.FulfillReply(dst, port, seq, tcpSeq, d.ipv4.Id, flags, time.Now().UnixMicro(), length)
+	entry.FulfillReply(dst, port, seq, tcpSeq, d.ipv4.Id, flags, received.UnixMicro(), length)
 }
