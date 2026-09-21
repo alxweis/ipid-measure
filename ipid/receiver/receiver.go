@@ -94,6 +94,9 @@ func Receive(iface config.Interface) {
 		diag.KernelTimestamp.Store(-1)
 		diag.SocketErrors.Add(1)
 	}
+	if diag.KernelTimestamp.Load() != 1 {
+		log.Printf("WARNING kernel receive timestamps for %s (%s) are unavailable or unverified; capture timestamps may fall back to userspace read time", iface.Name, iface.IP)
+	}
 	readStats := func() (*unix.TpacketStats, error) {
 		snapshot, err := handle.Stats()
 		if err == nil {
@@ -129,7 +132,7 @@ func Receive(iface config.Interface) {
 		}
 		if err == nil {
 			processStart := diag.Process.Start()
-			decoder.process(data)
+			decoder.process(data, info.Timestamp)
 			diag.Process.End(processStart)
 		}
 	}

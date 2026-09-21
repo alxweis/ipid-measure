@@ -177,6 +177,9 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 	if SampleState(sample.state.Load()) != SampleSent {
 		return reject(&stats.DropDup, &stats.AbortDup)
 	}
+	if received < sample.SentTime {
+		return reject(&stats.DropUnsent, &stats.AbortUnsent)
+	}
 	if measurement.TcpEstablishConnection && flags.Contains(types.TCPFlagRST) {
 		return reject(&stats.DropBadFlags, &stats.AbortReset)
 	}

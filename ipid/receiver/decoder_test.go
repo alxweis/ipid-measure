@@ -5,8 +5,10 @@ import (
 	"net"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/probe"
@@ -61,23 +63,23 @@ func TestDecoderAttributesBeforeTransport(t *testing.T) {
 	key := [4]byte{198, 51, 100, 1}
 	data := ipv4Frame(t, layers.IPProtocolTCP, []byte{1})
 	beforeDecode, beforeMissing := atomic.LoadInt64(&stats.DropDecode), atomic.LoadInt64(&stats.DropNoEntry)
-	d.process(data)
+	d.process(data, time.Now())
 	if atomic.LoadInt64(&stats.DropDecode) != beforeDecode || atomic.LoadInt64(&stats.DropNoEntry) != beforeMissing+1 {
 		t.Fatal("unregistered source reached transport decoder")
 	}
 	entry := &probe.InflightEntry{Probe: &probe.Probe{}}
 	probe.Inflight.Register(key, entry)
 	t.Cleanup(func() { probe.Inflight.Deregister(key, entry) })
-	d.process(data)
+	d.process(data, time.Now())
 	if atomic.LoadInt64(&stats.DropDecode) != beforeDecode+1 {
 		t.Fatal("malformed TCP was not decoded for registered target")
 	}
 	beforeProto := atomic.LoadInt64(&stats.DropProto)
-	d.process(ipv4Frame(t, layers.IPProtocolICMPv4, nil))
+	d.process(ipv4Frame(t, layers.IPProtocolICMPv4, nil), time.Now())
 	if atomic.LoadInt64(&stats.DropProto) != beforeProto+1 || atomic.LoadInt64(&stats.DropDecode) != beforeDecode+1 {
 		t.Fatal("unexpected protocol was not detected before transport parsing")
 	}
-	d.process([]byte{0})
+	d.process([]byte{0}, time.Now())
 	if atomic.LoadInt64(&stats.DropProto) != beforeProto+1 {
 		t.Fatal("stale IP attributed after malformed frame")
 	}
@@ -94,7 +96,7 @@ func TestRouterICMPDoesNotUseQuotedTarget(t *testing.T) {
 	quoted := ipv4Frame(t, layers.IPProtocolTCP, make([]byte, 20))[14:]
 	data := ipv4Frame(t, layers.IPProtocolICMPv4, append([]byte{3, 1, 0, 0, 0, 0, 0, 0}, quoted...))
 	beforeMissing, beforeProto := atomic.LoadInt64(&stats.DropNoEntry), atomic.LoadInt64(&stats.DropProto)
-	newPacketDecoder().process(data)
+	newPacketDecoder().process(data, time.Now())
 	if atomic.LoadInt64(&stats.DropNoEntry) != beforeMissing+1 || atomic.LoadInt64(&stats.DropProto) != beforeProto {
 		t.Fatal("router error was attributed through quoted packet")
 	}
@@ -136,7 +138,7 @@ func TestExpectedTransportDecoding(t *testing.T) {
 			payload.Active = test.payload
 			before := atomic.LoadInt64(&stats.DropBadDst)
 			d := newPacketDecoder()
-			d.process(ipv4Frame(t, test.payload.ProtocolID, test.body))
+			d.process(ipv4Frame(t, test.payload.ProtocolID, test.body), time.Now())
 			if atomic.LoadInt64(&stats.DropBadDst) != before+1 {
 				t.Fatal("valid transport did not reach sample validation")
 			}
@@ -153,6 +155,52 @@ func TestExpectedTransportDecoding(t *testing.T) {
 				if d.icmp.Seq != 4 {
 					t.Fatal("wrong ICMP decode")
 				}
+			}
+		})
+	}
+}
+
+func TestDecoderUsesCaptureTimestampForRTT(t *testing.T) {
+	previousPayload, previousConfig := payload.Active, measurement.Config
+	previousPorts, previousConnection, previousOffset := measurement.HasPorts, measurement.TcpEstablishConnection, measurement.TcpSequenceNumOffset
+	t.Cleanup(func() {
+		payload.Active, measurement.Config = previousPayload, previousConfig
+		measurement.HasPorts, measurement.TcpEstablishConnection, measurement.TcpSequenceNumOffset = previousPorts, previousConnection, previousOffset
+	})
+	measurement.Config = &config.IPIDConfig{
+		MaximumToleratedRTT: time.Second,
+		TCPConfig:           config.TCPConfig{ReplyFlags: []types.TCPFlagSet{types.SynAckFlagSet}},
+	}
+	measurement.HasPorts, measurement.TcpEstablishConnection, measurement.TcpSequenceNumOffset = false, false, 0
+	key := [4]byte{198, 51, 100, 1}
+	p := &probe.Probe{Samples: make([]probe.Sample, 1)}
+	entry := &probe.InflightEntry{Probe: p}
+	probe.Inflight.Register(key, entry)
+	t.Cleanup(func() { probe.Inflight.Deregister(key, entry) })
+	sent := time.Unix(1700000000, 0)
+	p.Samples[0].MarkSent(sent.UnixMicro())
+	p.Samples[0].TryFill(42, sent.Add(time.Millisecond).UnixMicro())
+	for _, test := range []struct {
+		payload *payload.Payload
+		body    []byte
+	}{
+		{payload.TCP, []byte{0, 80, 156, 64, 0, 0, 0, 1, 0, 0, 0, 1, 80, 18, 2, 0, 0, 0, 0, 0}},
+		{payload.UdpDns, []byte{0, 53, 156, 64, 0, 20, 0, 0, 0, 0, 132, 0, 0, 0, 0, 0, 0, 0}},
+		{payload.ICMP, []byte{0, 0, 0, 0, 0, 1, 0, 0}},
+	} {
+		t.Run(string(test.payload.ID), func(t *testing.T) {
+			payload.Active = test.payload
+			data := ipv4Frame(t, test.payload.ProtocolID, test.body)
+			copy(data[30:34], []byte{0, 0, 0, 0})
+			late, dup := atomic.LoadInt64(&stats.DropLate), atomic.LoadInt64(&stats.DropDup)
+			d := newPacketDecoder()
+			d.process(data, sent.Add(time.Second))
+			if atomic.LoadInt64(&stats.DropLate) != late || atomic.LoadInt64(&stats.DropDup) != dup+1 {
+				t.Fatal("processing delay replaced capture time in RTT validation")
+			}
+			d.process(data, sent.Add(time.Second+time.Microsecond))
+			if atomic.LoadInt64(&stats.DropLate) != late+1 {
+				t.Fatal("late capture was not rejected")
 			}
 		})
 	}
