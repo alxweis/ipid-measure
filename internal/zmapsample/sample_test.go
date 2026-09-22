@@ -19,10 +19,13 @@ func TestFixedBaseSampleSize(t *testing.T) {
 		total int64
 		want  int64
 	}{
+		{10_000, 10_000},
 		{500_000, 500_000},
 		{1_000_000, 1_000_000},
+		{3_935_311, 1_000_000},
 		{5_000_000, 1_000_000},
 		{10_000_001, 1_000_001},
+		{100_000_000, 10_000_000},
 	}
 	for _, test := range tests {
 		if got := FixedBaseSampleSize(test.total, 1_000_000, 10); got != test.want {

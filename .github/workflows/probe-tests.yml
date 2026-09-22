@@ -4,6 +4,10 @@ on:
     paths:
       - 'ipid/**'
       - 'internal/**'
+      - 'scripts/run-all.sh'
+      - 'scripts/test-run-all.sh'
+      - 'cmd/sample-zmap/**'
+      - 'cmd/publish-analysis-job/**'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/probe-tests.yml'
@@ -19,3 +23,5 @@ jobs:
           go-version-file: go.mod
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - run: go test -race ./ipid/... ./internal/...
+      - run: go test ./cmd/sample-zmap ./cmd/publish-analysis-job
+      - run: bash scripts/test-run-all.sh

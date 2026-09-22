@@ -159,8 +159,8 @@ trap print_summary EXIT
 RT_CONNECTION_COUNT=4;   RT_REQUESTS_PER_CON=4
 FI_CONNECTION_COUNT_1=4; FI_REQUESTS_PER_CON_1=4;  FI_REQUEST_INTERVAL_1=20ms; FI_MIN_REPLY_RATE_1=1.0
 FI_CONNECTION_COUNT_2=4; FI_REQUESTS_PER_CON_2=25; FI_REQUEST_INTERVAL_2=20ms; FI_MIN_REPLY_RATE_2=0.8
-TCP_FIXED_BASE_SAMPLE_PERCENT=10
-TCP_FIXED_BASE_SAMPLE_MINIMUM=1000000
+FIXED_BASE_SAMPLE_PERCENT=10
+FIXED_BASE_SAMPLE_MINIMUM=1000000
 
 # Internet-wide OS profile: scan the six selected services for every target
 # with bounded concurrency in the three scanner implementations.
@@ -277,21 +277,18 @@ for proto in "${PROTOS[@]}"; do
     run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" false
     FIXED_MASS[$proto]=$LAST_IPID_ID
 
-    fixed_base_target=
-    if [[ "$proto" == "tcp-80" ]]; then
-        fixed_base_target=$(./bin/sample-zmap \
-            --zmap "$id" \
-            --percent "$TCP_FIXED_BASE_SAMPLE_PERCENT" \
-            --minimum "$TCP_FIXED_BASE_SAMPLE_MINIMUM" | tail -n1)
-    fi
+    fixed_base_target=$(./bin/sample-zmap \
+        --zmap "$id" \
+        --percent "$FIXED_BASE_SAMPLE_PERCENT" \
+        --minimum "$FIXED_BASE_SAMPLE_MINIMUM" | tail -n1)
     FIXED_BASE_TARGET[$proto]=$fixed_base_target
 
     run_ipid "$proto" "$id" false "${MODES[1]}" "$fixed_base_target" false
     FIXED_BASE[$proto]=$LAST_IPID_ID
     if [[ "$proto" == "tcp-80" ]]; then
         connection_target=$(./bin/sample-zmap --zmap "$id" --reply-type synack \
-            --percent "$TCP_FIXED_BASE_SAMPLE_PERCENT" \
-            --minimum "$TCP_FIXED_BASE_SAMPLE_MINIMUM" | tail -n1)
+            --percent "$FIXED_BASE_SAMPLE_PERCENT" \
+            --minimum "$FIXED_BASE_SAMPLE_MINIMUM" | tail -n1)
         CONNECTION_TARGET[$proto]=$connection_target
         run_ipid "$proto" "$id" true  "${MODES[0]}" "$connection_target" false
         CONNECTION_RT[$proto]=$LAST_IPID_ID
@@ -309,10 +306,10 @@ for proto in "${PROTOS[@]}"; do
                   --os "${OS[$proto]}"
                   --rt-base "${RT_BASE[$proto]}"
                   --fixed-mass "${FIXED_MASS[$proto]}"
-                  --fixed-base "${FIXED_BASE[$proto]}")
+                  --fixed-base "${FIXED_BASE[$proto]}"
+                  --fixed-base-target "${FIXED_BASE_TARGET[$proto]}")
     if [[ "$proto" == "tcp-80" ]]; then
         publish_args+=(--connection-target "${CONNECTION_TARGET[$proto]}"
-                       --fixed-base-target "${FIXED_BASE_TARGET[$proto]}"
                        --connection-rt-base "${CONNECTION_RT[$proto]}"
                        --connection-fixed-base "${CONNECTION_FIXED[$proto]}")
     fi
