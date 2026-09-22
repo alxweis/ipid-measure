@@ -294,8 +294,8 @@ For ICMP, TCP, and UDP-DNS the common order is:
    `failed.json`. The analysis worker stores `zmap_unclassified.pq` beside the
    RT measurement's `ipid.pq`; on success, download and SHA-256-verify it.
 4. Stateless fixed-interval 4 x 25 only against `zmap_unclassified.pq`.
-5. Stateless fixed-interval 4 x 4: ICMP and UDP-DNS use the original ZMap
-   result; TCP uses the fixed-base target sample described below.
+5. Stateless fixed-interval 4 x 4 against the fixed-base target sample described
+   below, for all three protocols.
 
 The 4 x 4 layout uses strict Base validation in both measurement modes. An
 active target fails on a duplicate, an unsent or out-of-range request index,
@@ -417,11 +417,19 @@ connection resets, non-TCP replies and Mass measurements. Flag letters use
 `tcp_bad_flags_final[...]` emitted after receivers stop so the final counts
 include failures since the last periodic snapshot. Reply acceptance is unchanged.
 
-The stateless TCP fixed-base sample contains exactly
+For ICMP, TCP, and UDP-DNS, the stateless fixed-base sample contains exactly
 `min(N, max(ceil(10% * N), 1,000,000))` uniformly selected rows from the
-original TCP `zmap.pq`. It is generated once per ZMap campaign and persisted as
+original `zmap.pq`, independently of RT results. It is generated once per ZMap
+campaign and persisted as
 `zmap/raw/<zmap-id>/zmap-fixed-base-sample.pq`; its seed and source/sample row
 counts are recorded in `zmap-fixed-base-sample.json`.
+Campaigns with fewer than one million targets retain all targets; five million
+targets yield a one-million-target sample. RT Base still uses the full ZMap
+result, and FI Mass still uses only the RT-unclassified targets.
+The analysis job uploads the sample and metadata and declares
+`fixed_base_target_uri` so fixed-base coverage uses the sampled population.
+Deploy the corresponding ipid-analysis support for ICMP and UDP-DNS samples
+before starting sweeps with this version.
 
 Both TCP connection variants use one separate uniform sample filtered to
 `REPLY_TYPE = synack`. The same size formula applies with N equal to the number
@@ -431,7 +439,6 @@ source, eligible and sampled counts in `zmap-connection-sample.json`. No eligibl
 targets causes an error; it never falls back to RST or unknown response types.
 The analysis job uploads both artifacts and identifies this target in its manifest.
 Deploy the corresponding ipid-analysis support before starting new TCP sweeps.
-ICMP and UDP-DNS retain their full-ZMap fixed-base runs.
 
 After the complete protocol sweep, the ZMap id is used as its analysis job id.
 The protocol prefix in that id keeps the ICMP, TCP, and UDP-DNS VM jobs distinct.

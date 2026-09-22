@@ -157,3 +157,64 @@ func TestValidateMeasurementsRejectsMixedProtocols(t *testing.T) {
 		t.Fatal("expected protocol mismatch to fail")
 	}
 }
+
+func TestPublishFixedBaseSampleForICMPAndUDP(t *testing.T) {
+	for prefix, protocol := range map[string]string{"icmp": "icmp", "udp-dns-53": "udp-dns"} {
+		t.Run(prefix, func(t *testing.T) {
+			root := t.TempDir()
+			configs := ConfigPaths{
+				ZMap: filepath.Join(root, "zmap.yaml"),
+				OS:   filepath.Join(root, "os.yaml"),
+				IPID: filepath.Join(root, "ipid.yaml"),
+			}
+			writeConfig(t, configs.ZMap, "s3://bucket/raw/zmap/", "")
+			writeConfig(t, configs.OS, "s3://bucket/raw/os/", "")
+			writeConfig(t, configs.IPID, "s3://bucket/raw/ipid/", "s3://bucket/workflow/")
+			m := Measurements{
+				ZMap:            prefix + "_2026-07-22_10-00-00",
+				OS:              prefix + "_2026-07-22_10-00-01",
+				RTBase:          prefix + "_2026-07-22_10-00-02",
+				FixedMass:       prefix + "_2026-07-22_10-00-03",
+				FixedBase:       prefix + "_2026-07-22_10-00-04",
+				FixedBaseTarget: filepath.Join(root, "zmap-fixed-base-sample.pq"),
+			}
+			for _, name := range []string{"zmap-fixed-base-sample.pq", "zmap-fixed-base-sample.json"} {
+				if err := os.WriteFile(filepath.Join(root, name), []byte("sample"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := &recordingRunner{}
+			output := filepath.Join(root, "jobs")
+			uri, err := publish(context.Background(), r, m, configs, output, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			targetPrefix := "s3://bucket/raw/zmap/" + m.ZMap + "/"
+			jobPrefix := "s3://bucket/workflow/analysis-jobs/" + m.ZMap + "/"
+			want := []string{
+				targetPrefix + "zmap-fixed-base-sample.pq",
+				targetPrefix + "zmap-fixed-base-sample.json",
+				jobPrefix + "manifest.json",
+				jobPrefix + "request.json",
+			}
+			var got []string
+			for _, call := range r.calls {
+				got = append(got, call[len(call)-1])
+			}
+			if !reflect.DeepEqual(got, want) || uri != want[3] {
+				t.Fatalf("unexpected uploads: %v, request: %s", got, uri)
+			}
+			data, err := os.ReadFile(filepath.Join(output, m.ZMap, "request.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var request Request
+			if err := json.Unmarshal(data, &request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Protocol != protocol || request.FixedBaseTargetURI != want[0] || request.ConnectionTargetURI != "" {
+				t.Fatalf("unexpected request: %+v", request)
+			}
+		})
+	}
+}

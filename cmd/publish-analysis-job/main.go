@@ -18,7 +18,7 @@ func main() {
 	rtBase := flag.String("rt-base", "", "stateless RT-based base IPID measurement id")
 	fixedMass := flag.String("fixed-mass", "", "stateless fixed-interval mass IPID id")
 	fixedBase := flag.String("fixed-base", "", "stateless fixed-interval base IPID id")
-	fixedBaseTarget := flag.String("fixed-base-target", "", "sampled ZMap-compatible target used by TCP fixed-interval base measurements")
+	fixedBaseTarget := flag.String("fixed-base-target", "", "sampled ZMap-compatible target used by no-connection fixed-interval base measurements")
 	connectionTarget := flag.String("connection-target", "", "shared SYN-ACK target sample for TCP connection measurements")
 	connectionRT := flag.String("connection-rt-base", "", "TCP connection RT-based base IPID id")
 	connectionFI := flag.String("connection-fixed-base", "", "TCP connection fixed-interval base IPID id")

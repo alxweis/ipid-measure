@@ -150,9 +150,6 @@ func validateMeasurements(m Measurements) (string, error) {
 		}
 		all = append(all, m.ConnectionRTBase, m.ConnectionFIBase)
 	}
-	if payload != "tcp" && m.FixedBaseTarget != "" {
-		return "", fmt.Errorf("fixed-base target sample is only valid for TCP")
-	}
 	if m.ConnectionTarget != "" && (payload != "tcp" || m.ConnectionRTBase == "") {
 		return "", fmt.Errorf("connection target requires TCP connection measurements")
 	}
