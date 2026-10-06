@@ -449,7 +449,10 @@ func (entry *InflightEntry) FulfillReply(
 		return false
 	}
 	active := payload.ForSequence(logicalSeq)
-	hasPorts := active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
+	hasPorts := measurement.HasPorts
+	if measurement.IsInterProtocol() {
+		hasPorts = active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
+	}
 	if hasPorts && (dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort) {
 		atomic.AddInt64(&stats.DropBadPort, 1)
 		return false

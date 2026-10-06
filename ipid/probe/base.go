@@ -168,7 +168,10 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, protocol layers.IPProto
 	if active.ProtocolID != protocol {
 		return reject(&stats.DropProto, &stats.AbortProto)
 	}
-	hasPorts := active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
+	hasPorts := measurement.HasPorts
+	if measurement.IsInterProtocol() {
+		hasPorts = active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
+	}
 	if hasPorts && (dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort) {
 		return reject(&stats.DropBadPort, &stats.AbortBadPort)
 	}
