@@ -161,6 +161,9 @@ FI_CONNECTION_COUNT_1=4; FI_REQUESTS_PER_CON_1=4;  FI_REQUEST_INTERVAL_1=20ms; F
 FI_CONNECTION_COUNT_2=4; FI_REQUESTS_PER_CON_2=25; FI_REQUEST_INTERVAL_2=20ms; FI_MIN_REPLY_RATE_2=0.8
 FIXED_BASE_SAMPLE_PERCENT=10
 FIXED_BASE_SAMPLE_MINIMUM=1000000
+RANDOM_REPRODUCIBILITY_MAXIMUM_TARGETS=10000
+RANDOM_REPRODUCIBILITY_REPEAT_COUNT=5
+RANDOM_REPRODUCIBILITY_SELECTION_SEED=42
 
 # Internet-wide OS profile: scan the six selected services for every target
 # with bounded concurrency in the three scanner implementations.
@@ -187,7 +190,7 @@ DNS_PROBE="A,www.example.com"
 
 PROTOS=("${SELECTED_PROTOS[@]}")
 
-declare -A ZMAP OS RT_BASE FIXED_MASS FIXED_BASE FIXED_BASE_TARGET CONNECTION_TARGET CONNECTION_RT CONNECTION_FIXED
+declare -A ZMAP OS RT_BASE FIXED_MASS FIXED_BASE FIXED_BASE_TARGET CONNECTION_TARGET CONNECTION_RT CONNECTION_FIXED RANDOM_REPRODUCIBILITY_REPEATS
 
 zmap_flags() {
     case "$1" in
@@ -244,7 +247,9 @@ run_ipid() {
           --requests_per_connection "$reqs_per_con"
           --measurement_mode "$mode"
           --tcp.establish_connection "$tcp_establish_con"
-          --analysis_workflow.enable "$analysis_workflow")
+          --analysis_workflow.enable "$analysis_workflow"
+          --analysis_workflow.maximum_targets "$RANDOM_REPRODUCIBILITY_MAXIMUM_TARGETS"
+          --analysis_workflow.selection_seed "$RANDOM_REPRODUCIBILITY_SELECTION_SEED")
 
     if [[ "$mode" == "fixed-interval" ]]; then
         args+=(--fixed_interval.request_interval "$fi_request_interval"
@@ -274,8 +279,22 @@ for proto in "${PROTOS[@]}"; do
     fi
 
     # Probe only the RT-unclassified addresses at the higher sample count.
-    run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" false
-    FIXED_MASS[$proto]=$LAST_IPID_ID
+    run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$unclassified_targets" true
+    mass_id=$LAST_IPID_ID
+    FIXED_MASS[$proto]=$mass_id
+    reproducibility_targets="$PWD/ipid/raw/$mass_id/random-reproducibility-targets.pq"
+    if [[ ! -f "$reproducibility_targets" ]]; then
+        echo "RANDOM reproducibility targets missing: $reproducibility_targets" >&2
+        exit 1
+    fi
+
+    repeat_ids=()
+    for ((repeat=1; repeat<=RANDOM_REPRODUCIBILITY_REPEAT_COUNT; repeat++)); do
+        echo "=== [$proto] RANDOM reproducibility repeat $repeat/$RANDOM_REPRODUCIBILITY_REPEAT_COUNT ==="
+        run_ipid "$proto" "$id" false "${STATELESS_ONLY_MODES[0]}" "$reproducibility_targets" false
+        repeat_ids+=("$LAST_IPID_ID")
+    done
+    RANDOM_REPRODUCIBILITY_REPEATS[$proto]=$(IFS=,; echo "${repeat_ids[*]}")
 
     fixed_base_target=$(./bin/sample-zmap \
         --zmap "$id" \
@@ -307,7 +326,10 @@ for proto in "${PROTOS[@]}"; do
                   --rt-base "${RT_BASE[$proto]}"
                   --fixed-mass "${FIXED_MASS[$proto]}"
                   --fixed-base "${FIXED_BASE[$proto]}"
-                  --fixed-base-target "${FIXED_BASE_TARGET[$proto]}")
+                  --fixed-base-target "${FIXED_BASE_TARGET[$proto]}"
+                  --random-reproducibility-repeats "${RANDOM_REPRODUCIBILITY_REPEATS[$proto]}"
+                  --random-reproducibility-maximum-targets "$RANDOM_REPRODUCIBILITY_MAXIMUM_TARGETS"
+                  --random-reproducibility-selection-seed "$RANDOM_REPRODUCIBILITY_SELECTION_SEED")
     if [[ "$proto" == "tcp-80" ]]; then
         publish_args+=(--connection-target "${CONNECTION_TARGET[$proto]}"
                        --connection-rt-base "${CONNECTION_RT[$proto]}"

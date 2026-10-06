@@ -121,6 +121,26 @@ func TestNewRequestUsesMeasurementProtocol(t *testing.T) {
 	}
 }
 
+func TestNewRandomReproducibilityRequestUsesBoundedSelection(t *testing.T) {
+	w := config.AnalysisWorkflowConfig{S3Prefix: "s3://bucket/workflow/"}
+	u := config.UploadConfig{S3Destination: "s3://bucket/raw/ipid/"}
+	m := paths.Measurement{ID: "icmp_2026-01-01_00-00-00"}
+
+	request, err := newRequestForPurpose(
+		w, u, m, PurposeRandomReproducibility, 10_000, 42, time.Now(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Purpose != PurposeRandomReproducibility || request.MaximumTargets != 10_000 || request.SelectionSeed != 42 {
+		t.Fatalf("unexpected reproducibility request: %+v", request)
+	}
+	want := "s3://bucket/raw/ipid/" + m.ID + "/random-reproducibility-targets.pq"
+	if request.ResultURI != want {
+		t.Fatalf("result URI = %q, want %q", request.ResultURI, want)
+	}
+}
+
 func TestPollReturnsRemoteFailure(t *testing.T) {
 	dir := t.TempDir()
 	request := Request{

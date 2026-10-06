@@ -39,10 +39,16 @@ func TestAnalysisWorkflowSupportsAllMeasurementProtocols(t *testing.T) {
 	}
 }
 
-func TestAnalysisWorkflowRejectsFixedIntervalAndEstablishedTCP(t *testing.T) {
+func TestAnalysisWorkflowSupportsMassAndRejectsOtherFixedIntervalAndEstablishedTCP(t *testing.T) {
 	fixed := workflowConfig(types.PayloadICMP)
 	fixed.MeasurementMode = types.MeasurementModeFixedInterval
-	if err := validateAnalysisWorkflow(&fixed); err == nil || !strings.Contains(err.Error(), "rt-based") {
+	fixed.ConnectionCount = 4
+	fixed.RequestsPerConnection = 25
+	if err := validateAnalysisWorkflow(&fixed); err != nil {
+		t.Fatalf("Mass fixed-interval error = %v", err)
+	}
+	fixed.RequestsPerConnection = 4
+	if err := validateAnalysisWorkflow(&fixed); err == nil || !strings.Contains(err.Error(), "4x25") {
 		t.Fatalf("fixed-interval error = %v", err)
 	}
 

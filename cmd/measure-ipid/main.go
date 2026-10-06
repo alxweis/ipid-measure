@@ -40,6 +40,8 @@ func main() {
 	establishConnFlag := flag.String("tcp.establish_connection", "", "override tcp.establish_connection (true|false); empty keeps the configured value")
 	targetFileFlag := flag.String("target-file", "", "override the zmap parquet used as the target set")
 	analysisWorkflowFlag := flag.String("analysis_workflow.enable", "", "override analysis_workflow.enable (true|false); empty keeps the configured value")
+	analysisMaximumTargetsFlag := flag.Int("analysis_workflow.maximum_targets", analysisworkflow.MaximumReproducibilityTargets, "maximum RANDOM reproducibility targets for a 4x25 Mass measurement")
+	analysisSelectionSeedFlag := flag.Int("analysis_workflow.selection_seed", 42, "deterministic RANDOM reproducibility selection seed")
 	printID := flag.Bool("print-id", false, "print the measurement id to stdout on success")
 	flag.Parse()
 
@@ -117,9 +119,17 @@ func main() {
 		log.Fatalf("upload measurement: %v", err)
 	}
 	if c.AnalysisWorkflowConfig.Enable {
-		resultPath, err := analysisworkflow.RequestAndWait(
-			context.Background(), c.AnalysisWorkflowConfig, c.UploadConfig, m.Measurement,
-		)
+		var resultPath string
+		if c.MeasurementMode == types.MeasurementModeFixedInterval {
+			resultPath, err = analysisworkflow.RequestRandomReproducibilityAndWait(
+				context.Background(), c.AnalysisWorkflowConfig, c.UploadConfig, m.Measurement,
+				*analysisMaximumTargetsFlag, *analysisSelectionSeedFlag,
+			)
+		} else {
+			resultPath, err = analysisworkflow.RequestAndWait(
+				context.Background(), c.AnalysisWorkflowConfig, c.UploadConfig, m.Measurement,
+			)
+		}
 		if err != nil {
 			log.Fatalf("analysis workflow: %v", err)
 		}
