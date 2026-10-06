@@ -46,6 +46,11 @@ func Save() {
 
 	bw := bufio.NewWriterSize(f, consts.IPIDSaveFileBufferSize)
 
+	if measurement.IsInterProtocol() {
+		saveInterProtocol(bw, f)
+		return
+	}
+
 	writer := parquet.NewGenericWriter[records.IPIDRecord](bw,
 		parquet.Compression(&snappy.Codec{}),
 		parquet.PageBufferSize(ParquetPageBufferBytes),
@@ -93,6 +98,54 @@ func Save() {
 	}
 	if err := f.Close(); err != nil {
 		measurement.Fail(fmt.Errorf("close ipid parquet file: %w", err))
+	}
+}
+
+func saveInterProtocol(bw *bufio.Writer, f *os.File) {
+	writer := parquet.NewGenericWriter[records.InterProtocolRecord](bw,
+		parquet.Compression(&snappy.Codec{}),
+		parquet.PageBufferSize(ParquetPageBufferBytes),
+		parquet.MaxRowsPerRowGroup(ParquetMaxRowsPerRowGroup),
+	)
+	batch := make([]records.InterProtocolRecord, 0, ParquetWriteBatchSize)
+	failed := false
+	flush := func() {
+		if len(batch) == 0 || failed {
+			return
+		}
+		if _, err := writer.Write(batch); err != nil {
+			failed = true
+			measurement.Fail(fmt.Errorf("write interprotocol parquet: %w", err))
+		}
+		batch = batch[:0]
+	}
+	for p := range SaveProbesChannel {
+		if p == nil || failed {
+			continue
+		}
+		base, ok := probeToRecord(p, false)
+		if !ok {
+			continue
+		}
+		batch = append(batch, records.InterProtocolRecord{
+			IPAddress: base.IPAddress, Strategy: p.TargetStrategy,
+			IPIDSequence:             base.IPIDSequence,
+			SendTimestampSequence:    base.SendTimestampSequence,
+			ReceiveTimestampSequence: base.ReceiveTimestampSequence,
+		})
+		if len(batch) >= ParquetWriteBatchSize {
+			flush()
+		}
+	}
+	flush()
+	if err := writer.Close(); err != nil {
+		measurement.Fail(fmt.Errorf("close interprotocol parquet writer: %w", err))
+	}
+	if err := bw.Flush(); err != nil {
+		measurement.Fail(fmt.Errorf("flush interprotocol parquet buffer: %w", err))
+	}
+	if err := f.Close(); err != nil {
+		measurement.Fail(fmt.Errorf("close interprotocol parquet file: %w", err))
 	}
 }
 

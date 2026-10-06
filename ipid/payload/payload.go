@@ -60,8 +60,18 @@ func Get() *Payload {
 	return payloads[measurement.Config.ZMapPayload]
 }
 
+func ForSequence(seqNum uint16) *Payload {
+	return payloads[measurement.ProtocolForSequence(seqNum)]
+}
+
 func Setup() {
 	Active = Get()
+	if measurement.IsInterProtocol() {
+		Active = nil
+		measurement.TcpEstablishConnection = false
+		measurement.HasPorts = true
+		return
+	}
 	measurement.TcpEstablishConnection =
 		Active.ProtocolID == layers.IPProtocolTCP &&
 			measurement.Config.TCPConfig.EstablishConnection

@@ -7,11 +7,63 @@ import (
 	"testing"
 
 	"github.com/alxweis/ipid-measure/internal/config"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/payload"
+	"github.com/alxweis/ipid-measure/ipid/sender"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 )
+
+func TestInterProtocolPacketsRepeatProtocolsWithoutChangingSourcePosition(t *testing.T) {
+	previousConfig, previousProtocols := measurement.Config, measurement.InterProtocols
+	previousPorts, previousCount := measurement.InterProtocolPorts, measurement.RequestCount
+	previousA, previousB, previousPayload := sender.SenderA, sender.SenderB, payload.Active
+	t.Cleanup(func() {
+		measurement.Config, measurement.InterProtocols = previousConfig, previousProtocols
+		measurement.InterProtocolPorts, measurement.RequestCount = previousPorts, previousCount
+		sender.SenderA, sender.SenderB, payload.Active = previousA, previousB, previousPayload
+	})
+	measurement.Config = &config.IPIDConfig{
+		ConnectionCount: 2, RequestsPerConnection: 1, RequestIPIDs: []uint16{1234},
+	}
+	measurement.InterProtocols = []types.Payload{
+		types.PayloadICMP, types.PayloadTCP, types.PayloadUDPDNS,
+	}
+	measurement.InterProtocolPorts = map[types.Payload]uint16{
+		types.PayloadTCP: 80, types.PayloadUDPDNS: 53,
+	}
+	measurement.RequestCount = 6
+	sender.SenderA = &sender.Sender{IP: net.IPv4(192, 0, 2, 1)}
+	sender.SenderB = &sender.Sender{IP: net.IPv4(192, 0, 2, 2)}
+	payload.Active = nil
+
+	Setup()
+	packets := make([][]byte, measurement.RequestCount)
+	BuildPacketsInto(packets, net.IPv4(198, 51, 100, 1), 40_000)
+	wantProtocols := []byte{1, 6, 17, 1, 6, 17}
+	for index, want := range wantProtocols {
+		if got := packets[index][9]; got != want {
+			t.Fatalf("packet %d protocol = %d, want %d", index, got, want)
+		}
+		wantSource := sender.SenderA.IP.To4()
+		if index >= 3 {
+			wantSource = sender.SenderB.IP.To4()
+		}
+		if !bytes.Equal(packets[index][12:16], wantSource) {
+			t.Fatalf("packet %d source = %v, want %v", index, packets[index][12:16], wantSource)
+		}
+	}
+	if packets[0][20] != 8 {
+		t.Fatalf("ICMP type was overwritten with a source port: %d", packets[0][20])
+	}
+	if got := binary.BigEndian.Uint16(packets[1][22:24]); got != 80 {
+		t.Fatalf("TCP destination port = %d, want 80", got)
+	}
+	if got := binary.BigEndian.Uint16(packets[2][22:24]); got != 53 {
+		t.Fatalf("UDP destination port = %d, want 53", got)
+	}
+}
 
 func TestBuildTCPACK(t *testing.T) {
 	previousPayload := payload.Active

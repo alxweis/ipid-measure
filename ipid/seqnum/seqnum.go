@@ -3,11 +3,11 @@ package seqnum
 import "github.com/alxweis/ipid-measure/ipid/measurement"
 
 func GetConnectionIndex(seqNum uint16) uint16 {
-	return seqNum % measurement.Config.ConnectionCount
+	return measurement.BaseSequenceIndex(seqNum) % measurement.Config.ConnectionCount
 }
 
 func GetRequestIndex(seqNum uint16) uint16 {
-	return seqNum / measurement.Config.ConnectionCount
+	return measurement.BaseSequenceIndex(seqNum) / measurement.Config.ConnectionCount
 }
 
 // TCPSequenceNumber returns a sequence number that advances independently for

@@ -1,5 +1,24 @@
 # ipid-measure
 
+## Inter-protocol measurement
+
+`measure-interprotocol` consumes one of the same-strategy target Parquets
+created by `ipid-analysis`. It reuses the normal raw-packet sender/receiver and
+runs a stateless, RT-based schedule with one outstanding request per target.
+There are no retries: a timeout is written as `-` and probing continues.
+
+```bash
+make build-interprotocol
+sudo setcap cap_net_raw,cap_net_admin+eip bin/measure-interprotocol
+make run-interprotocol ARGS="--target-file /data/icmp-tcp-udp-targets.pq --protocols icmp,tcp,udp"
+```
+
+The fixed order is repeated for every logical connection/request position, for
+example `ICMP -> TCP -> UDP -> ICMP -> ...`. Source address selection remains
+based on the logical connection, so a protocol is not tied to one source IP.
+Output is stored under `data/raw/ipid/interprotocol-<group>_<timestamp>/` as
+`interprotocol.pq`, `interprotocol.snapshot.yaml`, and a `targets` symlink.
+
 A high-throughput active-measurement toolkit for IPv4. It runs as a three-stage
 pipeline:
 

@@ -24,6 +24,8 @@ const (
 	OSMeasurementFile                 = "os" + ParquetExtension
 	OSCoverageFile                    = "os-coverage.json"
 	IPIDMeasurementFile               = "ipid" + ParquetExtension
+	InterProtocolMeasurementFile      = "interprotocol" + ParquetExtension
+	InterProtocolTargetLink           = "targets"
 	RandomReproducibilityTargetFile   = "random-reproducibility-targets.pq"
 	RandomReproducibilityCohortFile   = "random-reproducibility-cohort.pq"
 	RandomReproducibilityMetadataFile = "random-reproducibility-prepare.json"
@@ -32,9 +34,10 @@ const (
 	OSConfigFile   = "os" + ConfigExtension
 	IPIDConfigFile = "ipid" + ConfigExtension
 
-	ZMapConfigSnapshotFile = "zmap" + ConfigSnapshotExtension
-	OSConfigSnapshotFile   = "os" + ConfigSnapshotExtension
-	IPIDConfigSnapshotFile = "ipid" + ConfigSnapshotExtension
+	ZMapConfigSnapshotFile          = "zmap" + ConfigSnapshotExtension
+	OSConfigSnapshotFile            = "os" + ConfigSnapshotExtension
+	IPIDConfigSnapshotFile          = "ipid" + ConfigSnapshotExtension
+	InterProtocolConfigSnapshotFile = "interprotocol" + ConfigSnapshotExtension
 
 	ZMapLogFile = "zmap" + LogExtension
 	OSLogFile   = "os" + LogExtension

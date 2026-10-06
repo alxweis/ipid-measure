@@ -15,6 +15,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/internal/types"
 )
 
 var (
@@ -28,7 +29,41 @@ var (
 	TcpEstablishConnection bool
 
 	HasPorts bool
+
+	// InterProtocols is empty for the existing single-protocol measurements.
+	// When set, every logical connection/request position is expanded in this
+	// protocol order, yielding P1,P2,...,Pn,P1,P2,... without correlating a
+	// protocol with one of the two source addresses.
+	InterProtocols     []types.Payload
+	InterProtocolPorts map[types.Payload]uint16
 )
+
+func IsInterProtocol() bool { return len(InterProtocols) > 0 }
+
+func BaseSequenceIndex(seqNum uint16) uint16 {
+	if !IsInterProtocol() {
+		return seqNum
+	}
+	return seqNum / uint16(len(InterProtocols))
+}
+
+func ProtocolForSequence(seqNum uint16) types.Payload {
+	if !IsInterProtocol() {
+		return Config.ZMapPayload
+	}
+	return InterProtocols[int(seqNum)%len(InterProtocols)]
+}
+
+func PortForPayload(protocol types.Payload) *uint16 {
+	if IsInterProtocol() {
+		if value, ok := InterProtocolPorts[protocol]; ok {
+			port := value
+			return &port
+		}
+		return nil
+	}
+	return Config.ZMapPort
+}
 
 var (
 	SaveWg     sync.WaitGroup
@@ -78,6 +113,9 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	Config = c
 	Paths = m
 	RequestCount = Config.ConnectionCount * Config.RequestsPerConnection
+	if IsInterProtocol() {
+		RequestCount *= uint16(len(InterProtocols))
+	}
 	TcpSequenceNumOffset = uint32(rand.Uint64() % (math.MaxUint32 - uint64(RequestCount)))
 
 	printConfig()

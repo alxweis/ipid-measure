@@ -25,10 +25,10 @@ BUILD_FLAGS ?= -trimpath -ldflags="-s -w"
 
 # Measurement tools. Each builds to $(BIN_DIR)/measure-<tool> from
 # ./cmd/measure-<tool>.
-TOOLS := ipid os zmap
+TOOLS := ipid interprotocol os zmap
 
 # Tools whose binaries open raw sockets and need CAP_NET_RAW / CAP_NET_ADMIN.
-CAP_TOOLS := ipid zmap
+CAP_TOOLS := ipid interprotocol zmap
 CAPS      := cap_net_raw,cap_net_admin+eip
 
 # Extra arguments forwarded verbatim to the binary by the run-* targets, e.g.:
