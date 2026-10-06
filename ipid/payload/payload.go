@@ -61,6 +61,9 @@ func Get() *Payload {
 }
 
 func ForSequence(seqNum uint16) *Payload {
+	if !measurement.IsInterProtocol() {
+		return Active
+	}
 	return payloads[measurement.ProtocolForSequence(seqNum)]
 }
 
