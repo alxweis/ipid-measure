@@ -249,7 +249,10 @@ end-to-end with no manual id juggling:
    `measure-os --zmap <id>`.
 3. For each protocol, classify the stateless RT result via S3 and run the mass
    measurement only against the returned `UNCLASSIFIED` targets.
-4. After every measurement for a protocol has succeeded, write
+4. Classify the Mass result via S3, freeze a reproducibility cohort of at most
+   10,000 targets, and run five immediate 4 x 25 repeats against exactly that
+   same target set.
+5. After every measurement for a protocol has succeeded, write
    `analysis-jobs/<zmap-id>/manifest.json` locally and publish it to the shared
    S3 prefix. Publishing `request.json` last starts automatic postprocessing on
    the analysis VM.
@@ -294,7 +297,15 @@ For ICMP, TCP, and UDP-DNS the common order is:
    `failed.json`. The analysis worker stores `zmap_unclassified.pq` beside the
    RT measurement's `ipid.pq`; on success, download and SHA-256-verify it.
 4. Stateless fixed-interval 4 x 25 only against `zmap_unclassified.pq`.
-5. Stateless fixed-interval 4 x 4 against the fixed-base target sample described
+5. Upload a second analysis request for the Mass run. The worker applies the
+   production Mass classifier and returns `random-reproducibility-targets.pq`
+   containing at most 5,000 `UNCLASSIFIED` targets and an equally large RANDOM
+   control cohort (10,000 targets maximum).
+6. Run exactly five fixed-interval 4 x 25 repeats against that same frozen
+   parquet. Missing targets are retained as missing observations and are not
+   replaced. At the 10,000-target cap this adds at most five million request
+   attempts per protocol.
+7. Stateless fixed-interval 4 x 4 against the fixed-base target sample described
    below, for all three protocols.
 
 The 4 x 4 layout uses strict Base validation in both measurement modes. An
@@ -447,6 +458,9 @@ The persistent manifest and request are stored below
 prefix. The existing analysis worker consumes these jobs sequentially, runs the
 normal manifest-driven postprocessing, and publishes `done.json` or
 `failed.json` plus `postprocess.log` in the same S3 directory.
+The manifest also records the Mass baseline, all five repeat ids, selection
+seed, target cap, and cohort artifact names, so the analysis VM can reproduce
+the linkage without manual manifest edits.
 
 The analysis worker uploads the target parquet to the RT measurement prefix
 before publishing the completion marker under `jobs/<rt-id>/`; therefore

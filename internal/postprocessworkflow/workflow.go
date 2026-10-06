@@ -18,15 +18,18 @@ import (
 const ProtocolVersion = 1
 
 type Measurements struct {
-	ZMap             string
-	OS               string
-	RTBase           string
-	FixedMass        string
-	FixedBase        string
-	ConnectionTarget string
-	FixedBaseTarget  string
-	ConnectionRTBase string
-	ConnectionFIBase string
+	ZMap                                string
+	OS                                  string
+	RTBase                              string
+	FixedMass                           string
+	FixedBase                           string
+	ConnectionTarget                    string
+	FixedBaseTarget                     string
+	ConnectionRTBase                    string
+	ConnectionFIBase                    string
+	RandomReproducibilityRepeats        []string
+	RandomReproducibilityMaximumTargets int
+	RandomReproducibilitySelectionSeed  int
 }
 
 type ScaleMeasurements struct {
@@ -45,10 +48,21 @@ type IPIDMeasurements struct {
 }
 
 type ProtocolMeasurements struct {
-	ConnectionTarget string           `json:"connection_target,omitempty"`
-	ZMap             string           `json:"zmap"`
-	OS               string           `json:"os"`
-	IPID             IPIDMeasurements `json:"ipid"`
+	ConnectionTarget      string                             `json:"connection_target,omitempty"`
+	ZMap                  string                             `json:"zmap"`
+	OS                    string                             `json:"os"`
+	IPID                  IPIDMeasurements                   `json:"ipid"`
+	RandomReproducibility *RandomReproducibilityMeasurements `json:"random_reproducibility,omitempty"`
+}
+
+type RandomReproducibilityMeasurements struct {
+	Baseline            string   `json:"baseline"`
+	Repeats             []string `json:"repeats"`
+	TargetFile          string   `json:"target_file"`
+	CohortFile          string   `json:"cohort_file"`
+	PrepareMetadataFile string   `json:"prepare_metadata_file"`
+	SelectionSeed       int      `json:"selection_seed"`
+	MaximumTargets      int      `json:"maximum_targets"`
 }
 
 type Request struct {
@@ -141,6 +155,22 @@ func validateMeasurements(m Measurements) (string, error) {
 		return "", fmt.Errorf("invalid zmap measurement id: %w", err)
 	}
 	all := []string{m.OS, m.RTBase, m.FixedMass, m.FixedBase}
+	if len(m.RandomReproducibilityRepeats) != 0 && len(m.RandomReproducibilityRepeats) != 5 {
+		return "", fmt.Errorf("RANDOM reproducibility requires exactly five repeat measurement ids")
+	}
+	if len(m.RandomReproducibilityRepeats) == 5 {
+		if m.RandomReproducibilityMaximumTargets < 0 || m.RandomReproducibilityMaximumTargets > 10_000 {
+			return "", fmt.Errorf("RANDOM reproducibility maximum targets must be in [0, 10000]")
+		}
+		seen := make(map[string]struct{}, len(m.RandomReproducibilityRepeats))
+		for _, id := range m.RandomReproducibilityRepeats {
+			if _, exists := seen[id]; exists {
+				return "", fmt.Errorf("RANDOM reproducibility repeat measurement ids must be unique")
+			}
+			seen[id] = struct{}{}
+		}
+		all = append(all, m.RandomReproducibilityRepeats...)
+	}
 	if (m.ConnectionRTBase == "") != (m.ConnectionFIBase == "") {
 		return "", fmt.Errorf("both TCP connection measurement ids must be provided together")
 	}
@@ -184,9 +214,21 @@ func manifest(protocol string, m Measurements) map[string]ProtocolMeasurements {
 	if m.ConnectionTarget != "" {
 		connectionTarget = files.ZMapConnectionSampleFile
 	}
-	return map[string]ProtocolMeasurements{
-		protocol: {ZMap: m.ZMap, OS: m.OS, IPID: ipid, ConnectionTarget: connectionTarget},
+	protocolMeasurements := ProtocolMeasurements{
+		ZMap: m.ZMap, OS: m.OS, IPID: ipid, ConnectionTarget: connectionTarget,
 	}
+	if len(m.RandomReproducibilityRepeats) == 5 {
+		protocolMeasurements.RandomReproducibility = &RandomReproducibilityMeasurements{
+			Baseline:            m.FixedMass,
+			Repeats:             append([]string(nil), m.RandomReproducibilityRepeats...),
+			TargetFile:          files.RandomReproducibilityTargetFile,
+			CohortFile:          files.RandomReproducibilityCohortFile,
+			PrepareMetadataFile: files.RandomReproducibilityMetadataFile,
+			SelectionSeed:       m.RandomReproducibilitySelectionSeed,
+			MaximumTargets:      m.RandomReproducibilityMaximumTargets,
+		}
+	}
+	return map[string]ProtocolMeasurements{protocol: protocolMeasurements}
 }
 
 func writeJSON(path string, value any) error {

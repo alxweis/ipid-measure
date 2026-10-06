@@ -40,8 +40,13 @@ func validateAnalysisWorkflow(c *IPIDConfig) error {
 	default:
 		return fmt.Errorf("analysis_workflow does not support payload %q", c.ZMapPayload)
 	}
-	if c.MeasurementMode != types.MeasurementModeRTBased {
-		return fmt.Errorf("analysis_workflow is only valid for rt-based measurements")
+	validRT := c.MeasurementMode == types.MeasurementModeRTBased
+	validMass := c.MeasurementMode == types.MeasurementModeFixedInterval &&
+		c.ConnectionCount == 4 && c.RequestsPerConnection == 25
+	if !validRT && !validMass {
+		return fmt.Errorf(
+			"analysis_workflow is only valid for rt-based or 4x25 fixed-interval Mass measurements",
+		)
 	}
 	if c.ZMapPayload == types.PayloadTCP && c.TCPConfig.EstablishConnection {
 		return fmt.Errorf("analysis_workflow requires stateless TCP")

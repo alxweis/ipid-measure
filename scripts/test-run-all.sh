@@ -52,8 +52,17 @@ case "$(basename "$0")" in
             touch "ipid/raw/$run/zmap_unclassified.pq"
             printf '%s\n' "$PWD/ipid/raw/$run/zmap_unclassified.pq" > mass-target
         elif [[ $requests == 25 ]]; then
-            [[ $target == "$(cat mass-target)" ]] || fail "wrong Mass targets"
             [[ $(value --fixed_interval.minimum_reply_rate "$@") == 0.8 ]] || fail "wrong Mass reply rate"
+            if [[ $(value --analysis_workflow.enable "$@") == true ]]; then
+                [[ $target == "$(cat mass-target)" ]] || fail "wrong initial Mass targets"
+                [[ $(value --analysis_workflow.maximum_targets "$@") == 10000 ]] || fail "wrong reproducibility cap"
+                [[ $(value --analysis_workflow.selection_seed "$@") == 42 ]] || fail "wrong reproducibility seed"
+                mkdir -p "ipid/raw/$run"
+                touch "ipid/raw/$run/random-reproducibility-targets.pq"
+                printf '%s\n' "$PWD/ipid/raw/$run/random-reproducibility-targets.pq" > reproducibility-target
+            else
+                [[ $target == "$(cat reproducibility-target)" ]] || fail "wrong reproducibility targets"
+            fi
         else
             [[ $target == "$sample" && -f $sample && $requests == 4 ]] || fail "FI Base must use its sample"
         fi
@@ -69,6 +78,10 @@ case "$(basename "$0")" in
         else
             [[ -z $(value --connection-target "$@") ]] || fail "unexpected connection sample"
         fi
+        repeats=$(value --random-reproducibility-repeats "$@")
+        [[ $(awk -F, '{print NF}' <<< "$repeats") == 5 ]] || fail "expected five reproducibility repeats"
+        [[ $(value --random-reproducibility-maximum-targets "$@") == 10000 ]] || fail "missing reproducibility cap"
+        [[ $(value --random-reproducibility-selection-seed "$@") == 42 ]] || fail "missing reproducibility seed"
         printf 'published\n' > published
         printf 's3://test/request.json\n'
         ;;
@@ -91,8 +104,8 @@ for protocol in icmp tcp udp; do
     printf '0\n' > "$test_root/calls-count"
     rm -f "$test_root/published"
     bash "$test_root/scripts/run-all.sh" "$protocol" --zmap-id "$id" --os-id "$id" > "$test_root/output"
-    expected=3
-    [[ $protocol != tcp ]] || expected=5
+    expected=8
+    [[ $protocol != tcp ]] || expected=10
     [[ $(cat "$test_root/calls-count") == "$expected" && -f "$test_root/published" ]]
     printf '%s sweep passed\n' "$protocol"
 done

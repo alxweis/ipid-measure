@@ -20,21 +20,27 @@ import (
 )
 
 const (
-	ProtocolVersion    = 2
-	UnclassifiedTarget = "zmap_unclassified.pq"
+	ProtocolVersion               = 2
+	PurposeRTUnclassified         = "rt-unclassified"
+	PurposeRandomReproducibility  = "random-reproducibility"
+	UnclassifiedTarget            = "zmap_unclassified.pq"
+	MaximumReproducibilityTargets = 10_000
 )
 
 type Request struct {
-	Version       int       `json:"version"`
-	JobID         string    `json:"job_id"`
-	Protocol      string    `json:"protocol"`
-	MeasurementID string    `json:"measurement_id"`
-	IPIDURI       string    `json:"ipid_uri"`
-	SnapshotURI   string    `json:"snapshot_uri"`
-	ResultURI     string    `json:"result_uri"`
-	DoneURI       string    `json:"done_uri"`
-	FailedURI     string    `json:"failed_uri"`
-	CreatedAt     time.Time `json:"created_at"`
+	Version        int       `json:"version"`
+	JobID          string    `json:"job_id"`
+	Protocol       string    `json:"protocol"`
+	MeasurementID  string    `json:"measurement_id"`
+	IPIDURI        string    `json:"ipid_uri"`
+	SnapshotURI    string    `json:"snapshot_uri"`
+	ResultURI      string    `json:"result_uri"`
+	DoneURI        string    `json:"done_uri"`
+	FailedURI      string    `json:"failed_uri"`
+	CreatedAt      time.Time `json:"created_at"`
+	Purpose        string    `json:"purpose"`
+	MaximumTargets int       `json:"maximum_targets"`
+	SelectionSeed  int       `json:"selection_seed"`
 }
 
 type Done struct {
@@ -81,23 +87,42 @@ func newRequest(
 	m paths.Measurement,
 	now time.Time,
 ) (Request, error) {
+	return newRequestForPurpose(w, u, m, PurposeRTUnclassified, 0, 0, now)
+}
+
+func newRequestForPurpose(
+	w config.AnalysisWorkflowConfig,
+	u config.UploadConfig,
+	m paths.Measurement,
+	purpose string,
+	maximumTargets int,
+	selectionSeed int,
+	now time.Time,
+) (Request, error) {
 	payload, _, _, err := paths.ParseMeasurementID(m.ID)
 	if err != nil {
 		return Request{}, fmt.Errorf("derive analysis protocol from measurement id: %w", err)
 	}
 	jobPrefix := joinS3(w.S3Prefix, "jobs", m.ID)
 	inputPrefix := upload.RemoteMeasurementURI(u, m)
+	resultName := UnclassifiedTarget
+	if purpose == PurposeRandomReproducibility {
+		resultName = files.RandomReproducibilityTargetFile
+	}
 	return Request{
-		Version:       ProtocolVersion,
-		JobID:         m.ID,
-		Protocol:      string(payload),
-		MeasurementID: m.ID,
-		IPIDURI:       joinS3(inputPrefix, files.IPIDMeasurementFile),
-		SnapshotURI:   joinS3(inputPrefix, files.IPIDConfigSnapshotFile),
-		ResultURI:     joinS3(inputPrefix, UnclassifiedTarget),
-		DoneURI:       joinS3(jobPrefix, "done.json"),
-		FailedURI:     joinS3(jobPrefix, "failed.json"),
-		CreatedAt:     now.UTC(),
+		Version:        ProtocolVersion,
+		JobID:          m.ID,
+		Protocol:       string(payload),
+		MeasurementID:  m.ID,
+		IPIDURI:        joinS3(inputPrefix, files.IPIDMeasurementFile),
+		SnapshotURI:    joinS3(inputPrefix, files.IPIDConfigSnapshotFile),
+		ResultURI:      joinS3(inputPrefix, resultName),
+		DoneURI:        joinS3(jobPrefix, "done.json"),
+		FailedURI:      joinS3(jobPrefix, "failed.json"),
+		CreatedAt:      now.UTC(),
+		Purpose:        purpose,
+		MaximumTargets: maximumTargets,
+		SelectionSeed:  selectionSeed,
 	}, nil
 }
 
@@ -110,6 +135,23 @@ func RequestAndWait(
 	return requestAndWait(ctx, commandRunner{}, w, u, m)
 }
 
+func RequestRandomReproducibilityAndWait(
+	ctx context.Context,
+	w config.AnalysisWorkflowConfig,
+	u config.UploadConfig,
+	m paths.Measurement,
+	maximumTargets int,
+	selectionSeed int,
+) (string, error) {
+	if maximumTargets < 0 || maximumTargets > MaximumReproducibilityTargets {
+		return "", fmt.Errorf("maximum reproducibility targets must be in [0, %d]", MaximumReproducibilityTargets)
+	}
+	return requestAndWaitForPurpose(
+		ctx, commandRunner{}, w, u, m,
+		PurposeRandomReproducibility, maximumTargets, selectionSeed,
+	)
+}
+
 func requestAndWait(
 	ctx context.Context,
 	r runner,
@@ -117,7 +159,22 @@ func requestAndWait(
 	u config.UploadConfig,
 	m paths.Measurement,
 ) (string, error) {
-	request, err := newRequest(w, u, m, time.Now())
+	return requestAndWaitForPurpose(ctx, r, w, u, m, PurposeRTUnclassified, 0, 0)
+}
+
+func requestAndWaitForPurpose(
+	ctx context.Context,
+	r runner,
+	w config.AnalysisWorkflowConfig,
+	u config.UploadConfig,
+	m paths.Measurement,
+	purpose string,
+	maximumTargets int,
+	selectionSeed int,
+) (string, error) {
+	request, err := newRequestForPurpose(
+		w, u, m, purpose, maximumTargets, selectionSeed, time.Now(),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -180,7 +237,7 @@ func poll(ctx context.Context, r runner, request Request, outputDir string) (str
 		return "", false, fmt.Errorf("invalid completion marker for job %s", request.JobID)
 	}
 
-	resultPath := filepath.Join(outputDir, UnclassifiedTarget)
+	resultPath := filepath.Join(outputDir, filepath.Base(request.ResultURI))
 	temporaryPath := resultPath + ".part"
 	if _, err := r.Run(ctx, "get", "--force", "--no-progress", request.ResultURI, temporaryPath); err != nil {
 		return "", false, fmt.Errorf("download analysis result: %w", err)

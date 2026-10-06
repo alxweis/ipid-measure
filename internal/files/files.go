@@ -16,14 +16,17 @@ const (
 )
 
 const (
-	ZMapMeasurementFile              = "zmap" + ParquetExtension
-	ZMapFixedBaseSampleFile          = "zmap-fixed-base-sample" + ParquetExtension
-	ZMapConnectionSampleFile         = "zmap-connection-sample.pq"
-	ZMapConnectionSampleMetadataFile = "zmap-connection-sample.json"
-	ZMapFixedBaseSampleMetadataFile  = "zmap-fixed-base-sample.json"
-	OSMeasurementFile                = "os" + ParquetExtension
-	OSCoverageFile                   = "os-coverage.json"
-	IPIDMeasurementFile              = "ipid" + ParquetExtension
+	ZMapMeasurementFile               = "zmap" + ParquetExtension
+	ZMapFixedBaseSampleFile           = "zmap-fixed-base-sample" + ParquetExtension
+	ZMapConnectionSampleFile          = "zmap-connection-sample.pq"
+	ZMapConnectionSampleMetadataFile  = "zmap-connection-sample.json"
+	ZMapFixedBaseSampleMetadataFile   = "zmap-fixed-base-sample.json"
+	OSMeasurementFile                 = "os" + ParquetExtension
+	OSCoverageFile                    = "os-coverage.json"
+	IPIDMeasurementFile               = "ipid" + ParquetExtension
+	RandomReproducibilityTargetFile   = "random-reproducibility-targets.pq"
+	RandomReproducibilityCohortFile   = "random-reproducibility-cohort.pq"
+	RandomReproducibilityMetadataFile = "random-reproducibility-prepare.json"
 
 	ZMapConfigFile = "zmap" + ConfigExtension
 	OSConfigFile   = "os" + ConfigExtension

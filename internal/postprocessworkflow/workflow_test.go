@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,6 +48,15 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 		FixedBase:        "tcp-80_2026-07-22_10-00-04",
 		ConnectionRTBase: "tcp-80_2026-07-22_10-00-05",
 		ConnectionFIBase: "tcp-80_2026-07-22_10-00-06",
+		RandomReproducibilityRepeats: []string{
+			"tcp-80_2026-07-22_10-00-10",
+			"tcp-80_2026-07-22_10-00-11",
+			"tcp-80_2026-07-22_10-00-12",
+			"tcp-80_2026-07-22_10-00-13",
+			"tcp-80_2026-07-22_10-00-14",
+		},
+		RandomReproducibilityMaximumTargets: 10_000,
+		RandomReproducibilitySelectionSeed:  42,
 	}
 	sampleDirectory := filepath.Join(root, "zmap", measurements.ZMap)
 	if err := os.MkdirAll(sampleDirectory, 0755); err != nil {
@@ -139,6 +149,11 @@ func TestPublishWritesPersistentJobAndUploadsRequestLast(t *testing.T) {
 	if gotManifest["tcp"].ConnectionTarget != "zmap-connection-sample.pq" {
 		t.Fatal("manifest lost the connection target")
 	}
+	if gotManifest["tcp"].RandomReproducibility == nil ||
+		len(gotManifest["tcp"].RandomReproducibility.Repeats) != 5 ||
+		gotManifest["tcp"].RandomReproducibility.MaximumTargets != 10_000 {
+		t.Fatalf("manifest lost RANDOM reproducibility provenance: %#v", gotManifest["tcp"])
+	}
 	wantManifest := manifest("tcp", measurements)
 	if !reflect.DeepEqual(gotManifest, wantManifest) {
 		t.Fatalf("manifest mismatch:\n got: %#v\nwant: %#v", gotManifest, wantManifest)
@@ -155,6 +170,18 @@ func TestValidateMeasurementsRejectsMixedProtocols(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected protocol mismatch to fail")
+	}
+}
+
+func TestValidateMeasurementsRejectsIncompleteRandomReproducibility(t *testing.T) {
+	_, err := validateMeasurements(Measurements{
+		ZMap: "icmp_2026-07-22_10-00-00", OS: "icmp_2026-07-22_10-00-01",
+		RTBase: "icmp_2026-07-22_10-00-02", FixedMass: "icmp_2026-07-22_10-00-03",
+		FixedBase:                    "icmp_2026-07-22_10-00-04",
+		RandomReproducibilityRepeats: []string{"icmp_2026-07-22_10-00-10"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "exactly five") {
+		t.Fatalf("incomplete reproducibility error = %v", err)
 	}
 }
 
