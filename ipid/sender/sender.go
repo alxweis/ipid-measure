@@ -159,7 +159,7 @@ func hToNs(i uint16) uint16 {
 }
 
 func GetSender(seqNum uint16) *Sender {
-	if seqNum%2 == 0 {
+	if measurement.BaseSequenceIndex(seqNum)%2 == 0 {
 		return SenderA
 	}
 	return SenderB

@@ -41,7 +41,7 @@ func Next() uint16 {
 }
 
 func GetSrcPort(seqNum uint16, basePort uint16) uint16 {
-	return basePort + seqNum%measurement.Config.ConnectionCount
+	return basePort + measurement.BaseSequenceIndex(seqNum)%measurement.Config.ConnectionCount
 }
 
 func init() {

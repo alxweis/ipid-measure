@@ -17,11 +17,16 @@ import (
 	"github.com/alxweis/ipid-measure/ipid/stats"
 )
 
-var targets chan net.IP
+type target struct {
+	ip       net.IP
+	strategy string
+}
+
+var targets chan target
 
 func StartAll() {
 	numberOfInflightProbes := uint64(measurement.Config.NumberOfInflightProbes)
-	targets = make(chan net.IP, numberOfInflightProbes*2)
+	targets = make(chan target, numberOfInflightProbes*2)
 
 	for i := uint64(0); i < numberOfInflightProbes; i++ {
 		measurement.WorkerWg.Add(1)
@@ -42,11 +47,11 @@ func proberLoop() {
 		select {
 		case <-measurement.StopSignal:
 			return
-		case target, ok := <-targets:
+		case current, ok := <-targets:
 			if !ok {
 				return
 			}
-			probe.Measure(target, packets)
+			probe.MeasureTarget(current.ip, current.strategy, packets)
 		}
 	}
 }
@@ -57,6 +62,10 @@ func StreamZMapToWorkers() error {
 		return fmt.Errorf("open zmap parquet: %w", err)
 	}
 	defer file.Close()
+
+	if measurement.IsInterProtocol() {
+		return streamInterProtocolTargets(file)
+	}
 
 	reader := parquet.NewGenericReader[records.ZMap](file)
 	defer reader.Close()
@@ -82,7 +91,7 @@ func StreamZMapToWorkers() error {
 				continue
 			}
 			select {
-			case targets <- ip4:
+			case targets <- target{ip: ip4}:
 			case <-measurement.StopSignal:
 				return nil
 			}
@@ -96,6 +105,33 @@ func StreamZMapToWorkers() error {
 		}
 		if count == 0 {
 			return nil
+		}
+	}
+}
+
+func streamInterProtocolTargets(file *os.File) error {
+	reader := parquet.NewGenericReader[records.InterProtocolTarget](file)
+	defer reader.Close()
+	atomic.StoreInt64(&stats.NumberOfTargetIPAddresses, reader.NumRows())
+	buffer := make([]records.InterProtocolTarget, consts.ZMapReadBufferSize)
+	for {
+		count, err := reader.Read(buffer)
+		for i := 0; i < count; i++ {
+			ip4 := parseIPv4Fast(buffer[i].IPAddress)
+			if ip4 == nil {
+				continue
+			}
+			select {
+			case targets <- target{ip: ip4, strategy: buffer[i].Strategy}:
+			case <-measurement.StopSignal:
+				return nil
+			}
+		}
+		if errors.Is(err, io.EOF) || (err == nil && count == 0) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read interprotocol target parquet: %w", err)
 		}
 	}
 }

@@ -26,7 +26,7 @@ var rawPackets [][]byte
 
 // Setup builds the immutable raw packet templates.
 func Setup() {
-	if payload.Active == nil {
+	if payload.Active == nil && !measurement.IsInterProtocol() {
 		panic("packet.Setup: payload.Active is nil; SetupPayload must run first")
 	}
 	if sender.SenderA == nil || sender.SenderB == nil {
@@ -36,15 +36,15 @@ func Setup() {
 	n := int(measurement.RequestCount)
 	rawPackets = make([][]byte, n)
 
-	protocol := payload.Active.ProtocolID
 	packetBuf := gopacket.NewSerializeBuffer()
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		sndr := sender.GetSender(seqNum)
 		ipID := measurement.Config.RequestIPIDs[int(seqNum)%len(measurement.Config.RequestIPIDs)]
+		active := payload.ForSequence(seqNum)
 
-		ipLayer := ip.Layer(ipID, sndr.IP, protocol)
-		payloadLayers := payload.Active.Layer(seqNum)
+		ipLayer := ip.Layer(ipID, sndr.IP, active.ProtocolID)
+		payloadLayers := active.Layer(seqNum)
 
 		packetLayers := make([]gopacket.SerializableLayer, 0, 1+len(payloadLayers))
 		packetLayers = append(packetLayers, ipLayer)
@@ -86,12 +86,13 @@ func BuildPacketsInto(packets [][]byte, dstIP net.IP, basePort uint16) {
 		binary.BigEndian.PutUint16(pkt[10:12], checksum.Compute(pkt[:20]))
 
 		// Patch L4 source port if applicable.
-		if measurement.HasPorts {
+		active := payload.ForSequence(seqNum)
+		if active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP {
 			binary.BigEndian.PutUint16(pkt[20:22], srcPort)
 		}
 
 		// Recompute the L4/ICMP checksum.
-		payload.Active.SetChecksum(pkt)
+		active.SetChecksum(pkt)
 
 		// Commit the buffer back into the caller slice.
 		packets[seqNum] = pkt

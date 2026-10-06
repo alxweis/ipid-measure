@@ -18,6 +18,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/dns"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
@@ -182,7 +183,8 @@ func extractTCP(t *layers.TCP, decoded []gopacket.LayerType) (uint32, uint32, ui
 	if !found {
 		return 0, 0, 0, nil, false
 	}
-	if measurement.Config.ZMapPort != nil && uint16(t.SrcPort) != *measurement.Config.ZMapPort {
+	port := measurement.PortForPayload(types.PayloadTCP)
+	if port != nil && uint16(t.SrcPort) != *port {
 		return 0, 0, 0, nil, false
 	}
 	if measurement.TcpEstablishConnection {
@@ -210,7 +212,8 @@ func extractUDPDNS(u *layers.UDP, d *layers.DNS, decoded []gopacket.LayerType) (
 	if hasICMP || !hasUDP || !hasDNS {
 		return 0, 0, nil, false
 	}
-	if measurement.Config.ZMapPort != nil && uint16(u.SrcPort) != *measurement.Config.ZMapPort {
+	port := measurement.PortForPayload(types.PayloadUDPDNS)
+	if port != nil && uint16(u.SrcPort) != *port {
 		return 0, 0, nil, false
 	}
 	return uint32(d.ID), uint16(u.DstPort), dns.GetFlags(d), true

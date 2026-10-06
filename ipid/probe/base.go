@@ -140,7 +140,7 @@ func waitForBaseReply(p *Probe, timer *time.Timer) bool {
 	}
 }
 
-func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64, tcpPayloadLength uint16) bool {
+func fulfillBaseReply(entry *InflightEntry, dst [4]byte, protocol layers.IPProtocol, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64, tcpPayloadLength uint16) bool {
 	p := entry.Probe
 	start := diagnostics.ReplyLock.Start()
 	p.mu.Lock()
@@ -157,9 +157,6 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 	if dst != entry.expectedDsts[0] && dst != entry.expectedDsts[1] {
 		return reject(&stats.DropBadDst, &stats.AbortBadDst)
 	}
-	if measurement.HasPorts && (dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort) {
-		return reject(&stats.DropBadPort, &stats.AbortBadPort)
-	}
 	seq, ok := recoverLogicalSequence(entry, dstPort, recoveredSeq)
 	if !ok || int(seq) >= len(p.Samples) {
 		return reject(&stats.DropSeqOOR, &stats.AbortSeqOOR)
@@ -167,7 +164,18 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 	if dst != sender.GetSender(seq).IPBytes {
 		return reject(&stats.DropBadDst, &stats.AbortBadDst)
 	}
-	if measurement.HasPorts && dstPort != port.GetSrcPort(seq, entry.basePort) {
+	active := payload.ForSequence(seq)
+	if active.ProtocolID != protocol {
+		return reject(&stats.DropProto, &stats.AbortProto)
+	}
+	hasPorts := measurement.HasPorts
+	if measurement.IsInterProtocol() {
+		hasPorts = active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
+	}
+	if hasPorts && (dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort) {
+		return reject(&stats.DropBadPort, &stats.AbortBadPort)
+	}
+	if hasPorts && dstPort != port.GetSrcPort(seq, entry.basePort) {
 		return reject(&stats.DropBadPort, &stats.AbortBadPort)
 	}
 	sample := &p.Samples[seq]
@@ -190,13 +198,13 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, dstPort uint16, recover
 			expected = FlagsSynAck
 		}
 	}
-	validFlags := flagsMatch(expected, flags)
+	validFlags := flagsMatchPayload(expected, flags, active)
 	if expected == FlagsAck {
 		validFlags = flags.Contains(types.TCPFlagACK) &&
 			(len(flags) == 1 || (len(flags) == 2 && flags.Contains(types.TCPFlagPSH)))
 	}
 	if !validFlags {
-		if payload.Active.ID == types.PayloadTCP {
+		if active.ID == types.PayloadTCP {
 			phase := stats.TCPNoConnection
 			if expected == FlagsSynAck {
 				phase = stats.TCPHandshake
@@ -261,12 +269,40 @@ func RejectBaseReply(src [4]byte, reason *int64) {
 }
 
 func (entry *InflightEntry) AcceptProtocol(protocol layers.IPProtocol) bool {
-	if protocol == payload.Active.ProtocolID {
+	if measurement.IsInterProtocol() {
+		for _, candidate := range measurement.InterProtocols {
+			if (candidate == types.PayloadICMP && protocol == layers.IPProtocolICMPv4) ||
+				(candidate == types.PayloadTCP && protocol == layers.IPProtocolTCP) ||
+				(candidate == types.PayloadUDPDNS && protocol == layers.IPProtocolUDP) {
+				return true
+			}
+		}
+	} else if protocol == payload.Active.ProtocolID {
 		return true
 	}
 	atomic.AddInt64(&stats.DropProto, 1)
 	if entry.Probe.strict {
 		entry.Probe.fail(&stats.AbortProto)
+	}
+	return false
+}
+
+func flagsMatchPayload(mode FlagExpectation, replyFlags sets.Set[string], active *payload.Payload) bool {
+	if mode != FlagsDefault {
+		return flagsMatch(mode, replyFlags)
+	}
+	switch active.ProtocolID {
+	case layers.IPProtocolTCP:
+		for _, expected := range measurement.Config.TCPConfig.ReplyFlags {
+			if replyFlags.Equal(expected) {
+				return true
+			}
+		}
+		return false
+	case layers.IPProtocolUDP:
+		return replyFlags.Contains(types.DNSFlagQR)
+	case layers.IPProtocolICMPv4:
+		return true
 	}
 	return false
 }

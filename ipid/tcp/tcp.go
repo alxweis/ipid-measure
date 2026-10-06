@@ -34,7 +34,7 @@ func Layer(seqNum uint16, overwriteRequestFlags types.TCPFlagSet) gopacket.Seria
 
 	return &layers.TCP{
 		SrcPort: layers.TCPPort(0),
-		DstPort: layers.TCPPort(*measurement.Config.ZMapPort),
+		DstPort: layers.TCPPort(*measurement.PortForPayload(types.PayloadTCP)),
 
 		Seq: tcpSequenceNumber,
 

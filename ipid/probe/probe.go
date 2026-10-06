@@ -30,8 +30,9 @@ const (
 )
 
 type Probe struct {
-	Target  net.IP
-	Samples []Sample
+	Target         net.IP
+	TargetStrategy string
+	Samples        []Sample
 
 	strict     bool
 	mu         sync.Mutex
@@ -84,6 +85,12 @@ var SaveProbesChannel chan *Probe
 
 // Measure probes a single target end-to-end.
 func Measure(target net.IP, packets [][]byte) bool {
+	return MeasureTarget(target, "", packets)
+}
+
+// MeasureTarget probes one target and preserves its pre-classified strategy in
+// inter-protocol output. Single-protocol callers continue to use Measure.
+func MeasureTarget(target net.IP, strategy string, packets [][]byte) bool {
 	target4 := target.To4()
 	if target4 == nil {
 		atomic.AddInt64(&stats.DropBadTarget, 1)
@@ -98,8 +105,12 @@ func Measure(target net.IP, packets [][]byte) bool {
 	packet.BuildPacketsInto(packets, target4, basePort)
 
 	probe := &Probe{
-		Target:  target4,
-		Samples: make([]Sample, measurement.RequestCount),
+		Target:         target4,
+		TargetStrategy: strategy,
+		Samples:        make([]Sample, measurement.RequestCount),
+	}
+	if measurement.IsInterProtocol() {
+		return measureInterProtocolRT(probe, targetKey(target4), packets, basePort)
 	}
 	if measurement.Config.ConnectionCount == 4 && measurement.Config.RequestsPerConnection == 4 {
 		probe.strict = true
@@ -129,6 +140,61 @@ func Measure(target net.IP, packets [][]byte) bool {
 	case types.MeasurementModeFixedInterval:
 		return measureFixedInterval(probe, targetKey, packets, basePort)
 	default:
+		return false
+	}
+}
+
+func targetKey(target net.IP) [4]byte {
+	var key [4]byte
+	copy(key[:], target.To4())
+	return key
+}
+
+// measureInterProtocolRT keeps one request outstanding at a time. A timeout is
+// stored as a missing sample and the schedule continues; no packet is retried.
+func measureInterProtocolRT(probe *Probe, key [4]byte, packets [][]byte, basePort uint16) bool {
+	timer := time.NewTimer(measurement.Config.MaximumToleratedRTT)
+	defer timer.Stop()
+	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
+		sndr := sender.GetSender(seqNum)
+		expectedPort := port.GetSrcPort(seqNum, basePort)
+		entry := &InflightEntry{
+			Probe: probe, expectedCount: 1,
+			expectedDsts:    [2][4]byte{sndr.IPBytes, sndr.IPBytes},
+			expectedMinPort: expectedPort, expectedMaxPort: expectedPort,
+			basePort: basePort, expectedFlags: FlagsDefault,
+			expectedMinSeq: seqNum, expectedMaxSeq: seqNum,
+			done: make(chan struct{}),
+		}
+		Inflight.Register(key, entry)
+		if !sendPacket(sndr, packets[seqNum], &probe.Samples[seqNum], probe) {
+			Inflight.Deregister(key, entry)
+			return false
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(measurement.Config.MaximumToleratedRTT)
+		select {
+		case <-entry.done:
+			atomic.AddInt64(&stats.ProbesReachedSeq[seqNum], 1)
+		case <-timer.C:
+			atomic.AddInt64(&stats.DropTimeout, 1)
+		case <-measurement.StopSignal:
+			Inflight.Deregister(key, entry)
+			atomic.AddInt64(&stats.DropInterrupt, 1)
+			return false
+		}
+		Inflight.Deregister(key, entry)
+	}
+	select {
+	case SaveProbesChannel <- probe:
+		atomic.AddInt64(&stats.ValidProbes, 1)
+		return true
+	case <-measurement.StopSignal:
 		return false
 	}
 }
@@ -335,20 +401,35 @@ func FulfillReply(
 	receiveTime int64,
 	tcpPayloadLength uint16,
 ) bool {
+	return FulfillProtocolReply(srcIP4, dstIP4, payload.Active.ProtocolID, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+}
+
+func FulfillProtocolReply(
+	srcIP4 [4]byte,
+	dstIP4 [4]byte,
+	protocol layers.IPProtocol,
+	dstPort uint16,
+	recoveredSeq uint32,
+	replyTCPSeq uint32,
+	ipID uint16,
+	replyFlags sets.Set[string],
+	receiveTime int64,
+	tcpPayloadLength uint16,
+) bool {
 	entry := Inflight.Lookup(srcIP4)
 	if entry == nil {
 		atomic.AddInt64(&stats.DropNoEntry, 1)
 		return false
 	}
-	return entry.FulfillReply(dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+	return entry.FulfillReply(dstIP4, protocol, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
 }
 
 func (entry *InflightEntry) FulfillReply(
-	dstIP4 [4]byte, dstPort uint16, recoveredSeq, replyTCPSeq uint32,
+	dstIP4 [4]byte, protocol layers.IPProtocol, dstPort uint16, recoveredSeq, replyTCPSeq uint32,
 	ipID uint16, replyFlags sets.Set[string], receiveTime int64, tcpPayloadLength uint16,
 ) bool {
 	if entry.Probe.strict {
-		return fulfillBaseReply(entry, dstIP4, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+		return fulfillBaseReply(entry, dstIP4, protocol, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
 	}
 
 	// Destination IP must be one of the expectedDsts.
@@ -358,16 +439,22 @@ func (entry *InflightEntry) FulfillReply(
 	}
 
 	// Destination port must be within this probe's connection range.
-	if measurement.HasPorts {
-		if dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort {
-			atomic.AddInt64(&stats.DropBadPort, 1)
-			return false
-		}
-	}
-
 	logicalSeq, ok := recoverLogicalSequence(entry, dstPort, recoveredSeq)
 	if !ok {
 		atomic.AddInt64(&stats.DropSeqOOR, 1)
+		return false
+	}
+	if payload.ForSequence(logicalSeq).ProtocolID != protocol {
+		atomic.AddInt64(&stats.DropProto, 1)
+		return false
+	}
+	active := payload.ForSequence(logicalSeq)
+	hasPorts := measurement.HasPorts
+	if measurement.IsInterProtocol() {
+		hasPorts = active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
+	}
+	if hasPorts && (dstPort < entry.expectedMinPort || dstPort > entry.expectedMaxPort) {
+		atomic.AddInt64(&stats.DropBadPort, 1)
 		return false
 	}
 
@@ -381,7 +468,7 @@ func (entry *InflightEntry) FulfillReply(
 	}
 
 	// Flag-mode check.
-	if !flagsMatch(expectedFlags, replyFlags) {
+	if !flagsMatchPayload(expectedFlags, replyFlags, active) {
 		atomic.AddInt64(&stats.DropBadFlags, 1)
 		return false
 	}
@@ -630,7 +717,11 @@ func flagsMatch(mode FlagExpectation, replyFlags sets.Set[string]) bool {
 
 // defaultFlagsMatch implements the protocol-default flag check.
 func defaultFlagsMatch(replyFlags sets.Set[string]) bool {
-	switch payload.Active.ProtocolID {
+	active := payload.Active
+	if measurement.IsInterProtocol() {
+		return false
+	}
+	switch active.ProtocolID {
 	case layers.IPProtocolTCP:
 		for _, expected := range measurement.Config.TCPConfig.ReplyFlags {
 			if replyFlags.Equal(expected) {

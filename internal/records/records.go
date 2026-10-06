@@ -31,3 +31,16 @@ type IPIDRecord struct {
 	SendTimestampSequence    string `parquet:"SEND_TIMESTAMP_SEQUENCE,plain"`
 	ReceiveTimestampSequence string `parquet:"RECEIVE_TIMESTAMP_SEQUENCE,plain"`
 }
+
+type InterProtocolTarget struct {
+	IPAddress string `parquet:"IP_ADDR,plain"`
+	Strategy  string `parquet:"IPID_SELECTION_STRATEGY,dict"`
+}
+
+type InterProtocolRecord struct {
+	IPAddress                string `parquet:"IP_ADDR,plain"`
+	Strategy                 string `parquet:"IPID_SELECTION_STRATEGY,dict"`
+	IPIDSequence             string `parquet:"IPID_SEQUENCE,plain"`
+	SendTimestampSequence    string `parquet:"SEND_TIMESTAMP_SEQUENCE,plain"`
+	ReceiveTimestampSequence string `parquet:"RECEIVE_TIMESTAMP_SEQUENCE,plain"`
+}

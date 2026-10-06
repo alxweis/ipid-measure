@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/alxweis/ipid-measure/internal/sets"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/diagnostics"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
-	"github.com/alxweis/ipid-measure/ipid/payload"
 	"github.com/alxweis/ipid-measure/ipid/probe"
 	"github.com/alxweis/ipid-measure/ipid/stats"
 	"github.com/google/gopacket"
@@ -16,22 +16,29 @@ import (
 )
 
 type packetDecoder struct {
-	eth                layers.Ethernet
-	ipv4               layers.IPv4
-	tcp                layers.TCP
-	udp                layers.UDP
-	dns                layers.DNS
-	icmp               layers.ICMPv4
-	headers, transport *gopacket.DecodingLayerParser
-	decoded            []gopacket.LayerType
+	eth        layers.Ethernet
+	ipv4       layers.IPv4
+	tcp        layers.TCP
+	udp        layers.UDP
+	dns        layers.DNS
+	icmp       layers.ICMPv4
+	headers    *gopacket.DecodingLayerParser
+	transports map[layers.IPProtocol]*gopacket.DecodingLayerParser
+	decoded    []gopacket.LayerType
 }
 
 func newPacketDecoder() *packetDecoder {
 	d := &packetDecoder{decoded: make([]gopacket.LayerType, 0, 3)}
 	d.headers = gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &d.eth, &d.ipv4)
-	d.transport = gopacket.NewDecodingLayerParser(payload.Active.ProtocolID.LayerType(), &d.tcp, &d.udp, &d.dns, &d.icmp)
+	d.transports = map[layers.IPProtocol]*gopacket.DecodingLayerParser{
+		layers.IPProtocolTCP:    gopacket.NewDecodingLayerParser(layers.LayerTypeTCP, &d.tcp),
+		layers.IPProtocolUDP:    gopacket.NewDecodingLayerParser(layers.LayerTypeUDP, &d.udp, &d.dns),
+		layers.IPProtocolICMPv4: gopacket.NewDecodingLayerParser(layers.LayerTypeICMPv4, &d.icmp),
+	}
 	d.headers.IgnoreUnsupported = true
-	d.transport.IgnoreUnsupported = true
+	for _, parser := range d.transports {
+		parser.IgnoreUnsupported = true
+	}
 	return d
 }
 
@@ -59,8 +66,13 @@ func (d *packetDecoder) process(data []byte, received time.Time) {
 		atomic.AddInt64(&stats.DropProto, 1)
 		return
 	}
+	transport := d.transports[d.ipv4.Protocol]
+	if transport == nil {
+		atomic.AddInt64(&stats.DropProto, 1)
+		return
+	}
 	transportStart := diagnostics.Transport.Start()
-	transportErr := d.transport.DecodeLayers(d.ipv4.Payload, &d.decoded)
+	transportErr := transport.DecodeLayers(d.ipv4.Payload, &d.decoded)
 	diagnostics.Transport.End(transportStart)
 	if transportErr != nil {
 		atomic.AddInt64(&stats.DropDecode, 1)
@@ -72,7 +84,7 @@ func (d *packetDecoder) process(data []byte, received time.Time) {
 		flags        sets.Set[string]
 		ok           bool
 	)
-	switch payload.Active.ProtocolID {
+	switch d.ipv4.Protocol {
 	case layers.IPProtocolTCP:
 		seq, tcpSeq, port, flags, ok = extractTCP(&d.tcp, d.decoded)
 		length = uint16(len(d.tcp.Payload))
@@ -83,17 +95,19 @@ func (d *packetDecoder) process(data []byte, received time.Time) {
 	}
 	if !ok {
 		atomic.AddInt64(&stats.DropProto, 1)
-		switch payload.Active.ProtocolID {
+		switch d.ipv4.Protocol {
 		case layers.IPProtocolTCP:
 			if slices.Contains(d.decoded, layers.LayerTypeTCP) {
-				if measurement.Config.ZMapPort != nil && uint16(d.tcp.SrcPort) != *measurement.Config.ZMapPort {
+				port := measurement.PortForPayload(types.PayloadTCP)
+				if port != nil && uint16(d.tcp.SrcPort) != *port {
 					probe.RejectBaseReply(src, &stats.AbortBadPort)
 				} else if !measurement.TcpEstablishConnection && d.tcp.Ack <= measurement.TcpSequenceNumOffset {
 					probe.RejectBaseReply(src, &stats.AbortSeqOOR)
 				}
 			}
 		case layers.IPProtocolUDP:
-			if slices.Contains(d.decoded, layers.LayerTypeUDP) && measurement.Config.ZMapPort != nil && uint16(d.udp.SrcPort) != *measurement.Config.ZMapPort {
+			port := measurement.PortForPayload(types.PayloadUDPDNS)
+			if slices.Contains(d.decoded, layers.LayerTypeUDP) && port != nil && uint16(d.udp.SrcPort) != *port {
 				probe.RejectBaseReply(src, &stats.AbortBadPort)
 			}
 		case layers.IPProtocolICMPv4:
@@ -103,5 +117,5 @@ func (d *packetDecoder) process(data []byte, received time.Time) {
 		}
 		return
 	}
-	entry.FulfillReply(dst, port, seq, tcpSeq, d.ipv4.Id, flags, received.UnixMicro(), length)
+	entry.FulfillReply(dst, d.ipv4.Protocol, port, seq, tcpSeq, d.ipv4.Id, flags, received.UnixMicro(), length)
 }

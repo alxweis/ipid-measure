@@ -2,6 +2,7 @@ package udp
 
 import (
 	"encoding/binary"
+	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/checksum"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/google/gopacket"
@@ -11,7 +12,7 @@ import (
 func Layer() gopacket.SerializableLayer {
 	return &layers.UDP{
 		SrcPort: layers.UDPPort(0),
-		DstPort: layers.UDPPort(*measurement.Config.ZMapPort),
+		DstPort: layers.UDPPort(*measurement.PortForPayload(types.PayloadUDPDNS)),
 	}
 }
 
