@@ -337,4 +337,6 @@ for proto in "${PROTOS[@]}"; do
     fi
     request_uri=$(./bin/publish-analysis-job "${publish_args[@]}")
     echo "=== [$proto] analysis job published: $request_uri ==="
+    manifest_uri="${request_uri%/request.json}/manifest.json"
+    echo "INTERPROTOCOL_MANIFEST=$manifest_uri"
 done

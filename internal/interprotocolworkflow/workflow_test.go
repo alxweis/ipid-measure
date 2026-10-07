@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,34 @@ func (r *recordingRunner) Run(_ context.Context, args ...string) ([]byte, error)
 type completedRunner struct {
 	doneURI  string
 	doneJSON []byte
+}
+
+type targetRunner struct {
+	runID string
+}
+
+func (r *targetRunner) Run(_ context.Context, args ...string) ([]byte, error) {
+	if args[0] == "ls" {
+		uri := args[1]
+		if strings.HasSuffix(uri, "/done.json") && !strings.Contains(uri, "interprotocol-jobs") {
+			return []byte("2026-01-01 00:00 1 " + uri + "\n"), nil
+		}
+		return nil, nil
+	}
+	if args[0] == "get" {
+		uri, path := args[3], args[4]
+		if strings.HasSuffix(uri, "/done.json") {
+			done := TargetDone{
+				Version: Version, JobID: r.runID, CampaignID: r.runID,
+				TargetPrefix: "s3://bucket/workflow/interprotocol-target-jobs/" + r.runID + "/targets",
+				Rows:         map[string]int64{"icmp-tcp": 1},
+			}
+			data, _ := json.Marshal(done)
+			return nil, os.WriteFile(path, data, 0644)
+		}
+		return nil, os.WriteFile(path, []byte("parquet"), 0644)
+	}
+	return nil, nil
 }
 
 func (r *completedRunner) Run(_ context.Context, args ...string) ([]byte, error) {
@@ -93,6 +122,37 @@ func TestWaitReturnsValidatedCompletion(t *testing.T) {
 	}
 	if got.Rows != want.Rows || got.ResultPrefix != want.ResultPrefix {
 		t.Fatalf("unexpected completion: %+v", got)
+	}
+}
+
+func TestPrepareTargetsUsesExactlyThreeBaseManifests(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "ipid.yaml")
+	if err := os.WriteFile(config, []byte("upload:\n  s3_destination: s3://bucket/raw/ipid/\nanalysis_workflow:\n  s3_prefix: s3://bucket/workflow/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runID := "interprotocol_2026-01-01_00-00-00"
+	manifests := map[string]string{
+		"icmp": "s3://bucket/workflow/analysis-jobs/icmp_1/manifest.json",
+		"tcp":  "s3://bucket/workflow/analysis-jobs/tcp-80_1/manifest.json",
+		"udp":  "s3://bucket/workflow/analysis-jobs/udp-dns-53_1/manifest.json",
+	}
+	targets, err := prepareTargets(
+		context.Background(), &targetRunner{runID: runID}, config, runID, manifests, root,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, group := range OrderedGroups {
+		if _, err := os.Stat(filepath.Join(targets, group+"-targets.pq")); err != nil {
+			t.Fatalf("missing %s target: %v", group, err)
+		}
+	}
+	if _, err := prepareTargets(
+		context.Background(), &targetRunner{runID: runID}, config, runID,
+		map[string]string{"icmp": manifests["icmp"]}, root,
+	); err == nil {
+		t.Fatal("expected incomplete manifest set to fail")
 	}
 }
 
