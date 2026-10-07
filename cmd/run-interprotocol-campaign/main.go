@@ -86,6 +86,7 @@ func main() {
 	manifestFlag := flag.String("manifest", "", "manifest path (required with --resume unless --run-id is set)")
 	resume := flag.Bool("resume", false, "continue an existing run manifest")
 	noPublish := flag.Bool("no-publish", false, "complete locally without publishing the analysis request")
+	noWait := flag.Bool("no-wait", false, "publish the analysis request without waiting for completion")
 	measureBinary := flag.String("measure-binary", "bin/measure-interprotocol", "measurement binary")
 	var existing repeatedFlag
 	flag.Var(&existing, "existing", "reuse a completed GROUP=MEASUREMENT-ID (repeatable)")
@@ -161,6 +162,7 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	log.Printf("inter-protocol campaign run_id=%s manifest=%s", manifest.RunID, manifestPath)
 
 	for _, group := range interprotocolworkflow.OrderedGroups {
 		state, selected := manifest.Groups[group]
@@ -212,4 +214,12 @@ func main() {
 		log.Fatalf("publish analysis request: %v; measurements are complete and can be published by resuming", err)
 	}
 	fmt.Printf("campaign manifest: %s\nanalysis request: %s\n", manifestPath, requestURI)
+	if *noWait {
+		return
+	}
+	done, err := interprotocolworkflow.Wait(context.Background(), manifest.Config, manifestPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("analysis completed: rows=%d results=%s\n", done.Rows, done.ResultPrefix)
 }

@@ -39,8 +39,11 @@ Only use full-cohort measurements; a limited pilot is not interchangeable with
 the generated target file. Once all selected groups are complete, the runner
 publishes a dedicated `interprotocol-jobs/<run-id>/request.json`. The analysis
 VM's normal workflow worker then downloads and analyses the campaign and
-uploads the combined results. Use `--groups` for a deliberate subset or
-`--no-publish` for a local-only run.
+uploads the combined results. The runner waits for the worker's completion
+marker and prints the S3 result prefix, so a successful command represents the
+complete measurement-and-analysis pipeline. Use `--groups` for a deliberate
+subset, `--no-wait` for asynchronous submission, or `--no-publish` for a
+local-only run.
 
 The fixed order is repeated for every logical connection/request position, for
 example `ICMP -> TCP -> UDP -> ICMP -> ...`. Source address selection remains

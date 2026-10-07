@@ -62,12 +62,29 @@ type Request struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type Done struct {
+	Version      int    `json:"version"`
+	JobID        string `json:"job_id"`
+	CampaignID   string `json:"campaign_id"`
+	ResultPrefix string `json:"result_prefix"`
+	Rows         int64  `json:"rows"`
+	CompletedAt  string `json:"completed_at"`
+}
+
+type Failed struct {
+	Version int    `json:"version"`
+	JobID   string `json:"job_id"`
+	Error   string `json:"error"`
+}
+
 type configFile struct {
 	Upload struct {
 		S3Destination string `yaml:"s3_destination"`
 	} `yaml:"upload"`
 	AnalysisWorkflow struct {
-		S3Prefix string `yaml:"s3_prefix"`
+		S3Prefix     string `yaml:"s3_prefix"`
+		PollInterval string `yaml:"poll_interval"`
+		Timeout      string `yaml:"timeout"`
 	} `yaml:"analysis_workflow"`
 }
 
@@ -167,6 +184,10 @@ func Publish(ctx context.Context, configPath, manifestPath string) (string, erro
 	return publish(ctx, commandRunner{}, configPath, manifestPath, time.Now())
 }
 
+func Wait(ctx context.Context, configPath, manifestPath string) (Done, error) {
+	return wait(ctx, commandRunner{}, configPath, manifestPath)
+}
+
 func publish(ctx context.Context, r runner, configPath, manifestPath string, now time.Time) (string, error) {
 	manifest, err := Load(manifestPath)
 	if err != nil {
@@ -213,4 +234,105 @@ func publish(ctx context.Context, r runner, configPath, manifestPath string, now
 		return "", err
 	}
 	return requestURI, nil
+}
+
+func duration(value string, fallback time.Duration, field string) (time.Duration, error) {
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration", field)
+	}
+	return parsed, nil
+}
+
+func objectExists(ctx context.Context, r runner, uri string) (bool, error) {
+	output, err := r.Run(ctx, "ls", uri)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[len(fields)-1] == uri {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func downloadJSON(ctx context.Context, r runner, uri, path string, value any) error {
+	if _, err := r.Run(ctx, "get", "--force", "--no-progress", uri, path); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, value)
+}
+
+func wait(ctx context.Context, r runner, configPath, manifestPath string) (Done, error) {
+	var done Done
+	requestData, err := os.ReadFile(filepath.Join(filepath.Dir(manifestPath), "request.json"))
+	if err != nil {
+		return done, fmt.Errorf("read inter-protocol request: %w", err)
+	}
+	var request Request
+	if err := json.Unmarshal(requestData, &request); err != nil {
+		return done, fmt.Errorf("decode inter-protocol request: %w", err)
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return done, fmt.Errorf("read %s: %w", configPath, err)
+	}
+	var config configFile
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return done, fmt.Errorf("decode %s: %w", configPath, err)
+	}
+	pollInterval, err := duration(config.AnalysisWorkflow.PollInterval, 30*time.Second, "analysis_workflow.poll_interval")
+	if err != nil {
+		return done, err
+	}
+	timeout, err := duration(config.AnalysisWorkflow.Timeout, 24*time.Hour, "analysis_workflow.timeout")
+	if err != nil {
+		return done, err
+	}
+	waitContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		failedExists, pollErr := objectExists(waitContext, r, request.FailedURI)
+		if pollErr != nil {
+			return done, fmt.Errorf("check inter-protocol failure marker: %w", pollErr)
+		}
+		if failedExists {
+			var failed Failed
+			path := filepath.Join(filepath.Dir(manifestPath), "analysis-failed.json")
+			if err := downloadJSON(waitContext, r, request.FailedURI, path, &failed); err != nil {
+				return done, fmt.Errorf("download inter-protocol failure marker: %w", err)
+			}
+			return done, fmt.Errorf("inter-protocol analysis failed: %s", failed.Error)
+		}
+		doneExists, pollErr := objectExists(waitContext, r, request.DoneURI)
+		if pollErr != nil {
+			return done, fmt.Errorf("check inter-protocol completion marker: %w", pollErr)
+		}
+		if doneExists {
+			path := filepath.Join(filepath.Dir(manifestPath), "analysis-done.json")
+			if err := downloadJSON(waitContext, r, request.DoneURI, path, &done); err != nil {
+				return done, fmt.Errorf("download inter-protocol completion marker: %w", err)
+			}
+			if done.Version != Version || done.JobID != request.JobID || done.CampaignID != request.CampaignID || done.ResultPrefix != request.ResultPrefix {
+				return Done{}, fmt.Errorf("invalid inter-protocol completion marker")
+			}
+			return done, nil
+		}
+		select {
+		case <-waitContext.Done():
+			return done, fmt.Errorf("wait for inter-protocol analysis: %w", waitContext.Err())
+		case <-ticker.C:
+		}
+	}
 }
