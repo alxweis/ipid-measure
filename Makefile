@@ -53,15 +53,16 @@ BUILD_TARGETS := $(addprefix build-,$(TOOLS))
 RUN_TARGETS   := $(addprefix run-,$(TOOLS))
 
 .PHONY: all build setcap pull-blocklist \
-		$(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap $(RUN_TARGETS) \
-        run-all-icmp run-all-tcp run-all-udp \
+		$(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap \
+		build-run-interprotocol-campaign $(RUN_TARGETS) \
+        run-all-icmp run-all-tcp run-all-udp run-all-interprotocol \
         vet test tidy clean
 
 all: build
 
 # --- build -------------------------------------------------------------------
 
-build: $(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap
+build: $(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap build-run-interprotocol-campaign
 
 $(BUILD_TARGETS): build-%:
 	@mkdir -p $(BIN_DIR)
@@ -74,6 +75,10 @@ build-publish-analysis-job:
 build-sample-zmap:
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/sample-zmap ./cmd/sample-zmap
+
+build-run-interprotocol-campaign:
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/run-interprotocol-campaign ./cmd/run-interprotocol-campaign
 
 # Builds, then re-applies file capabilities (needs sudo; prompts once).
 setcap: build
@@ -97,6 +102,11 @@ run-all-tcp:
 
 run-all-udp:
 	./scripts/run-all.sh udp $(RUN_ALL_RESUME_ARGS)
+
+# Explicit manual inter-protocol campaign. This is intentionally independent
+# from all protocol-specific run-all targets.
+run-all-interprotocol:
+	./$(BIN_DIR)/run-interprotocol-campaign $(ARGS)
 
 # --- blocklist ---------------------------------------------------------------
 

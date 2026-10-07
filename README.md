@@ -13,6 +13,38 @@ sudo setcap cap_net_raw,cap_net_admin+eip bin/measure-interprotocol
 make run-interprotocol ARGS="--target-file /data/icmp-tcp-udp-targets.pq --protocols icmp,tcp,udp"
 ```
 
+To run a complete inter-protocol campaign explicitly (and independently of
+`run-all-icmp`, `run-all-tcp`, and `run-all-udp`), copy the target directory
+created by `ipid-analysis` to this VM and run:
+
+```bash
+make build-run-interprotocol-campaign build-interprotocol
+sudo setcap cap_net_raw,cap_net_admin+eip bin/measure-interprotocol
+make run-all-interprotocol ARGS="--campaign-id 2026-09-21-icmp-tcp-udp --targets-dir /data/interprotocol/2026-09-21-icmp-tcp-udp"
+```
+
+The runner processes `icmp-tcp`, `icmp-udp`, `tcp-udp`, and
+`icmp-tcp-udp` sequentially. After every group it atomically updates
+`ipid/interprotocol-runs/<run-id>/manifest.json`, so an interrupted run can be
+continued with the printed run id:
+
+```bash
+make run-all-interprotocol ARGS="--campaign-id 2026-09-21-icmp-tcp-udp --targets-dir /data/interprotocol/2026-09-21-icmp-tcp-udp --run-id RUN_ID --resume"
+```
+
+A previously completed full measurement can be reused without measuring it
+again, for example
+`--existing icmp-tcp-udp=interprotocol-icmp-tcp-udp_2026-10-06_23-15-43`.
+Only use full-cohort measurements; a limited pilot is not interchangeable with
+the generated target file. Once all selected groups are complete, the runner
+publishes a dedicated `interprotocol-jobs/<run-id>/request.json`. The analysis
+VM's normal workflow worker then downloads and analyses the campaign and
+uploads the combined results. The runner waits for the worker's completion
+marker and prints the S3 result prefix, so a successful command represents the
+complete measurement-and-analysis pipeline. Use `--groups` for a deliberate
+subset, `--no-wait` for asynchronous submission, or `--no-publish` for a
+local-only run.
+
 The fixed order is repeated for every logical connection/request position, for
 example `ICMP -> TCP -> UDP -> ICMP -> ...`. Source address selection remains
 based on the logical connection, so a protocol is not tied to one source IP.
