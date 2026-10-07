@@ -62,6 +62,16 @@ func main() {
 		log.Fatalf("resolve config path: %v", err)
 	}
 	c, err := config.LoadIPIDConfig(configPath, func(c *config.IPIDConfig) {
+		// Inter-protocol targets are explicit Parquet files, so the unrelated
+		// single-protocol ZMap reference in the shared config must not gate a run.
+		switch protocols[0] {
+		case types.PayloadTCP:
+			c.ZMapID = fmt.Sprintf("tcp-%d_1970-01-01_00-00-00", *tcpPort)
+		case types.PayloadUDPDNS:
+			c.ZMapID = fmt.Sprintf("udp-dns-%d_1970-01-01_00-00-00", *udpPort)
+		default:
+			c.ZMapID = "icmp_1970-01-01_00-00-00"
+		}
 		c.TargetFile = *targetFlag
 		c.MeasurementMode = types.MeasurementModeRTBased
 		c.TCPConfig.EstablishConnection = false

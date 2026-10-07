@@ -11,10 +11,9 @@
 # instead of a bare `make` whenever you intend to run a measurement afterwards,
 # since `go build` writes a fresh file and drops the capability each time.
 #
-# The run-* targets are thin wrappers around the already-built binaries; they do
-# NOT rebuild (that would drop the file capabilities). Build once with
-# `make build` / `make setcap`, then use `make run-*`. Invoking the binaries
-# directly (./bin/measure-* ...) works exactly the same.
+# The low-level run-ipid/run-os/run-zmap targets are thin wrappers around the
+# already-built binaries and do not rebuild. The public run-interprotocol target
+# instead orchestrates its complete measurement-and-analysis pipeline.
 
 GO      ?= go
 BIN_DIR ?= bin
@@ -50,12 +49,13 @@ BLOCKLIST_REPO ?= git@github.com:netd-tud/active-measurements-blocklists.git
 BLOCKLIST_DIR  ?= ../active-measurements-blocklists
 
 BUILD_TARGETS := $(addprefix build-,$(TOOLS))
-RUN_TARGETS   := $(addprefix run-,$(TOOLS))
+RUN_TOOLS     := ipid os zmap
+RUN_TARGETS   := $(addprefix run-,$(RUN_TOOLS))
 
 .PHONY: all build setcap pull-blocklist \
 		$(BUILD_TARGETS) build-publish-analysis-job build-sample-zmap \
-		build-run-interprotocol-campaign $(RUN_TARGETS) \
-        run-all-icmp run-all-tcp run-all-udp run-all-interprotocol \
+		build-run-interprotocol-campaign $(RUN_TARGETS) run-interprotocol \
+		run-all-icmp run-all-tcp run-all-udp \
         vet test tidy clean
 
 all: build
@@ -103,9 +103,8 @@ run-all-tcp:
 run-all-udp:
 	./scripts/run-all.sh udp $(RUN_ALL_RESUME_ARGS)
 
-# Explicit manual inter-protocol campaign. This is intentionally independent
-# from all protocol-specific run-all targets.
-run-all-interprotocol:
+# Complete inter-protocol pipeline from the three base-analysis manifests.
+run-interprotocol:
 	./$(BIN_DIR)/run-interprotocol-campaign $(ARGS)
 
 # --- blocklist ---------------------------------------------------------------
