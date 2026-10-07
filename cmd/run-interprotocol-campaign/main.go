@@ -110,10 +110,10 @@ func main() {
 		log.Fatal(err)
 	}
 	runIDProvided := *runID != ""
-	if !runIDProvided {
+	if !runIDProvided && !(*resume && *manifestFlag != "") {
 		*runID = *campaignID + "_" + time.Now().Format("2006-01-02_15-04-05")
 	}
-	if !interprotocolworkflow.SafeID.MatchString(*runID) {
+	if *runID != "" && !interprotocolworkflow.SafeID.MatchString(*runID) {
 		log.Fatal("--run-id may only contain letters, digits, '.', '_' and '-'")
 	}
 	manifestPath := *manifestFlag
@@ -129,6 +129,9 @@ func main() {
 		manifest, err = interprotocolworkflow.Load(manifestPath)
 		if err != nil {
 			log.Fatal(err)
+		}
+		if !runIDProvided {
+			*runID = manifest.RunID
 		}
 		if manifest.CampaignID != *campaignID || manifest.RunID != *runID {
 			log.Fatal("resume manifest does not match --campaign-id/--run-id")
