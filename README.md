@@ -24,8 +24,35 @@ an internal implementation detail.
 The fixed order is repeated for every logical connection/request position, for
 example `ICMP -> TCP -> UDP -> ICMP -> ...`. Source address selection remains
 based on the logical connection, so a protocol is not tied to one source IP.
-Output is stored under `data/raw/ipid/interprotocol-<group>_<timestamp>/` as
+Output is stored under `ipid/raw/interprotocol-<group>_<timestamp>/` as
 `interprotocol.pq`, `interprotocol.snapshot.yaml`, and a `targets` symlink.
+
+Inter-protocol targets now include `REFLECTION`, `CONSTANT`, `MULTI`, and `RANDOM`
+in addition to `SINGLE`, `PER_DESTINATION`, and `PER_BUCKET`. Target groups still
+require the same baseline strategy across their protocols and exclude the
+same-strategy triple from pair cohorts. `PER_CONNECTION` remains excluded.
+
+The inter-protocol binary overrides the ordinary config's sampling dimensions
+to **4 logical connections x 25 requests per protocol**, matching the production
+MULTI/RANDOM classifier's 100-position layout. This applies to all target
+classes: 200 packets per pair target and 300 per triple target. Both dimensions
+are recorded in `interprotocol.snapshot.yaml`; ordinary single-protocol runs
+are unaffected. Timing remains RT-based, with one outstanding request per
+target and no retries. Longer runs increase traffic and the chance of losses.
+
+Request IPIDs retain the configured cyclic pattern indexed by the global packet
+sequence number. Every protocol must see at least two distinct request IPIDs,
+otherwise REFLECTION cannot be distinguished from CONSTANT and the run fails
+before probing. The five-value pattern in `config/ipid.yaml.example` works for
+both pairs and triples.
+
+Update `ipid-analysis` together with this version. The same start command now
+produces per-protocol strategy comparisons (`UNCHANGED`, `CHANGED`,
+`UNCLASSIFIED`, `NOT_ENOUGH_SAMPLES`, `NOT_EVALUATED`) alongside the existing
+counter-sharing results. New per-group and combined `*-strategy-stability.pq`,
+`*-strategy-stability-summary.json`, `*-strategy-stability.pdf`, and
+`*-strategy-transitions.pdf` files are uploaded by the analysis worker. A label
+change is an observation, not proof that protocol interleaving caused it.
 
 A high-throughput active-measurement toolkit for IPv4. It runs as a three-stage
 pipeline:
@@ -556,3 +583,4 @@ to keep results local only).
 | `make vet` / `test` / `tidy` / `clean` | Go housekeeping |
 | `scripts/run-all.sh [icmp\|tcp\|udp]` | sweep script behind the `run-all*` targets |
 | `scripts/setup-iptables.sh` / `teardown-iptables.sh` | standalone RST-drop rules for `establish_connection` mode (the tool installs/removes these itself; scripts are a manual escape hatch) |
+

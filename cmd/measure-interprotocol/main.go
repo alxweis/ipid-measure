@@ -61,6 +61,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("resolve config path: %v", err)
 	}
+	var samplingErr error
 	c, err := config.LoadIPIDConfig(configPath, func(c *config.IPIDConfig) {
 		// Inter-protocol targets are explicit Parquet files, so the unrelated
 		// single-protocol ZMap reference in the shared config must not gate a run.
@@ -76,10 +77,15 @@ func main() {
 		c.MeasurementMode = types.MeasurementModeRTBased
 		c.TCPConfig.EstablishConnection = false
 		c.AnalysisWorkflowConfig.Enable = false
+		samplingErr = config.ConfigureInterprotocolSampling(c, len(protocols))
 	})
+	if samplingErr != nil {
+		log.Fatalf("inter-protocol sampling: %v", samplingErr)
+	}
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	log.Printf("inter-protocol strategy stability: 4x25 samples per protocol (%d requests per target)", 100*len(protocols))
 	measurement.InterProtocols = protocols
 	measurement.InterProtocolPorts = map[types.Payload]uint16{
 		types.PayloadTCP: uint16(*tcpPort), types.PayloadUDPDNS: uint16(*udpPort),

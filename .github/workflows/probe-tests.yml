@@ -8,6 +8,8 @@ on:
       - 'scripts/test-run-all.sh'
       - 'cmd/sample-zmap/**'
       - 'cmd/publish-analysis-job/**'
+      - 'cmd/measure-interprotocol/**'
+      - 'cmd/run-interprotocol-campaign/**'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/probe-tests.yml'
@@ -24,4 +26,6 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - run: go test -race ./ipid/... ./internal/...
       - run: go test ./cmd/sample-zmap ./cmd/publish-analysis-job
+      - run: go test ./cmd/measure-interprotocol ./cmd/run-interprotocol-campaign
       - run: bash scripts/test-run-all.sh
+
