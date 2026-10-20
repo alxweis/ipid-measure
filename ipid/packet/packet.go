@@ -40,7 +40,7 @@ func Setup() {
 
 	for seqNum := uint16(0); seqNum < measurement.RequestCount; seqNum++ {
 		sndr := sender.GetSender(seqNum)
-		ipID := measurement.Config.RequestIPIDs[int(seqNum)%len(measurement.Config.RequestIPIDs)]
+		ipID := measurement.Config.RequestIPIDs[int(measurement.BaseSequenceIndex(seqNum))%len(measurement.Config.RequestIPIDs)]
 		active := payload.ForSequence(seqNum)
 
 		ipLayer := ip.Layer(ipID, sndr.IP, active.ProtocolID)

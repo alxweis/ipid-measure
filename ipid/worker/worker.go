@@ -10,6 +10,7 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 
+	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
@@ -51,7 +52,10 @@ func proberLoop() {
 			if !ok {
 				return
 			}
-			probe.MeasureTarget(current.ip, current.strategy, packets)
+			ok = probe.MeasureTarget(current.ip, current.strategy, packets)
+			if !ok && measurement.IsInterProtocol() {
+				measurement.Fail(fmt.Errorf("interprotocol measurement failed for %s", current.ip))
+			}
 		}
 	}
 }
@@ -112,14 +116,22 @@ func StreamZMapToWorkers() error {
 func streamInterProtocolTargets(file *os.File) error {
 	reader := parquet.NewGenericReader[records.InterProtocolTarget](file)
 	defer reader.Close()
-	atomic.StoreInt64(&stats.NumberOfTargetIPAddresses, reader.NumRows())
+	atomic.StoreInt64(&stats.NumberOfTargetIPAddresses, 0)
 	buffer := make([]records.InterProtocolTarget, consts.ZMapReadBufferSize)
 	for {
 		count, err := reader.Read(buffer)
 		for i := 0; i < count; i++ {
+			sample, sampleErr := config.InterprotocolSample(buffer[i].Strategy)
+			if sampleErr != nil {
+				return sampleErr
+			}
+			if sample != measurement.InterProtocolSample {
+				continue
+			}
+			atomic.AddInt64(&stats.NumberOfTargetIPAddresses, 1)
 			ip4 := parseIPv4Fast(buffer[i].IPAddress)
 			if ip4 == nil {
-				continue
+				return fmt.Errorf("invalid interprotocol target IP %q", buffer[i].IPAddress)
 			}
 			select {
 			case targets <- target{ip: ip4, strategy: buffer[i].Strategy}:

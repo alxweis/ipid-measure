@@ -28,12 +28,16 @@ func NewIPIDMeasurement(payload types.Payload, port *uint16, timestamp time.Time
 	}
 }
 
-func NewInterProtocolMeasurement(protocols []types.Payload, timestamp time.Time) *IPIDMeasurement {
+func NewInterProtocolMeasurement(protocols []types.Payload, timestamp time.Time, sample ...string) *IPIDMeasurement {
 	names := make([]string, len(protocols))
 	for index, protocol := range protocols {
 		names[index] = strings.ReplaceAll(string(protocol), "-dns", "")
 	}
-	id := "interprotocol-" + strings.Join(names, "-") + "_" + timestamp.Format(TimestampFormat)
+	suffix := ""
+	if len(sample) > 0 {
+		suffix = "_" + sample[0]
+	}
+	id := "interprotocol-" + strings.Join(names, "-") + "_" + timestamp.Format(TimestampFormat) + suffix
 	path := filepath.Join(root.Root, dirs.IPIDDir, dirs.RawDir, id)
 	return &IPIDMeasurement{
 		ZMapLinkedMeasurement: ZMapLinkedMeasurement{

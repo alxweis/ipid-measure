@@ -1,32 +1,49 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
 
-// ConfigureInterprotocolSampling supplies the 4x25 per-protocol layout required
-// by the production MULTI/RANDOM classifier. The request pattern is indexed by
-// the flattened interleaved sequence number, exactly as in packet.Setup.
-func ConfigureInterprotocolSampling(c *IPIDConfig, protocolCount int) error {
+	"github.com/alxweis/ipid-measure/internal/types"
+)
+
+func InterprotocolSample(strategy string) (string, error) {
+	switch strategy {
+	case "REFLECTION", "CONSTANT", "SINGLE", "PER_DESTINATION", "PER_BUCKET":
+		return "base", nil
+	case "MULTI", "RANDOM":
+		return "mass", nil
+	default:
+		return "", fmt.Errorf("unsupported interprotocol strategy %q", strategy)
+	}
+}
+
+// Each protocol receives the same request pattern, indexed by logical position.
+func ConfigureInterprotocolSampling(c *IPIDConfig, protocolCount int, sample string) error {
 	if protocolCount != 2 && protocolCount != 3 {
-		return fmt.Errorf("inter-protocol sampling requires two or three protocols")
-	}
-	if len(c.RequestIPIDs) == 0 {
-		return fmt.Errorf("inter-protocol sampling requires request_ip_ids")
-	}
-	for protocol := 0; protocol < protocolCount; protocol++ {
-		first := c.RequestIPIDs[protocol%len(c.RequestIPIDs)]
-		varied := false
-		for position := 1; position < 100; position++ {
-			index := (position*protocolCount + protocol) % len(c.RequestIPIDs)
-			if c.RequestIPIDs[index] != first {
-				varied = true
-				break
-			}
-		}
-		if !varied {
-			return fmt.Errorf("request_ip_ids is constant for interleaved protocol %d: use a varying pattern (for example the five values in config/ipid.yaml.example) to distinguish REFLECTION from CONSTANT", protocol)
-		}
+		return fmt.Errorf("interprotocol sampling requires two or three protocols")
 	}
 	c.ConnectionCount = 4
-	c.RequestsPerConnection = 25
-	return nil
+	switch sample {
+	case "base":
+		c.RequestsPerConnection = 4
+		c.MeasurementMode = types.MeasurementModeRTBased
+	case "mass":
+		c.RequestsPerConnection = 25
+		c.MeasurementMode = types.MeasurementModeFixedInterval
+		c.FixedIntervalConfig.MinimumReplyRate = 0.8
+		if c.FixedIntervalConfig.RequestInterval <= 0 {
+			return fmt.Errorf("interprotocol MASS requires a positive request_interval")
+		}
+	default:
+		return fmt.Errorf("interprotocol sample must be base or mass")
+	}
+	if len(c.RequestIPIDs) == 0 {
+		return fmt.Errorf("interprotocol sampling requires request_ip_ids")
+	}
+	for i := 1; i < int(c.ConnectionCount*c.RequestsPerConnection); i++ {
+		if c.RequestIPIDs[i%len(c.RequestIPIDs)] != c.RequestIPIDs[0] {
+			return nil
+		}
+	}
+	return fmt.Errorf("request_ip_ids must vary within the per-protocol sequence")
 }

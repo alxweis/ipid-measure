@@ -15,6 +15,7 @@ import (
 )
 
 const Version = 1
+const ManifestVersion = 2
 
 var (
 	SafeID         = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -28,13 +29,14 @@ var (
 )
 
 type GroupRun struct {
-	Protocols     []string `json:"protocols"`
-	TargetFile    string   `json:"target_file"`
-	Status        string   `json:"status"`
-	MeasurementID string   `json:"measurement_id,omitempty"`
-	StartedAt     string   `json:"started_at,omitempty"`
-	CompletedAt   string   `json:"completed_at,omitempty"`
-	Error         string   `json:"error,omitempty"`
+	Protocols     []string          `json:"protocols"`
+	TargetFile    string            `json:"target_file"`
+	Status        string            `json:"status"`
+	MeasurementID string            `json:"measurement_id,omitempty"`
+	Measurements  map[string]string `json:"measurements,omitempty"`
+	StartedAt     string            `json:"started_at,omitempty"`
+	CompletedAt   string            `json:"completed_at,omitempty"`
+	Error         string            `json:"error,omitempty"`
 }
 
 type Manifest struct {
@@ -139,7 +141,7 @@ func validateS3(value, field string) error {
 }
 
 func Validate(manifest *Manifest, requireComplete bool) error {
-	if manifest.Version != Version {
+	if manifest.Version != Version && manifest.Version != ManifestVersion {
 		return fmt.Errorf("unsupported manifest version %d", manifest.Version)
 	}
 	if !SafeID.MatchString(manifest.CampaignID) || !SafeID.MatchString(manifest.RunID) {
@@ -156,7 +158,15 @@ func Validate(manifest *Manifest, requireComplete bool) error {
 		if state == nil || strings.Join(state.Protocols, ",") != strings.Join(protocols, ",") {
 			return fmt.Errorf("invalid protocol order for %q", group)
 		}
-		if requireComplete && (state.Status != "complete" || !strings.HasPrefix(state.MeasurementID, "interprotocol-"+group+"_")) {
+		validIDs := strings.HasPrefix(state.MeasurementID, "interprotocol-"+group+"_")
+		if manifest.Version == ManifestVersion {
+			validIDs = len(state.Measurements) == 2
+			for _, sample := range []string{"base", "mass"} {
+				id := state.Measurements[sample]
+				validIDs = validIDs && SafeID.MatchString(id) && strings.HasPrefix(id, "interprotocol-"+group+"_") && strings.HasSuffix(id, "_"+sample)
+			}
+		}
+		if requireComplete && (state.Status != "complete" || !validIDs) {
 			return fmt.Errorf("protocol group %q is not complete", group)
 		}
 	}

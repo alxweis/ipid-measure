@@ -25,7 +25,7 @@ func TestInterProtocolPacketsRepeatProtocolsWithoutChangingSourcePosition(t *tes
 		sender.SenderA, sender.SenderB, payload.Active = previousA, previousB, previousPayload
 	})
 	measurement.Config = &config.IPIDConfig{
-		ConnectionCount: 2, RequestsPerConnection: 1, RequestIPIDs: []uint16{1234},
+		ConnectionCount: 2, RequestsPerConnection: 1, RequestIPIDs: []uint16{1234, 4321},
 	}
 	measurement.InterProtocols = []types.Payload{
 		types.PayloadICMP, types.PayloadTCP, types.PayloadUDPDNS,
@@ -43,6 +43,13 @@ func TestInterProtocolPacketsRepeatProtocolsWithoutChangingSourcePosition(t *tes
 	BuildPacketsInto(packets, net.IPv4(198, 51, 100, 1), 40_000)
 	wantProtocols := []byte{1, 6, 17, 1, 6, 17}
 	for index, want := range wantProtocols {
+		expectedID := uint16(1234)
+		if index >= 3 {
+			expectedID = 4321
+		}
+		if got := binary.BigEndian.Uint16(packets[index][4:6]); got != expectedID {
+			t.Fatalf("packet %d IPID %d, want %d", index, got, expectedID)
+		}
 		if got := packets[index][9]; got != want {
 			t.Fatalf("packet %d protocol = %d, want %d", index, got, want)
 		}

@@ -110,6 +110,9 @@ func MeasureTarget(target net.IP, strategy string, packets [][]byte) bool {
 		Samples:        make([]Sample, measurement.RequestCount),
 	}
 	if measurement.IsInterProtocol() {
+		if measurement.Config.MeasurementMode == types.MeasurementModeFixedInterval {
+			return measureFixedInterval(probe, targetKey(target4), packets, basePort)
+		}
 		return measureInterProtocolRT(probe, targetKey(target4), packets, basePort)
 	}
 	if measurement.Config.ConnectionCount == 4 && measurement.Config.RequestsPerConnection == 4 {
@@ -358,6 +361,11 @@ func measureFixedInterval(
 		return false
 	}
 
+	return finishFixedProbe(probe)
+}
+
+// Interprotocol results retain every target; the analysis applies per-protocol coverage.
+func finishFixedProbe(probe *Probe) bool {
 	// Count finally received samples.
 	received := 0
 	for i := range probe.Samples {
@@ -371,7 +379,7 @@ func measureFixedInterval(
 	if probe.strict {
 		minimumRate = 1
 	}
-	if rate < minimumRate {
+	if rate < minimumRate && !measurement.IsInterProtocol() {
 		probe.fail(&stats.DropRateLow)
 		return false
 	}
@@ -449,6 +457,10 @@ func (entry *InflightEntry) FulfillReply(
 		return false
 	}
 	active := payload.ForSequence(logicalSeq)
+	if measurement.IsInterProtocol() && dstIP4 != sender.GetSender(logicalSeq).IPBytes {
+		atomic.AddInt64(&stats.DropBadDst, 1)
+		return false
+	}
 	hasPorts := measurement.HasPorts
 	if measurement.IsInterProtocol() {
 		hasPorts = active.ProtocolID == layers.IPProtocolTCP || active.ProtocolID == layers.IPProtocolUDP
@@ -458,6 +470,10 @@ func (entry *InflightEntry) FulfillReply(
 		return false
 	}
 
+	if measurement.IsInterProtocol() && hasPorts && dstPort != port.GetSrcPort(logicalSeq, entry.basePort) {
+		atomic.AddInt64(&stats.DropBadPort, 1)
+		return false
+	}
 	expectedFlags := entry.expectedFlags
 	if measurement.TcpEstablishConnection {
 		if seqnum.GetRequestIndex(logicalSeq) == 0 {
