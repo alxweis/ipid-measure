@@ -30,16 +30,19 @@ const goMemLimitDefaultBytes = 700 << 20
 type interProtocolSnapshot struct {
 	config.IPIDConfig `yaml:",inline"`
 	InterProtocol     struct {
-		Protocols []string `yaml:"protocols"`
-		TCPPort   uint16   `yaml:"tcp_port"`
-		UDPPort   uint16   `yaml:"udp_port"`
-		Schedule  string   `yaml:"schedule"`
-		Retries   int      `yaml:"retries"`
+		Protocols        []string `yaml:"protocols"`
+		Sample           string   `yaml:"sample"`
+		RequestIPIDIndex string   `yaml:"request_ipid_index"`
+		TCPPort          uint16   `yaml:"tcp_port"`
+		UDPPort          uint16   `yaml:"udp_port"`
+		Schedule         string   `yaml:"schedule"`
+		Retries          int      `yaml:"retries"`
 	} `yaml:"interprotocol"`
 }
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	sampleFlag := flag.String("sample", "base", "base (RT 4x4) or mass (fixed-interval 4x25)")
 	configFlag := flag.String("config", files.IPIDConfigFilePath, "base IPID config (interfaces, limits, TCP flags)")
 	targetFlag := flag.String("target-file", "", "same-strategy inter-protocol target parquet")
 	protocolFlag := flag.String("protocols", "icmp,tcp,udp", "icmp,tcp | icmp,udp | tcp,udp | icmp,tcp,udp")
@@ -77,7 +80,7 @@ func main() {
 		c.MeasurementMode = types.MeasurementModeRTBased
 		c.TCPConfig.EstablishConnection = false
 		c.AnalysisWorkflowConfig.Enable = false
-		samplingErr = config.ConfigureInterprotocolSampling(c, len(protocols))
+		samplingErr = config.ConfigureInterprotocolSampling(c, len(protocols), *sampleFlag)
 	})
 	if samplingErr != nil {
 		log.Fatalf("inter-protocol sampling: %v", samplingErr)
@@ -85,13 +88,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
-	log.Printf("inter-protocol strategy stability: 4x25 samples per protocol (%d requests per target)", 100*len(protocols))
+	log.Printf("inter-protocol %s: %dx%d samples per protocol", *sampleFlag, c.ConnectionCount, c.RequestsPerConnection)
+	measurement.InterProtocolSample = *sampleFlag
 	measurement.InterProtocols = protocols
 	measurement.InterProtocolPorts = map[types.Payload]uint16{
 		types.PayloadTCP: uint16(*tcpPort), types.PayloadUDPDNS: uint16(*udpPort),
 	}
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, goMemLimitDefaultBytes))
-	m := paths.NewInterProtocolMeasurement(protocols, time.Now())
+	m := paths.NewInterProtocolMeasurement(protocols, time.Now(), *sampleFlag)
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
 	}
@@ -100,9 +104,11 @@ func main() {
 	}
 	snapshot := interProtocolSnapshot{IPIDConfig: *c}
 	snapshot.InterProtocol.Protocols = names
+	snapshot.InterProtocol.Sample = *sampleFlag
+	snapshot.InterProtocol.RequestIPIDIndex = "logical"
 	snapshot.InterProtocol.TCPPort = uint16(*tcpPort)
 	snapshot.InterProtocol.UDPPort = uint16(*udpPort)
-	snapshot.InterProtocol.Schedule = "rt-based, protocol order repeated per logical connection/request"
+	snapshot.InterProtocol.Schedule = "protocol order repeated per logical position; fixed interval is between all consecutive requests per target"
 	snapshot.InterProtocol.Retries = 0
 	data, err := yaml.Marshal(snapshot)
 	if err != nil {

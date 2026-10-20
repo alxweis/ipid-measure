@@ -1,30 +1,56 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
 
-func TestInterprotocolSamplingUsesMassLayout(t *testing.T) {
+	"github.com/alxweis/ipid-measure/internal/types"
+)
+
+func TestInterprotocolLayouts(t *testing.T) {
 	for _, count := range []int{2, 3} {
-		c := &IPIDConfig{ConnectionCount: 4, RequestsPerConnection: 4, RequestIPIDs: []uint16{18933, 18932, 3717, 3718, 3719}}
-		if err := ConfigureInterprotocolSampling(c, count); err != nil {
-			t.Fatal(err)
-		}
-		if c.ConnectionCount != 4 || c.RequestsPerConnection != 25 {
-			t.Fatalf("got %dx%d sampling", c.ConnectionCount, c.RequestsPerConnection)
+		for _, sample := range []string{"base", "mass"} {
+			c := &IPIDConfig{RequestIPIDs: []uint16{1, 2}}
+			c.FixedIntervalConfig.RequestInterval = 20 * time.Millisecond
+			if err := ConfigureInterprotocolSampling(c, count, sample); err != nil {
+				t.Fatal(err)
+			}
+			req, mode := uint16(4), types.MeasurementModeRTBased
+			if sample == "mass" {
+				req, mode = 25, types.MeasurementModeFixedInterval
+			}
+			if c.ConnectionCount != 4 || c.RequestsPerConnection != req || c.MeasurementMode != mode {
+				t.Fatal(c)
+			}
+			if c.FixedIntervalConfig.RequestInterval != 20*time.Millisecond {
+				t.Fatal("interval was divided by protocol count")
+			}
 		}
 	}
 }
-
-func TestInterprotocolSamplingRejectsAliasedReflectionPatterns(t *testing.T) {
-	for _, test := range []struct {
-		count   int
-		pattern []uint16
-	}{
-		{2, nil}, {2, []uint16{1}}, {2, []uint16{1, 2}},
-		{3, []uint16{1, 2, 3}}, {1, []uint16{1, 2, 3, 4, 5}},
-	} {
-		c := &IPIDConfig{RequestIPIDs: test.pattern}
-		if err := ConfigureInterprotocolSampling(c, test.count); err == nil {
-			t.Fatalf("accepted ambiguous pattern %v with %d protocols", test.pattern, test.count)
+func TestInterprotocolRejectsInvalidInputs(t *testing.T) {
+	for _, pattern := range [][]uint16{nil, {1}, {1, 1}} {
+		if ConfigureInterprotocolSampling(&IPIDConfig{RequestIPIDs: pattern}, 2, "base") == nil {
+			t.Fatal(pattern)
 		}
+	}
+	for _, sample := range []string{"unknown", "mass"} {
+		if ConfigureInterprotocolSampling(&IPIDConfig{RequestIPIDs: []uint16{1, 2}}, 2, sample) == nil {
+			t.Fatal(sample)
+		}
+	}
+}
+func TestInterprotocolPopulation(t *testing.T) {
+	for _, s := range []string{"REFLECTION", "CONSTANT", "SINGLE", "PER_DESTINATION", "PER_BUCKET", "MULTI", "RANDOM"} {
+		sample, err := InterprotocolSample(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (sample == "mass") != (s == "MULTI" || s == "RANDOM") {
+			t.Fatal(s, sample)
+		}
+	}
+	if _, err := InterprotocolSample("UNCLASSIFIED"); err == nil {
+		t.Fatal("accepted unsupported target")
 	}
 }

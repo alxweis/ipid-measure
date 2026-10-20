@@ -2,70 +2,58 @@
 
 ## Inter-protocol measurement
 
-Every completed `make run-all-icmp`, `make run-all-tcp`, and
-`make run-all-udp` prints one `INTERPROTOCOL_MANIFEST=s3://.../manifest.json`
-line at the end. Copy those three values to the inter-protocol VM and run the
-complete pipeline with exactly these inputs:
+Start a campaign after the three normal sweeps have printed their analysis manifest URIs:
 
 ```bash
-make run-interprotocol ARGS="\
---manifest-icmp s3://.../analysis-jobs/icmp_.../manifest.json \
---manifest-tcp s3://.../analysis-jobs/tcp-80_.../manifest.json \
---manifest-udp s3://.../analysis-jobs/udp-dns-53_.../manifest.json"
+make run-interprotocol ARGS="--manifest-icmp s3://bucket/icmp/manifest.json --manifest-tcp s3://bucket/tcp/manifest.json --manifest-udp s3://bucket/udp/manifest.json"
 ```
 
-The command accepts no campaign, group, target-directory, reuse, or config
-options. It waits for the three base analyses, asks the analysis VM to build
-the same-strategy intersections, downloads the resulting targets, measures all
-four groups, submits the combined analysis, waits for completion, and prints
-both the S3 and analysis-VM result paths. The low-level measurement binary is
-an internal implementation detail.
+The analysis worker builds same-strategy ICMP/TCP/UDP intersections from canonical
+stateless strategy merges. The target populations remain unchanged: pair cohorts
+exclude the same-strategy triple cohort. The campaign then runs all four groups
+(`icmp-tcp`, `icmp-udp`, `tcp-udp`, `icmp-tcp-udp`) in BASE, followed by all four in
+MASS, and waits for the final analysis job:
 
-The fixed order is repeated for every logical connection/request position, for
-example `ICMP -> TCP -> UDP -> ICMP -> ...`. Source address selection remains
-based on the logical connection, so a protocol is not tied to one source IP.
-Output is stored under `ipid/raw/interprotocol-<group>_<timestamp>/` as
-`interprotocol.pq`, `interprotocol.snapshot.yaml`, and a `targets` symlink.
+| Stage | Target strategies | Sampling per protocol | Requests per pair/triple |
+| --- | --- | --- | --- |
+| BASE | Reflection, Constant, Single, Per-Destination, Per-Bucket | RT-based 4×4 | 32 / 48 |
+| MASS | Multi, Random | Fixed-interval 4×25 | 200 / 300 |
 
-Inter-protocol targets now include `REFLECTION`, `CONSTANT`, `MULTI`, and `RANDOM`
-in addition to `SINGLE`, `PER_DESTINATION`, and `PER_BUCKET`. Target groups still
-require the same baseline strategy across their protocols and exclude the
-same-strategy triple from pair cohorts. `PER_CONNECTION` remains excluded.
+The same target parquet can be used by both stages; each stage validates and
+selects its own strategies while streaming. Empty populations still produce
+valid empty measurement files. `PER_CONNECTION` and unclassified baselines are
+not selected. TCP remains stateless, with destination port 80; UDP uses DNS/53.
 
-The inter-protocol binary overrides the ordinary config's sampling dimensions
-to **4 logical connections x 25 requests per protocol**, matching the production
-MULTI/RANDOM classifier's 100-position layout. This applies to all target
-classes: 200 packets per pair target and 300 per triple target. Both dimensions
-are recorded in `interprotocol.snapshot.yaml`; ordinary single-protocol runs
-are unaffected. Timing remains RT-based, with one outstanding request per
-target and no retries. Longer runs increase traffic and the chance of losses.
+Each logical connection/request position expands into the selected protocol
+order before moving to the next source/connection position. Every protocol
+receives the **same** varying request-IPID pattern, e.g. `A,A,A,B,B,B,...` for a
+triple. Source A/B and four logical connections retain their ordinary ordering.
 
-Request IPIDs retain the configured cyclic pattern indexed by the global packet
-sequence number. Every protocol must see at least two distinct request IPIDs,
-otherwise REFLECTION cannot be distinguished from CONSTANT and the run fails
-before probing. The five-value pattern in `config/ipid.yaml.example` works for
-both pairs and triples.
+BASE waits for each reply or timeout; timeouts remain missing positions and the
+schedule continues without retries. MASS sends requests with the configured
+`fixed_interval.request_interval` between every consecutive request to the same
+target, regardless of protocol. The interval is not divided by the protocol
+count; the existing global sender limiter still applies.
 
-Update `ipid-analysis` together with this version. The same start command now
-produces per-protocol strategy comparisons (`UNCHANGED`, `CHANGED`,
-`UNCLASSIFIED`, `NOT_ENOUGH_SAMPLES`, `NOT_EVALUATED`) alongside the existing
-counter-sharing results. New per-group and combined `*-strategy-stability.pq`,
-`*-strategy-stability-summary.json`, `*-strategy-stability.pdf`, and
-`*-strategy-transitions.pdf` files are uploaded by the analysis worker. A label
-change is an observation, not proof that protocol interleaving caused it.
+All normally completed targets are saved, including zero replies and MASS reply
+rates below 80%. The analysis applies coverage **per protocol**: BASE requires
+16/16 replies and MASS at least 80/100. Missing targets must not disappear from
+the denominator. Send failures, invalid target rows and interrupted runs fail the
+campaign rather than publish a successful analysis job.
 
-A high-throughput active-measurement toolkit for IPv4. It runs as a three-stage
-pipeline:
+Output directories are `ipid/raw/interprotocol-<group>_<timestamp>_<base|mass>/`,
+containing `interprotocol.pq`, `interprotocol.snapshot.yaml` and the target link.
+Snapshots record mode, layout, sample and `request_ipid_index: logical`.
+Manifest version 2 stores `groups.<group>.measurements.base` and `.mass`; request
+and completion message versions remain unchanged. Update **both repositories**,
+with the analysis worker first, before starting a new campaign.
 
-1. **zmap** — discover responsive hosts (wraps the `zmap` scanner).
-2. **os** — fingerprint their operating system from service banners
-   (`zgrab2` + in-process DNS CHAOS and SNMP probes).
-3. **ipid** — sample how each host selects its IP-ID field.
-
-Each stage writes a Parquet file. `os` and `ipid` consume the host set produced
-by a `zmap` run, referenced by that run's **measurement id**.
-
----
+Direct runs support `bin/measure-interprotocol --sample base|mass --target-file
+TARGETS.pq --protocols icmp,tcp --print-id` (BASE is the default). The campaign
+entry point chooses both stages automatically. Analysis produces one main
+outcome per IP, preserves partial relationships and changed-label combinations,
+and retains the existing compact paper style. Joint 200/300-position RANDOM
+classification remains deferred; individual RANDOM stability is evaluated.
 
 ## Requirements
 

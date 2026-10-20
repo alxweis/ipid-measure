@@ -3,6 +3,7 @@ package measurement
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"math/rand/v2"
@@ -34,8 +35,9 @@ var (
 	// When set, every logical connection/request position is expanded in this
 	// protocol order, yielding P1,P2,...,Pn,P1,P2,... without correlating a
 	// protocol with one of the two source addresses.
-	InterProtocols     []types.Payload
-	InterProtocolPorts map[types.Payload]uint16
+	InterProtocolSample string
+	InterProtocols      []types.Payload
+	InterProtocolPorts  map[types.Payload]uint16
 )
 
 func IsInterProtocol() bool { return len(InterProtocols) > 0 }
@@ -173,6 +175,11 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	}
 
 	cleanup()
+	select {
+	case <-StopSignal:
+		streamErr = errors.Join(streamErr, fmt.Errorf("measurement interrupted or stopped before successful completion"))
+	default:
+	}
 	return records(), errors.Join(streamErr, currentRunError())
 }
 

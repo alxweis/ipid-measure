@@ -171,3 +171,18 @@ func TestPublishRequiresCompleteGroups(t *testing.T) {
 		t.Fatal("expected incomplete campaign to fail")
 	}
 }
+
+func TestTwoStageManifest(t *testing.T) {
+	g := &GroupRun{Protocols: []string{"icmp", "tcp"}, Status: "complete", Measurements: map[string]string{
+		"base": "interprotocol-icmp-tcp_2026-10-20_00-00-00_base",
+		"mass": "interprotocol-icmp-tcp_2026-10-20_00-00-00_mass",
+	}}
+	m := &Manifest{Version: ManifestVersion, CampaignID: "campaign", RunID: "run", Groups: map[string]*GroupRun{"icmp-tcp": g}}
+	if err := Validate(m, true); err != nil {
+		t.Fatal(err)
+	}
+	delete(g.Measurements, "mass")
+	if Validate(m, true) == nil {
+		t.Fatal("accepted missing MASS stage")
+	}
+}
