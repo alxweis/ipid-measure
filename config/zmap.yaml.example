@@ -11,6 +11,10 @@ port: 80
 # E.g. A,www.example.com
 probe_args: null
 
+# Optional ZMap seed (integer from 0 to 18446744073709551615).
+# null or omitted lets ZMap choose randomly. Zero is an explicit seed.
+seed: null
+
 # Stop after this many responsive IP addresses.
 # Use null to scan the entire IPv4 space. Supports scaled suffixes: K, M, G.
 number_of_target_ip_addresses: 100K

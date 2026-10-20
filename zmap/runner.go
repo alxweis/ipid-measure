@@ -77,6 +77,11 @@ func BuildArgs(c *config.ZMapConfig) ([]string, error) {
 		"--dedup-method", dedupMethod(c),
 	}
 
+	// Omit --seed to preserve ZMap's automatic seed selection.
+	if c.Seed != nil {
+		args = append(args, "--seed", strconv.FormatUint(uint64(*c.Seed), 10))
+	}
+
 	// Module / port / probe-args mapping
 	switch c.Payload {
 	case types.PayloadICMP:

@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'ipid/**'
+      - 'zmap/**'
       - 'internal/**'
       - 'scripts/run-all.sh'
       - 'scripts/test-run-all.sh'
@@ -24,7 +25,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
-      - run: go test -race ./ipid/... ./internal/...
+      - run: go test -race ./ipid/... ./internal/... ./zmap/...
       - run: go test ./cmd/sample-zmap ./cmd/publish-analysis-job
       - run: go test ./cmd/measure-interprotocol ./cmd/run-interprotocol-campaign
       - run: bash scripts/test-run-all.sh
