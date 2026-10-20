@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/types"
 )
@@ -93,4 +95,32 @@ func argumentValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestBuildArgsSeedForAllProtocols(t *testing.T) {
+	for _, payload := range []types.Payload{types.PayloadICMP, types.PayloadTCP, types.PayloadUDPDNS} {
+		for _, test := range []struct{ input, want string }{
+			{"{}", ""},
+			{"seed: null", ""},
+			{"seed: 0", "0"},
+			{"seed: 42", "42"},
+			{"seed: 18446744073709551615", "18446744073709551615"},
+		} {
+			t.Run(string(payload)+"/"+test.input, func(t *testing.T) {
+				var cfg config.ZMapConfig
+				if err := yaml.Unmarshal([]byte(test.input), &cfg); err != nil {
+					t.Fatal(err)
+				}
+				port, probeArgs := uint16(53), "A,www.example.com"
+				cfg.Payload, cfg.Port, cfg.ProbeArgs = payload, &port, &probeArgs
+				args, err := BuildArgs(&cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := argumentValue(args, "--seed"); got != test.want {
+					t.Fatalf("--seed = %q, want %q (args: %v)", got, test.want, args)
+				}
+			})
+		}
+	}
 }

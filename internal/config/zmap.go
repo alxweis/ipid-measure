@@ -13,6 +13,7 @@ type ZMapConfig struct {
 	Payload                   types.Payload `yaml:"payload"`
 	Port                      *uint16       `yaml:"port"`
 	ProbeArgs                 *string       `yaml:"probe_args"`
+	Seed                      *ZMapSeed     `yaml:"seed"`
 	Interface                 Interface     `yaml:"interface"`
 	NumberOfTargetIPAddresses *ScaledNumber `yaml:"number_of_target_ip_addresses"`
 

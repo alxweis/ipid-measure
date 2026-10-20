@@ -112,6 +112,7 @@ cp config/ipid.yaml.example config/ipid.yaml
 | `payload` | `icmp` \| `tcp` \| `udp-dns` | zmap probe module |
 | `port` | uint16 / null | destination port; `null` for icmp, `53` for udp-dns |
 | `probe_args` | string / null | dns probe args (udp-dns only), e.g. `A,www.example.com` |
+| `seed` | uint64 / null | ZMap seed for ICMP, TCP and UDP-DNS: `null` or omitted lets ZMap choose randomly; integers from `0` to `18446744073709551615` are passed as `--seed` |
 | `number_of_target_ip_addresses` | scaled-int / null | stop after N responsive hosts; `null` = **entire IPv4 space**. Suffixes `K`, `M`, `G` |
 | `bandwidth` | scaled-bits | send-rate cap, e.g. `30M` |
 | `packets_per_second` | scaled-int | pps cap (set exactly one of bandwidth / pps) |
