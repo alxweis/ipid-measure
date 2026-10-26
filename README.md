@@ -573,3 +573,8 @@ to keep results local only).
 | `scripts/run-all.sh [icmp\|tcp\|udp]` | sweep script behind the `run-all*` targets |
 | `scripts/setup-iptables.sh` / `teardown-iptables.sh` | standalone RST-drop rules for `establish_connection` mode (the tool installs/removes these itself; scripts are a manual escape hatch) |
 
+
+## Six-site continental campaigns
+
+See [docs/continental-workflow.md](docs/continental-workflow.md) for the additive
+`run-all-{eu,as,af,na,sa,au}` commands, shared OS worker and recovery procedure.

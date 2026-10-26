@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	osstd "os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -66,6 +67,16 @@ func runPipeline(
 	coverage := newCoverageStats(numberOfTargets)
 	outRecords := make(chan records.OSRecord, ResultBufferSize)
 	m := newMerger(outRecords, coverage)
+	var observations *observationWriter
+	if c.RecordTargetStatus {
+		observations, err = newObservationWriter(filepath.Join(filepath.Dir(outputPath), "os-observations.pq"), cancel)
+		if err != nil {
+			_ = writer.Close()
+			_ = zgrab.Shutdown()
+			return 0, err
+		}
+		m.observe = observations.observe
+	}
 
 	writerErrCh := make(chan error, 1)
 	var writerWg sync.WaitGroup
@@ -160,6 +171,11 @@ func runPipeline(
 	writerWg.Wait()
 	close(statsDone)
 	closeErr := writer.Close()
+	if observations != nil {
+		if err := observations.close(numberOfTargets); err != nil {
+			return writer.Written(), err
+		}
+	}
 
 	var scannerErr error
 	select {

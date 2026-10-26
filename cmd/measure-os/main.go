@@ -4,10 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
@@ -24,6 +24,8 @@ func main() {
 
 	configFlag := flag.String("config", files.OSConfigFilePath, "path to the os config file")
 	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
+	targetFlag := flag.String("target-file", "", "explicit ZMap-compatible target parquet")
+	statusFlag := flag.Bool("record-target-status", false, "retain per-target response/evidence status")
 	zgrab2SendersFlag := flag.String("zgrab2-senders", "", "override zgrab2 sender concurrency")
 	dnsChaosWorkersFlag := flag.String("dns-chaos-workers", "", "override DNS CHAOS worker concurrency")
 	snmpWorkersFlag := flag.String("snmp-workers", "", "override SNMP worker concurrency")
@@ -44,6 +46,12 @@ func main() {
 	c, err := config.LoadOSConfig(configFilePath, func(c *config.OSConfig) {
 		if *zmapFlag != "" {
 			c.ZMapID = *zmapFlag
+		}
+		if *targetFlag != "" {
+			c.TargetFile = *targetFlag
+		}
+		if *statusFlag {
+			c.RecordTargetStatus = true
 		}
 		if zgrab2Senders != nil {
 			c.ZGrab2Senders = zgrab2Senders
@@ -72,7 +80,11 @@ func main() {
 
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 
-	m := paths.NewOSMeasurement(c.ZMapPayload, c.ZMapPort, time.Now())
+	stamp, err := paths.MeasurementTime()
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := paths.NewOSMeasurement(c.ZMapPayload, c.ZMapPort, stamp)
 
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
@@ -99,6 +111,11 @@ func main() {
 
 	log.Printf("os measurement completed: %s (records=%d)", m.Path, written)
 
+	if os.Getenv("IPID_MEASURE_WORKSPACE") != "" {
+		if _, err = upload.WriteCompletion(m.Measurement); err != nil {
+			log.Fatalf("commit local OS measurement: %v", err)
+		}
+	}
 	if err = upload.Upload(c.UploadConfig, m.Measurement); err != nil {
 		log.Fatalf("upload measurement: %v", err)
 	}

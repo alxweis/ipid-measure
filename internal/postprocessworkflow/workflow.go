@@ -231,6 +231,12 @@ func manifest(protocol string, m Measurements) map[string]ProtocolMeasurements {
 	return map[string]ProtocolMeasurements{protocol: protocolMeasurements}
 }
 
+// BuildManifest shares the existing scientific layout with the continental
+// coordinator. Publishing a legacy analysis job still performs all validation.
+func BuildManifest(protocol string, m Measurements) map[string]ProtocolMeasurements {
+	return manifest(protocol, m)
+}
+
 func writeJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

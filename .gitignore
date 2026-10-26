@@ -1,2 +1,5 @@
 config/**/*.yaml
 /analysis-jobs/
+
+# Persistent local continental checkpoints and raw attempts
+/continental/

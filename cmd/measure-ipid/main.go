@@ -88,7 +88,11 @@ func main() {
 
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 
-	m := paths.NewIPIDMeasurement(c.ZMapPayload, c.ZMapPort, time.Now())
+	stamp, err := paths.MeasurementTime()
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := paths.NewIPIDMeasurement(c.ZMapPayload, c.ZMapPort, stamp)
 
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)

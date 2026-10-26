@@ -130,3 +130,24 @@ tidy:
 
 clean:
 	rm -rf $(BIN_DIR)
+
+# Six-site mode: use the same explicit CAMPAIGN_ID on all six sites and OS VM.
+CAMPAIGN_ID ?= $(IPID_CAMPAIGN_ID)
+CONTINENTS := eu as af na sa au
+.PHONY: $(addprefix run-all-,$(CONTINENTS)) build-run-continental build-continental-os-worker workflow-os-worker
+
+build: build-run-continental build-continental-os-worker
+build-run-continental:
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/run-continental ./cmd/run-continental
+build-continental-os-worker:
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(BUILD_FLAGS) -o $(BIN_DIR)/continental-os-worker ./cmd/continental-os-worker
+
+$(addprefix run-all-,$(CONTINENTS)): run-all-%:
+	@test -n "$(CAMPAIGN_ID)" || (echo 'Set CAMPAIGN_ID to the same explicit ID on all VMs' >&2; exit 1)
+	$(MAKE) pull-blocklist
+	./$(BIN_DIR)/run-continental --site "$*" --campaign "$(CAMPAIGN_ID)" $(ARGS)
+
+workflow-os-worker:
+	./$(BIN_DIR)/continental-os-worker --campaign "$(CAMPAIGN_ID)" $(ARGS)
