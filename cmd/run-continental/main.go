@@ -14,6 +14,7 @@ import (
 func main() {
 	campaign := flag.String("campaign", os.Getenv("IPID_CAMPAIGN_ID"), "explicit shared campaign ID; same on all six sites and OS VM")
 	site := flag.String("site", "", "eu,as,af,na,sa,au")
+	skipOS := flag.Bool("skip-os", false, "disable OS for the entire immutable campaign (must match all sites)")
 	retry := flag.Bool("retry-incomplete", false, "retain an incomplete local attempt and start it with a new ID")
 	flag.Parse()
 	if err := continental.Validate(*campaign, *site); err != nil {
@@ -34,7 +35,7 @@ func main() {
 	defer unlock()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	runner := continental.Runner{Repo: repo, Workspace: workspace, Campaign: *campaign, Site: *site, Store: continental.S3{Directory: filepath.Join(workspace, "publication")}, RetryIncomplete: *retry}
+	runner := continental.Runner{Repo: repo, Workspace: workspace, Campaign: *campaign, Site: *site, Store: continental.S3{Directory: filepath.Join(workspace, "publication")}, RetryIncomplete: *retry, SkipOS: *skipOS}
 	if err = runner.Prepare(ctx); err != nil {
 		log.Fatal(err)
 	}

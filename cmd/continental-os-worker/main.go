@@ -70,13 +70,8 @@ func main() {
 			if ctx.Err() != nil {
 				return
 			}
-			job := continental.Join(*prefix, "continental", *campaign, "os")
-			if _, done, checkErr := store.Read(ctx, continental.Join(job, "done.json")); checkErr == nil && !done {
-				if _, failed, checkErr := store.Read(ctx, continental.Join(job, "failed.json")); checkErr == nil && !failed {
-					if publishErr := continental.Immutable(ctx, store, continental.Join(job, "failed.json"), map[string]any{"version": 1, "campaign_id": *campaign, "error": err.Error()}); publishErr != nil {
-						log.Printf("could not publish OS failure: %v", publishErr)
-					}
-				}
+			if publishErr := continental.PublishOSFailure(ctx, store, *prefix, *campaign, err); publishErr != nil {
+				log.Printf("could not publish OS failure: %v", publishErr)
 			}
 			log.Fatal(err)
 		}

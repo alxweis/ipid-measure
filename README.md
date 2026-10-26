@@ -16,8 +16,8 @@ MASS, and waits for the final analysis job:
 
 | Stage | Target strategies | Sampling per protocol | Requests per pair/triple |
 | --- | --- | --- | --- |
-| BASE | Reflection, Constant, Single, Per-Destination, Per-Bucket | RT-based 4×4 | 32 / 48 |
-| MASS | Multi, Random | Fixed-interval 4×25 | 200 / 300 |
+| BASE | Reflection, Constant, Single, Per-Destination, Per-Bucket | RT-based 4Ã—4 | 32 / 48 |
+| MASS | Multi, Random | Fixed-interval 4Ã—25 | 200 / 300 |
 
 The same target parquet can be used by both stages; each stage validates and
 selects its own strategies while streaming. Empty populations still produce
@@ -105,7 +105,7 @@ cp config/os.yaml.example   config/os.yaml
 cp config/ipid.yaml.example config/ipid.yaml
 ```
 
-### zmap — `config/zmap.yaml`
+### zmap â€” `config/zmap.yaml`
 
 | Key | Type | Description |
 |---|---|---|
@@ -123,7 +123,7 @@ cp config/ipid.yaml.example config/ipid.yaml
 | `go_memory_limit` | scaled-int / null | Go heap target; TCP exact-IP deduplication automatically requires at least `768M` |
 | `upload.*` | | optional S3 upload (see [Output](#output)) |
 
-### os — `config/os.yaml`
+### os â€” `config/os.yaml`
 
 | Key | Type | Description |
 |---|---|---|
@@ -140,7 +140,7 @@ process. The os stage does not bind a source interface (its scanners connect
 out over the default route), so unlike `zmap` and `ipid` it takes no
 `interface` config.
 
-### ipid — `config/ipid.yaml`
+### ipid â€” `config/ipid.yaml`
 
 | Key | Type | Description |
 |---|---|---|
@@ -253,7 +253,7 @@ The three stages are chained by the zmap **run id**: `measure-zmap` produces it,
 
 Each tool has a `make run-<tool>` wrapper that forwards `ARGS="..."` to the
 binary (and, for `run-zmap`, refreshes the blocklist first). The binaries can
-also be called directly — the wrappers do nothing more than that:
+also be called directly â€” the wrappers do nothing more than that:
 
 ```bash
 # 1. discover hosts, capture the run id
@@ -273,7 +273,7 @@ Build first (`make build`, or `make setcap` for the raw-socket binaries); the
 `run-*` targets do not rebuild. If you built with `make setcap`, no `sudo` is
 needed; otherwise prefix each command with `sudo`. Complex `ARGS` containing
 spaces inside a single value (e.g. dns `--probe-args`) are awkward to quote
-through make — call the binary directly for those.
+through make â€” call the binary directly for those.
 
 ### Per-protocol sweeps
 
@@ -550,7 +550,7 @@ not added to the IP-ID result sequence.
 
 Each stage writes to `<tool>/raw/<measurement-id>/`:
 
-- `<tool>.pq` — the Parquet result,
+- `<tool>.pq` â€” the Parquet result,
 - a snapshot of the effective config and, if `log_to_file`, a log.
 
 If `upload.enable: true`, the run directory is synced to `upload.s3_destination`
@@ -578,3 +578,7 @@ to keep results local only).
 
 See [docs/continental-workflow.md](docs/continental-workflow.md) for the additive
 `run-all-{eu,as,af,na,sa,au}` commands, shared OS worker and recovery procedure.
+
+OS scans remain enabled by default in both workflow types. Use `SKIP_OS=1`
+for an explicit, persistent opt-out; see the optional-OS section in
+[docs/continental-workflow.md](docs/continental-workflow.md).

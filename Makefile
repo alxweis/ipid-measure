@@ -40,6 +40,12 @@ ARGS ?=
 #   make run-all-udp ZMAP_ID=udp-dns-53_...
 ZMAP_ID ?=
 OS_ID   ?=
+# Explicit per-campaign opt-out. The enabled default preserves existing runs.
+SKIP_OS ?= 0
+ifeq ($(filter $(SKIP_OS),0 1),)
+$(error SKIP_OS must be 0 or 1)
+endif
+RUN_ALL_OS_ARGS = $(if $(filter 1,$(SKIP_OS)),--skip-os)
 RUN_ALL_RESUME_ARGS = \
 	$(if $(strip $(ZMAP_ID)),--zmap-id "$(strip $(ZMAP_ID))") \
 	$(if $(strip $(OS_ID)),--os-id "$(strip $(OS_ID))")
@@ -95,13 +101,13 @@ run-zmap: pull-blocklist
 
 # Per-protocol sweeps. run-all.sh pulls the blocklist once up front.
 run-all-icmp:
-	./scripts/run-all.sh icmp $(RUN_ALL_RESUME_ARGS)
+	./scripts/run-all.sh icmp $(RUN_ALL_RESUME_ARGS) $(RUN_ALL_OS_ARGS) $(ARGS)
 
 run-all-tcp:
-	./scripts/run-all.sh tcp $(RUN_ALL_RESUME_ARGS)
+	./scripts/run-all.sh tcp $(RUN_ALL_RESUME_ARGS) $(RUN_ALL_OS_ARGS) $(ARGS)
 
 run-all-udp:
-	./scripts/run-all.sh udp $(RUN_ALL_RESUME_ARGS)
+	./scripts/run-all.sh udp $(RUN_ALL_RESUME_ARGS) $(RUN_ALL_OS_ARGS) $(ARGS)
 
 # Complete inter-protocol pipeline from the three base-analysis manifests.
 run-interprotocol:
@@ -147,7 +153,7 @@ build-continental-os-worker:
 $(addprefix run-all-,$(CONTINENTS)): run-all-%:
 	@test -n "$(CAMPAIGN_ID)" || (echo 'Set CAMPAIGN_ID to the same explicit ID on all VMs' >&2; exit 1)
 	$(MAKE) pull-blocklist
-	./$(BIN_DIR)/run-continental --site "$*" --campaign "$(CAMPAIGN_ID)" $(ARGS)
+	./$(BIN_DIR)/run-continental --site "$*" --campaign "$(CAMPAIGN_ID)" $(RUN_ALL_OS_ARGS) $(ARGS)
 
 workflow-os-worker:
 	./$(BIN_DIR)/continental-os-worker --campaign "$(CAMPAIGN_ID)" $(ARGS)

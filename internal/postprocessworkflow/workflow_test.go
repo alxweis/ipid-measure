@@ -12,11 +12,16 @@ import (
 )
 
 type recordingRunner struct {
-	calls [][]string
+	calls        [][]string
+	controlCalls [][]string
 }
 
 func (r *recordingRunner) Run(_ context.Context, args ...string) ([]byte, error) {
-	r.calls = append(r.calls, append([]string(nil), args...))
+	if args[0] == "ls" || args[0] == "get" || strings.HasSuffix(args[len(args)-1], "/os-policy.json") {
+		r.controlCalls = append(r.controlCalls, append([]string(nil), args...))
+	} else {
+		r.calls = append(r.calls, append([]string(nil), args...))
+	}
 	return nil, nil
 }
 

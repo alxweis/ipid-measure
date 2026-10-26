@@ -19,9 +19,11 @@ type memoryStore struct {
 	values map[string][]byte
 	writes []string
 	fail   string
+	reads  []string
 }
 
 func (s *memoryStore) Read(_ context.Context, uri string) ([]byte, bool, error) {
+	s.reads = append(s.reads, uri)
 	if uri == s.fail {
 		return nil, false, errors.New("AccessDenied")
 	}
@@ -76,7 +78,7 @@ func environment(env []string, key string) string {
 	return ""
 }
 
-func fixture(t *testing.T) (*Runner, *memoryStore, *[]string) {
+func fixture(t *testing.T, noOS ...bool) (*Runner, *memoryStore, *[]string) {
 	t.Helper()
 	repo := t.TempDir()
 	store := &memoryStore{values: map[string][]byte{}}
@@ -85,6 +87,7 @@ func fixture(t *testing.T) (*Runner, *memoryStore, *[]string) {
 		mustWrite(t, filepath.Join(repo, "config", kind+".yaml"), []byte(data))
 	}
 	r := &Runner{Repo: repo, Workspace: filepath.Join(repo, "continental", "campaign", "eu"), Campaign: "campaign", Site: "eu", Store: store}
+	r.SkipOS = len(noOS) > 0 && noOS[0]
 	calls := []string{}
 	r.Execute = func(ctx context.Context, tool string, args, env []string) (string, error) {
 		kind := strings.TrimPrefix(filepath.Base(tool), "measure-")
@@ -334,6 +337,89 @@ func TestKernelLeaseReleasedOnClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	again()
+}
+
+func TestNoOSCampaignKeepsEveryMeasurementAndPinsPolicy(t *testing.T) {
+	r, store, calls := fixture(t, true)
+	ctx := context.Background()
+	if err := r.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 37 {
+		t.Fatalf("no-OS changed measurement workflow: %d", len(*calls))
+	}
+	marker := Join(r.Prefix, "continental", r.Campaign, "os", "not-requested.json")
+	if _, exists := store.values[marker]; !exists {
+		t.Fatal("no persistent no-OS status")
+	}
+	for uri, data := range store.values {
+		if strings.HasSuffix(uri, "/os/request.json") || strings.HasSuffix(uri, "/os/done.json") {
+			t.Fatal("fabricated OS job")
+		}
+		if strings.Contains(uri, "/analysis-jobs/") && strings.HasSuffix(uri, "/manifest.json") {
+			var m map[string]map[string]any
+			_ = json.Unmarshal(data, &m)
+			for _, section := range m {
+				if section["os_status"] != "not_requested" {
+					t.Fatal("manifest lost policy")
+				}
+				if _, exists := section["os"]; exists {
+					t.Fatal("fake OS ID")
+				}
+			}
+		}
+		if strings.Contains(uri, "/strategy-jobs/") && strings.HasSuffix(uri, "/request.json") {
+			var req map[string]any
+			_ = json.Unmarshal(data, &req)
+			if req["os_status"] != "not_requested" || req["os_prefix"] != "" {
+				t.Fatal("request lost no-OS intent")
+			}
+		}
+	}
+	before := len(*calls)
+	if err := r.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != before {
+		t.Fatal("completed no-OS campaign remeasured")
+	}
+	r.SkipOS = false
+	if err := r.Prepare(ctx); err == nil {
+		t.Fatal("same site changed persisted mode")
+	}
+	r.Workspace = filepath.Join(r.Repo, "different-site")
+	r.Site = "as"
+	if err := r.Prepare(ctx); err == nil {
+		t.Fatal("sites disagreed on campaign OS policy")
+	}
+}
+
+func TestOSWorkerDoesNotReadOSRequestOrDoneWhenDisabled(t *testing.T) {
+	r, store, _ := fixture(t, true)
+	store.reads = nil
+	store.fail = Join(r.Prefix, "continental", r.Campaign, "os", "request.json")
+	execute := func(context.Context, string, []string, []string) (string, error) {
+		t.Fatal("disabled OS scan executed")
+		return "", nil
+	}
+	done, err := RunOS(context.Background(), store, execute, r.Repo, filepath.Join(r.Repo, "os-worker"), r.Prefix, r.Campaign)
+	if err != nil || !done {
+		t.Fatal(err)
+	}
+	if err = PublishOSFailure(context.Background(), store, r.Prefix, r.Campaign, errors.New("metadata outage")); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := store.values[Join(r.Prefix, "continental", r.Campaign, "os", "failed.json")]; exists {
+		t.Fatal("disabled OS became a failed scan")
+	}
+	for _, uri := range store.reads {
+		if strings.HasSuffix(uri, "/os/request.json") || strings.HasSuffix(uri, "/os/done.json") {
+			t.Fatalf("disabled worker waited on %s", uri)
+		}
+	}
 }
 
 func TestSharedOSCommitAndIntegrity(t *testing.T) {
