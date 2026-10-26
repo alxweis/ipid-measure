@@ -99,6 +99,9 @@ func RunOSEnrichment(ctx context.Context, store Store, execute Execute, repo, wo
 	if intent.Version != 1 || intent.Core != core || intent.SHA != digest(coreData) || strings.TrimSpace(intent.Vantage) == "" {
 		return false, fmt.Errorf("invalid enrichment/core binding")
 	}
+	if _, exists, err = store.Read(ctx, Join(root, "done.json")); err != nil || exists {
+		return exists, err
+	}
 	if _, exists, err = store.Read(ctx, Join(job, "done.json")); err != nil || exists {
 		return exists, err
 	}

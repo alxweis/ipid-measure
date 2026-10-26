@@ -201,6 +201,11 @@ func (s S3) RetryEnrichmentScanFailure(ctx context.Context, core string) error {
 	} else if !exists {
 		return fmt.Errorf("missing enrichment scan request")
 	}
+	if _, exists, err := s.Read(ctx, Join(core, "enrichments", "os", "done.json")); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("enrichment already completed")
+	}
 	return s.retryScanFailure(ctx, Join(core, "enrichments", "os", "scan"))
 }
 

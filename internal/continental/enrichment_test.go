@@ -154,7 +154,12 @@ func TestLateOSScanRecoveryIntegrityAndIsolation(t *testing.T) {
 					t.Fatalf("core changed: %s", k)
 				}
 			}
+			store.values[Join(root, "done.json")] = []byte(`{"version":1,"status":"completed"}`)
 			delete(store.values, Join(job, "done.json"))
+			if done, err := RunOSEnrichment(ctx, store, execute, r.Repo, workspace, core, false); err != nil || !done || calls != 1 {
+				t.Fatal("completed enrichment repeated after lost scan marker", err)
+			}
+			delete(store.values, Join(root, "done.json"))
 			request.Target.SHA256 = strings.Repeat("0", 64)
 			store.values[Join(job, "request.json")] = Encode(request)
 			if _, err := RunOSEnrichment(ctx, store, execute, r.Repo, filepath.Join(r.Repo, "bad"), core, false); err == nil {
