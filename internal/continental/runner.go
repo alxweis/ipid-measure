@@ -81,7 +81,7 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	r.uploads = map[string]config.UploadConfig{}
 	source := map[string]map[string]any{}
 	binding := map[string]any{"campaign": r.Campaign, "site": r.Site, "version": 1}
-	for _, kind := range []string{"zmap", "ipid", "os"} {
+	for _, kind := range []string{"zmap", "ipid"} {
 		data, err := os.ReadFile(filepath.Join(r.Repo, "config", kind+".yaml"))
 		if err != nil {
 			return err
@@ -141,12 +141,9 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	if err = Immutable(ctx, r.Store, Join(prefix, "continental", r.Campaign, "campaign.json"), descriptor); err != nil {
 		return err
 	}
-	for _, kind := range []string{"zmap", "ipid", "os"} {
+	for _, kind := range []string{"zmap", "ipid"} {
 		value := source[kind]
 		destination := r.rawPrefix(kind)
-		if kind == "os" {
-			destination = Join(r.RawRoot, "continental", r.Campaign, "os")
-		}
 		value["upload"] = map[string]any{"enable": true, "delete_local": false, "s3_destination": destination}
 		if kind == "ipid" {
 			workflow := value["analysis_workflow"].(map[string]any)

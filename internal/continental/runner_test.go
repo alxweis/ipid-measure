@@ -367,6 +367,14 @@ func TestSharedOSCommitAndIntegrity(t *testing.T) {
 		_, err := upload.WriteCompletion(paths.Measurement{ID: id, Path: filepath.Join(workspace, "os", "raw", id)})
 		return id, err
 	}
+	store.fail = Join(r.RawRoot, "continental", r.Campaign, "os", "shared-os", "os-coverage.json")
+	if done, err := RunOS(ctx, store, execute, r.Repo, workspace, r.Prefix, r.Campaign); err == nil || done {
+		t.Fatal("partial OS upload published completion")
+	}
+	if _, exists := store.values[Join(job, "done.json")]; exists {
+		t.Fatal("OS Done before all uploads")
+	}
+	store.fail = ""
 	if done, err := RunOS(ctx, store, execute, r.Repo, workspace, r.Prefix, r.Campaign); err != nil || !done {
 		t.Fatal(err)
 	}
