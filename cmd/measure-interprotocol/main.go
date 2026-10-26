@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"

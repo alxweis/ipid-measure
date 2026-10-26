@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"time"
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/files"
