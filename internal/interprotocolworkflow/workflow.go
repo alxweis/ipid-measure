@@ -313,12 +313,20 @@ func markerSibling(manifestURI, name string) string {
 	return strings.TrimSuffix(manifestURI, "/manifest.json") + "/" + name
 }
 
-func waitForBaseAnalyses(
+func waitForBaseAnalyses(ctx context.Context, r runner, manifests map[string]string, pollInterval time.Duration) error {
+	return waitForReadiness(ctx, r, manifests, pollInterval, "done.json")
+}
+
+func waitForReadiness(
 	ctx context.Context,
 	r runner,
 	manifests map[string]string,
 	pollInterval time.Duration,
+	marker string,
 ) error {
+	if marker != "done.json" && marker != "strategies-ready.json" {
+		return fmt.Errorf("invalid readiness marker")
+	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	remaining := map[string]string{}
@@ -328,6 +336,9 @@ func waitForBaseAnalyses(
 	for len(remaining) > 0 {
 		for protocol, uri := range remaining {
 			failedURI := markerSibling(uri, "failed.json")
+			if marker == "strategies-ready.json" {
+				failedURI = strings.Replace(failedURI, "/analysis-jobs/", "/strategy-jobs/", 1)
+			}
 			failed, err := objectExists(ctx, r, failedURI)
 			if err != nil {
 				return fmt.Errorf("check %s base analysis failure marker: %w", protocol, err)
@@ -335,7 +346,7 @@ func waitForBaseAnalyses(
 			if failed {
 				return fmt.Errorf("%s base analysis failed: %s", protocol, failedURI)
 			}
-			done, err := objectExists(ctx, r, markerSibling(uri, "done.json"))
+			done, err := objectExists(ctx, r, markerSibling(uri, marker))
 			if err != nil {
 				return fmt.Errorf("check %s base analysis completion marker: %w", protocol, err)
 			}
@@ -363,6 +374,18 @@ func prepareTargets(
 	manifests map[string]string,
 	runDirectory string,
 ) (string, error) {
+	return prepareTargetsReady(ctx, r, configPath, runID, manifests, runDirectory, "done.json")
+}
+
+func prepareTargetsReady(
+	ctx context.Context,
+	r runner,
+	configPath string,
+	runID string,
+	manifests map[string]string,
+	runDirectory string,
+	marker string,
+) (string, error) {
 	if !SafeID.MatchString(runID) {
 		return "", fmt.Errorf("invalid inter-protocol run id")
 	}
@@ -383,7 +406,7 @@ func prepareTargets(
 	}
 	waitContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if err := waitForBaseAnalyses(waitContext, r, manifests, pollInterval); err != nil {
+	if err := waitForReadiness(waitContext, r, manifests, pollInterval, marker); err != nil {
 		return "", err
 	}
 	jobPrefix := joinS3(config.AnalysisWorkflow.S3Prefix, "interprotocol-target-jobs", runID)
@@ -557,4 +580,10 @@ func wait(ctx context.Context, r runner, configPath, manifestPath string) (Done,
 		case <-ticker.C:
 		}
 	}
+}
+
+// PrepareTargetsReady is used only by the shared-OS continental workflow. A
+// strategies-ready marker never claims that final scientific analysis is done.
+func PrepareTargetsReady(ctx context.Context, configPath, runID string, manifests map[string]string, runDirectory string) (string, error) {
+	return prepareTargetsReady(ctx, commandRunner{}, configPath, runID, manifests, runDirectory, "strategies-ready.json")
 }

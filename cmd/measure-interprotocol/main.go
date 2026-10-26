@@ -95,7 +95,11 @@ func main() {
 		types.PayloadTCP: uint16(*tcpPort), types.PayloadUDPDNS: uint16(*udpPort),
 	}
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, goMemLimitDefaultBytes))
-	m := paths.NewInterProtocolMeasurement(protocols, time.Now(), *sampleFlag)
+	stamp, err := paths.MeasurementTime()
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := paths.NewInterProtocolMeasurement(protocols, stamp, *sampleFlag)
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
 	}

@@ -26,6 +26,7 @@ type merger struct {
 	pendings map[string]*pending
 	out      chan<- records.OSRecord
 	coverage *coverageStats
+	observe  func(evidenceRecord, serviceTags, decision)
 
 	totalEmitted  atomic.Uint64
 	totalDropped  atomic.Uint64
@@ -76,12 +77,18 @@ func (m *merger) integrate(ip string, source uint8, apply func(*evidenceRecord))
 func (m *merger) emit(evidence evidenceRecord) {
 	if !evidence.hasEvidence() {
 		m.coverage.recordWithoutEvidence(evidence)
+		if m.observe != nil {
+			m.observe(evidence, serviceTags{}, decision{status: "no-evidence"})
+		}
 		m.totalDropped.Add(1)
 		return
 	}
 	tags := classifyServices(evidence)
 	decision := resolveTags(tags)
 	m.coverage.record(evidence, tags, decision)
+	if m.observe != nil {
+		m.observe(evidence, tags, decision)
+	}
 	m.out <- evidence.toOutput(tags, decision)
 	m.totalEmitted.Add(1)
 }

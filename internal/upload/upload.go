@@ -31,6 +31,9 @@ func Upload(c config.UploadConfig, m paths.Measurement) error {
 		return fmt.Errorf("sync to s3: %w", err)
 	}
 	log.Printf("upload completed: %s", c.S3Destination)
+	if err := completeScoped(c.S3Destination, m); err != nil {
+		return fmt.Errorf("commit scoped measurement: %w", err)
+	}
 
 	if c.DeleteLocal {
 		if err := os.RemoveAll(m.Path); err != nil {

@@ -53,7 +53,11 @@ func main() {
 	}
 	debug.SetMemoryLimit(goMemoryLimit)
 
-	m := paths.NewZMapMeasurement(c.Payload, c.Port, time.Now())
+	stamp, err := paths.MeasurementTime()
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := paths.NewZMapMeasurement(c.Payload, c.Port, stamp)
 
 	if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)

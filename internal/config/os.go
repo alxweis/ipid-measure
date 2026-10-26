@@ -25,7 +25,8 @@ type OSConfig struct {
 
 	SNMPCommunity string `yaml:"snmp_community"`
 
-	LogToFile bool `yaml:"log_to_file"`
+	LogToFile          bool `yaml:"log_to_file"`
+	RecordTargetStatus bool `yaml:"record_target_status,omitempty"`
 
 	GoMemoryLimit *ScaledNumber `yaml:"go_memory_limit"`
 

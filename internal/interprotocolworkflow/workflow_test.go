@@ -186,3 +186,43 @@ func TestTwoStageManifest(t *testing.T) {
 		t.Fatal("accepted missing MASS stage")
 	}
 }
+
+type readinessRunner struct {
+	marker  string
+	failure bool
+	calls   []string
+}
+
+func (r *readinessRunner) Run(_ context.Context, args ...string) ([]byte, error) {
+	uri := args[len(args)-1]
+	r.calls = append(r.calls, uri)
+	if strings.HasSuffix(uri, "/"+r.marker) || r.failure && strings.Contains(uri, "/strategy-jobs/") && strings.HasSuffix(uri, "/failed.json") {
+		return []byte("2026-10-26 00:00 1 " + uri + "\n"), nil
+	}
+	return nil, nil
+}
+func TestPreliminaryReadinessDoesNotWaitForFinalOSAnalysis(t *testing.T) {
+	manifests := map[string]string{"icmp": "s3://bucket/workflow/analysis-jobs/icmp_1/manifest.json"}
+	runner := &readinessRunner{marker: "strategies-ready.json"}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := waitForReadiness(ctx, runner, manifests, time.Millisecond, "strategies-ready.json"); err != nil {
+		t.Fatal(err)
+	}
+	for _, uri := range runner.calls {
+		if strings.HasSuffix(uri, "/done.json") {
+			t.Fatal("preliminary stage waited for final analysis")
+		}
+	}
+	failed := &readinessRunner{failure: true}
+	if err := waitForReadiness(ctx, failed, manifests, time.Millisecond, "strategies-ready.json"); err == nil {
+		t.Fatal("strategy failure was ignored")
+	}
+	if err := waitForReadiness(ctx, runner, manifests, time.Millisecond, "arbitrary.json"); err == nil {
+		t.Fatal("unknown readiness marker accepted")
+	}
+	legacy := &readinessRunner{marker: "done.json"}
+	if err := waitForBaseAnalyses(ctx, legacy, manifests, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+}
