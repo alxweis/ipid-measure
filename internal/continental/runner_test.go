@@ -353,6 +353,7 @@ func TestSharedOSCommitAndIntegrity(t *testing.T) {
 	store.values[Join(job, "request.json")] = Encode(request)
 	store.values[Join(job, "targets.pq")] = target
 	workspace := filepath.Join(r.Repo, "os-worker")
+	mustWrite(t, filepath.Join(workspace, "targets.pq"), []byte("truncated cache from an earlier transfer"))
 	executed := 0
 	execute := func(_ context.Context, _ string, args, env []string) (string, error) {
 		executed++

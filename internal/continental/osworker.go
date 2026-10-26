@@ -118,7 +118,18 @@ func RunOS(ctx context.Context, store Store, execute Execute, repo, workspace, p
 		return false, err
 	}
 	if actual.Size != request.Target.Size || actual.SHA256 != request.Target.SHA256 {
-		return false, fmt.Errorf("OS union integrity mismatch")
+		// Only the disposable local target cache is replaced. A truncated
+		// previous transfer must not make an explicit retry permanently fail.
+		if err = store.GetFile(ctx, request.Target.URI, target); err != nil {
+			return false, err
+		}
+		actual, err = upload.Evidence(target)
+		if err != nil {
+			return false, err
+		}
+		if actual.Size != request.Target.Size || actual.SHA256 != request.Target.SHA256 {
+			return false, fmt.Errorf("OS union integrity mismatch")
+		}
 	}
 	statePath := filepath.Join(workspace, "scan.json")
 	step := Step{}

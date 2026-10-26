@@ -160,7 +160,7 @@ func (s S3) PutFile(ctx context.Context, uri, path string) error {
 func (s S3) GetFile(ctx context.Context, uri, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, "s3cmd", "get", "--no-progress", uri, path+".part").CombinedOutput()
+	output, err := exec.CommandContext(ctx, "s3cmd", "get", "--force", "--no-progress", uri, path+".part").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("download %s: %w: %s", uri, err, output)
 	}
