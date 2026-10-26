@@ -189,6 +189,27 @@ func (s S3) RetryOSFailure(ctx context.Context, job string) error {
 	if disabled {
 		return fmt.Errorf("OS was not requested; no OS failure can be retried")
 	}
+	return s.retryScanFailure(ctx, job)
+}
+
+func (s S3) RetryEnrichmentScanFailure(ctx context.Context, core string) error {
+	if _, err := readNoOSCore(ctx, s, core); err != nil {
+		return err
+	}
+	if _, exists, err := s.Read(ctx, Join(core, "enrichments", "os", "scan", "request.json")); err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("missing enrichment scan request")
+	}
+	if _, exists, err := s.Read(ctx, Join(core, "enrichments", "os", "done.json")); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("enrichment already completed")
+	}
+	return s.retryScanFailure(ctx, Join(core, "enrichments", "os", "scan"))
+}
+
+func (s S3) retryScanFailure(ctx context.Context, job string) error {
 	if _, exists, err := s.Read(ctx, Join(job, "done.json")); err != nil {
 		return err
 	} else if exists {

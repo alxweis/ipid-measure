@@ -3,3 +3,6 @@ config/**/*.yaml
 
 # Persistent local continental checkpoints and raw attempts
 /continental/
+
+# Independent late OS checkpoints and retained scan attempts
+/enrichments/
