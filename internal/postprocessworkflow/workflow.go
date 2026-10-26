@@ -18,6 +18,7 @@ import (
 const ProtocolVersion = 1
 
 type Measurements struct {
+	SkipOS                              bool
 	ZMap                                string
 	OS                                  string
 	RTBase                              string
@@ -48,9 +49,10 @@ type IPIDMeasurements struct {
 }
 
 type ProtocolMeasurements struct {
+	OSStatus              string                             `json:"os_status,omitempty"`
 	ConnectionTarget      string                             `json:"connection_target,omitempty"`
 	ZMap                  string                             `json:"zmap"`
-	OS                    string                             `json:"os"`
+	OS                    string                             `json:"os,omitempty"`
 	IPID                  IPIDMeasurements                   `json:"ipid"`
 	RandomReproducibility *RandomReproducibilityMeasurements `json:"random_reproducibility,omitempty"`
 }
@@ -66,6 +68,7 @@ type RandomReproducibilityMeasurements struct {
 }
 
 type Request struct {
+	OSStatus            string    `json:"os_status,omitempty"`
 	ConnectionTargetURI string    `json:"connection_target_uri,omitempty"`
 	Version             int       `json:"version"`
 	JobID               string    `json:"job_id"`
@@ -139,10 +142,16 @@ func requireS3(value, field string) error {
 func validateMeasurements(m Measurements) (string, error) {
 	required := map[string]string{
 		"zmap":       m.ZMap,
-		"os":         m.OS,
 		"rt-base":    m.RTBase,
 		"fixed-mass": m.FixedMass,
 		"fixed-base": m.FixedBase,
+	}
+	if m.SkipOS {
+		if m.OS != "" {
+			return "", fmt.Errorf("--skip-os cannot be combined with an OS measurement ID")
+		}
+	} else {
+		required["os"] = m.OS
 	}
 	for field, value := range required {
 		if value == "" {
@@ -154,7 +163,10 @@ func validateMeasurements(m Measurements) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid zmap measurement id: %w", err)
 	}
-	all := []string{m.OS, m.RTBase, m.FixedMass, m.FixedBase}
+	all := []string{m.RTBase, m.FixedMass, m.FixedBase}
+	if !m.SkipOS {
+		all = append(all, m.OS)
+	}
 	if len(m.RandomReproducibilityRepeats) != 0 && len(m.RandomReproducibilityRepeats) != 5 {
 		return "", fmt.Errorf("RANDOM reproducibility requires exactly five repeat measurement ids")
 	}
@@ -217,6 +229,10 @@ func manifest(protocol string, m Measurements) map[string]ProtocolMeasurements {
 	protocolMeasurements := ProtocolMeasurements{
 		ZMap: m.ZMap, OS: m.OS, IPID: ipid, ConnectionTarget: connectionTarget,
 	}
+	if m.SkipOS {
+		protocolMeasurements.OS = ""
+		protocolMeasurements.OSStatus = "not_requested"
+	}
 	if len(m.RandomReproducibilityRepeats) == 5 {
 		protocolMeasurements.RandomReproducibility = &RandomReproducibilityMeasurements{
 			Baseline:            m.FixedMass,
@@ -278,9 +294,12 @@ func publish(
 	if err != nil {
 		return "", err
 	}
-	osConfig, err := loadConfig(configs.OS)
-	if err != nil {
-		return "", err
+	var osConfig uploadConfigFile
+	if !measurements.SkipOS {
+		osConfig, err = loadConfig(configs.OS)
+		if err != nil {
+			return "", err
+		}
 	}
 	ipidConfig, err := loadConfig(configs.IPID)
 	if err != nil {
@@ -288,9 +307,11 @@ func publish(
 	}
 	values := map[string]string{
 		"zmap upload.s3_destination":  zmapConfig.Upload.S3Destination,
-		"os upload.s3_destination":    osConfig.Upload.S3Destination,
 		"ipid upload.s3_destination":  ipidConfig.Upload.S3Destination,
 		"analysis_workflow.s3_prefix": ipidConfig.AnalysisWorkflow.S3Prefix,
+	}
+	if !measurements.SkipOS {
+		values["os upload.s3_destination"] = osConfig.Upload.S3Destination
 	}
 	for field, value := range values {
 		if err := requireS3(value, field); err != nil {
@@ -306,6 +327,9 @@ func publish(
 	manifestPath := filepath.Join(jobDirectory, "manifest.json")
 	requestPath := filepath.Join(jobDirectory, "request.json")
 	jobPrefix := joinS3(ipidConfig.AnalysisWorkflow.S3Prefix, "analysis-jobs", jobID)
+	if _, err = recordOSPolicy(ctx, r, measurements.ZMap, measurements.SkipOS, ipidConfig.AnalysisWorkflow.S3Prefix, outputRoot); err != nil {
+		return "", err
+	}
 	request := Request{
 		Version:     ProtocolVersion,
 		JobID:       jobID,
@@ -317,6 +341,9 @@ func publish(
 		DoneURI:     joinS3(jobPrefix, "done.json"),
 		FailedURI:   joinS3(jobPrefix, "failed.json"),
 		CreatedAt:   now.UTC(),
+	}
+	if measurements.SkipOS {
+		request.OSStatus = "not_requested"
 	}
 	for _, target := range []struct {
 		path     string

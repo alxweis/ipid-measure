@@ -48,6 +48,7 @@ type Runner struct {
 	Store                                            Store
 	Execute                                          Execute
 	RetryIncomplete                                  bool
+	SkipOS                                           bool
 	state                                            State
 	configs                                          map[string]string
 	workflow                                         config.AnalysisWorkflowConfig
@@ -81,6 +82,9 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	r.uploads = map[string]config.UploadConfig{}
 	source := map[string]map[string]any{}
 	binding := map[string]any{"campaign": r.Campaign, "site": r.Site, "version": 1}
+	if r.SkipOS {
+		binding["os_mode"] = "disabled"
+	}
 	for _, kind := range []string{"zmap", "ipid"} {
 		data, err := os.ReadFile(filepath.Join(r.Repo, "config", kind+".yaml"))
 		if err != nil {
@@ -137,9 +141,17 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	if err = AtomicJSON(r.statePath(), r.state); err != nil {
 		return err
 	}
-	descriptor := Descriptor{1, r.Campaign, Sites, Protocols, r.RawRoot}
+	descriptor := Descriptor{Version: 1, Campaign: r.Campaign, Sites: Sites, Protocols: Protocols, RawRoot: r.RawRoot}
+	if r.SkipOS {
+		descriptor.OSMode = "disabled"
+	}
 	if err = Immutable(ctx, r.Store, Join(prefix, "continental", r.Campaign, "campaign.json"), descriptor); err != nil {
 		return err
+	}
+	if r.SkipOS {
+		if err = PublishOSNotRequested(ctx, r.Store, prefix, r.Campaign); err != nil {
+			return err
+		}
 	}
 	for _, kind := range []string{"zmap", "ipid"} {
 		value := source[kind]
@@ -419,7 +431,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		measurements := postprocessworkflow.Measurements{ZMap: zmap, OS: "shared-os", RTBase: rt, FixedMass: mass, FixedBase: base, FixedBaseTarget: target, RandomReproducibilityRepeats: repeats, RandomReproducibilityMaximumTargets: 10000, RandomReproducibilitySelectionSeed: 42}
+		measurements := postprocessworkflow.Measurements{ZMap: zmap, OS: "shared-os", SkipOS: r.SkipOS, RTBase: rt, FixedMass: mass, FixedBase: base, FixedBaseTarget: target, RandomReproducibilityRepeats: repeats, RandomReproducibilityMaximumTargets: 10000, RandomReproducibilitySelectionSeed: 42}
 		if protocol == "tcp" {
 			measurements.ConnectionTarget, err = r.sample(ctx, zmap, true)
 			if err != nil {
@@ -434,6 +446,9 @@ func (r *Runner) Run(ctx context.Context) error {
 				return err
 			}
 		}
+		if r.SkipOS {
+			measurements.OS = ""
+		}
 		job := Join(r.sitePrefix(), "analysis-jobs", zmap)
 		manifestURI := Join(job, "manifest.json")
 		manifest := postprocessworkflow.BuildManifest(protocol, measurements)
@@ -442,6 +457,10 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 		created, _ := time.Parse(time.RFC3339, r.state.Steps["zmap-"+protocol].Stamp)
 		request := postprocessworkflow.Request{CreatedAt: created, Version: 1, JobID: zmap, Protocol: protocol, ManifestURI: manifestURI, ZMapPrefix: r.rawPrefix("zmap"), OSPrefix: Join(r.RawRoot, "continental", r.Campaign, "os"), IPIDPrefix: r.rawPrefix("ipid"), DoneURI: Join(job, "done.json"), FailedURI: Join(job, "failed.json"), FixedBaseTargetURI: Join(r.rawPrefix("zmap"), zmap, filepath.Base(target))}
+		if r.SkipOS {
+			request.OSPrefix = ""
+			request.OSStatus = "not_requested"
+		}
 		if protocol == "tcp" {
 			request.ConnectionTargetURI = Join(r.rawPrefix("zmap"), zmap, filepath.Base(measurements.ConnectionTarget))
 		}

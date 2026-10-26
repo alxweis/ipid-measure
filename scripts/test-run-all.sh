@@ -25,6 +25,24 @@ id=$(value --zmap "$@")
 sample="$PWD/zmap/raw/$id/zmap-fixed-base-sample.pq"
 connection="$PWD/zmap/raw/$id/zmap-connection-sample.pq"
 case "$(basename "$0")" in
+    measure-zmap)
+        payload=$(value --payload "$@")
+        case "$payload" in icmp) prefix=icmp ;; tcp) prefix=tcp-80 ;; udp-dns) prefix=udp-dns-53 ;; *) fail "invalid discovery payload" ;; esac
+        run="${prefix}_${TEST_STAMP:?}"
+        mkdir -p "zmap/raw/$run"
+        printf 'fixture\n' > "zmap/raw/$run/zmap.pq"
+        printf 'fixture\n' > "zmap/raw/$run/zmap.snapshot.yaml"
+        printf '%s\n' "$run"
+        ;;
+    measure-os)
+        run="${id%_*}_11-00-00"
+        mkdir -p "os/raw/$run"
+        printf 'fixture\n' > "os/raw/$run/os.pq"
+        printf 'zmap: %s\n' "$id" > "os/raw/$run/os.snapshot.yaml"
+        printf '{}\n' > "os/raw/$run/os-coverage.json"
+        printf '%s\n' "$run" >> os-calls
+        printf '%s\n' "$run"
+        ;;
     sample-zmap)
         [[ $(value --percent "$@") == 10 && $(value --minimum "$@") == 1000000 ]] || fail "wrong sampling rule"
         if [[ -n $(value --reply-type "$@") ]]; then
@@ -72,6 +90,24 @@ case "$(basename "$0")" in
         printf '%s\n' "$run"
         ;;
     publish-analysis-job)
+        if [[ " $* " == *" --record-os-policy "* ]]; then
+            mode=requested
+            [[ " $* " != *" --skip-os "* ]] || mode=not_requested
+            policy="analysis-jobs/$id/test-os-policy"
+            if [[ -f $policy ]]; then
+                [[ $(cat "$policy") == "$mode" ]] || fail "OS mode changed on restart"
+            else
+                mkdir -p "$(dirname "$policy")"
+                printf '%s\n' "$mode" > "$policy"
+            fi
+            printf '%s\n' "$*" >> policy-calls
+            exit 0
+        fi
+        if [[ " $* " == *" --skip-os "* ]]; then
+            [[ -z $(value --os "$@") ]] || fail "disabled OS has a fabricated measurement ID"
+        else
+            [[ -n $(value --os "$@") ]] || fail "default OS measurement missing"
+        fi
         [[ $(value --fixed-base-target "$@") == "$sample" ]] || fail "sample missing from analysis job"
         if [[ $id == tcp-80_* ]]; then
             [[ $(value --connection-target "$@") == "$connection" ]] || fail "connection sample missing"
@@ -87,7 +123,7 @@ case "$(basename "$0")" in
         ;;
 esac
 MOCK
-for tool in sample-zmap measure-ipid publish-analysis-job; do
+for tool in sample-zmap measure-ipid publish-analysis-job measure-zmap measure-os; do
     cp "$test_root/bin/mock" "$test_root/bin/$tool"
     chmod +x "$test_root/bin/$tool"
 done
@@ -109,3 +145,43 @@ for protocol in icmp tcp udp; do
     [[ $(cat "$test_root/calls-count") == "$expected" && -f "$test_root/published" ]]
     printf '%s sweep passed\n' "$protocol"
 done
+
+# Fresh starts exercise the actual default and explicit opt-out, not only resume.
+mkdir -p "$test_root/mock-path"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$test_root/mock-path/make"
+chmod +x "$test_root/mock-path/make"
+index=0
+for protocol in icmp tcp udp; do
+    case "$protocol" in icmp) prefix=icmp ;; tcp) prefix=tcp-80 ;; udp) prefix=udp-dns-53 ;; esac
+    for mode in requested not_requested; do
+        index=$((index+1))
+        stamp="2026-09-23_09-00-0$index"
+        args=()
+        [[ $mode != not_requested ]] || args+=(--skip-os)
+        printf '0\n' > "$test_root/calls-count"
+        rm -f "$test_root/published" "$test_root/os-calls"
+        TEST_STAMP="$stamp" PATH="$test_root/mock-path:$PATH" bash "$test_root/scripts/run-all.sh" "$protocol" "${args[@]}" > "$test_root/output"
+        expected=8
+        [[ $protocol != tcp ]] || expected=10
+        [[ $(cat "$test_root/calls-count") == "$expected" && -f "$test_root/published" ]]
+        if [[ $mode == not_requested ]]; then
+            [[ ! -f "$test_root/os-calls" ]]
+            grep -q 'not_requested' "$test_root/output"
+            # Same mode can resume; accidental mode changes must fail before OS/IPID.
+            printf '0\n' > "$test_root/calls-count"
+            bash "$test_root/scripts/run-all.sh" "$protocol" --zmap-id "${prefix}_$stamp" --skip-os > "$test_root/output"
+            [[ $(cat "$test_root/calls-count") == "$expected" ]]
+            printf '0\n' > "$test_root/calls-count"
+            if bash "$test_root/scripts/run-all.sh" "$protocol" --zmap-id "${prefix}_$stamp" > "$test_root/output" 2>&1; then
+                echo 'mode change unexpectedly succeeded' >&2; exit 1
+            fi
+            [[ $(cat "$test_root/calls-count") == 0 && ! -f "$test_root/os-calls" ]]
+        else
+            [[ $(wc -l < "$test_root/os-calls") == 1 ]]
+        fi
+        printf '%s OS=%s fresh sweep passed\n' "$protocol" "$mode"
+    done
+done
+if bash "$test_root/scripts/run-all.sh" icmp --skip-os --zmap-id icmp_2026-09-22_09-00-00 --os-id icmp_2026-09-22_09-00-00 > "$test_root/output" 2>&1; then
+    echo '--skip-os/--os-id conflict unexpectedly succeeded' >&2; exit 1
+fi

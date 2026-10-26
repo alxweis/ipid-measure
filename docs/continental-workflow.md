@@ -5,6 +5,47 @@ This mode is additive. `make run-all-icmp`, `make run-all-tcp` and
 The new mode requires the companion continental worker in `ipid-analysis`.
 Deploy the analysis change first. No VM or Ansible changes are included.
 
+## Explicitly running without OS scans
+
+OS scanning remains enabled unless explicitly disabled. After deploying the
+optional-OS updates in **both repositories**, use:
+
+```sh
+# Existing single-protocol workflow; ICMP and UDP support the same option.
+make run-all-tcp SKIP_OS=1
+# Resume from an existing discovery with the same persisted OS policy.
+make run-all-tcp ZMAP_ID=tcp-80_YYYY-MM-DD_HH-MM-SS SKIP_OS=1
+
+# Geographic mode: all six sites must agree on this immutable campaign policy.
+make run-all-eu CAMPAIGN_ID=round-without-os SKIP_OS=1
+```
+
+The underlying `run-all.sh`, `run-continental` and `publish-analysis-job`
+commands also accept `--skip-os`. `SKIP_OS` accepts `0` (default) or `1`;
+`--skip-os` cannot be combined with an OS measurement ID. Omitting the option
+never means that a missing/failed OS scan is intentionally disabled.
+
+The protocol workflow records `analysis-jobs/<zmap-id>/os-policy.json` locally
+and in S3 **before** OS/IPID steps. It checks existing legacy manifests as well.
+A restart must retain that mode; changing mode requires a new ZMap/campaign ID.
+The final manifest omits the OS measurement ID and includes
+`"os_status": "not_requested"`. The analysis request carries the same explicit
+status and an empty OS prefix; no OS configuration file is required in this mode.
+Measurement parameters, repeat counts and all non-OS analyses remain unchanged.
+
+A geographic opt-out is persisted as `"os_mode": "disabled"` in `campaign.json`
+and `os/not-requested.json` with status `not_requested`. Legacy descriptors
+without `os_mode` still mean **enabled**. No discovery union/OS request is built,
+and neither the analysis worker nor an accidentally started OS worker waits for
+`os/request.json` or `os/done.json`. Each site's final non-OS analysis can start
+after its own measurements, independently of other sites' discovery completion.
+Site and campaign completion explicitly retain `not_requested`; they do not
+fabricate OS completion or OS coverage/plots. All IPID/interprotocol work remains.
+
+Normal measurement/analysis retries continue to apply with the original mode.
+There is no OS scan/failure to retry for an opted-out campaign. Existing enabled
+campaigns, including descriptors created before this option, keep their OS gates.
+
 ## Start a campaign
 
 Build using the normal `make setcap` procedure. Keep the existing per-VM

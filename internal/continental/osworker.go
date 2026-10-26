@@ -37,6 +37,34 @@ func RunOS(ctx context.Context, store Store, execute Execute, repo, workspace, p
 		return false, err
 	}
 	job := Join(prefix, "continental", campaign, "os")
+	descriptor, exists, err := store.Read(ctx, Join(prefix, "continental", campaign, "campaign.json"))
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	var binding Descriptor
+	if err = json.Unmarshal(descriptor, &binding); err != nil {
+		return false, err
+	}
+
+	disabled, err := binding.OSDisabled()
+	if err != nil {
+		return false, err
+	}
+	if binding.Version != 1 || binding.Campaign != campaign {
+		return false, fmt.Errorf("invalid campaign binding")
+	}
+	if strings.Join(binding.Sites, ",") != strings.Join(Sites, ",") || strings.Join(binding.Protocols, ",") != strings.Join(Protocols, ",") || !strings.HasPrefix(binding.RawRoot, "s3://") {
+		return false, fmt.Errorf("invalid campaign participants/storage")
+	}
+	if disabled {
+		if err = PublishOSNotRequested(ctx, store, prefix, campaign); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	if _, exists, err := store.Read(ctx, Join(job, "done.json")); err != nil {
 		return false, err
 	} else if exists {
@@ -53,17 +81,6 @@ func RunOS(ctx context.Context, store Store, execute Execute, repo, workspace, p
 	}
 	var request OSRequest
 	if err = json.Unmarshal(data, &request); err != nil {
-		return false, err
-	}
-	descriptor, exists, err := store.Read(ctx, Join(prefix, "continental", campaign, "campaign.json"))
-	if err != nil {
-		return false, err
-	}
-	if !exists {
-		return false, fmt.Errorf("missing campaign descriptor")
-	}
-	var binding Descriptor
-	if err = json.Unmarshal(descriptor, &binding); err != nil {
 		return false, err
 	}
 	if request.Version != 1 || binding.Version != 1 || request.Campaign != campaign || binding.Campaign != campaign || request.RawRoot != binding.RawRoot || request.Target.URI != Join(job, "targets.pq") || len(request.Members) != 18 || request.Target.Rows < 1 || request.Target.Size < 1 || len(request.Target.SHA256) != 64 {

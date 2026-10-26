@@ -20,6 +20,7 @@ var Protocols = []string{"icmp", "tcp", "udp-dns"}
 var safeID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
 type Descriptor struct {
+	OSMode    string   `json:"os_mode,omitempty"`
 	Version   int      `json:"version"`
 	Campaign  string   `json:"campaign_id"`
 	Sites     []string `json:"sites"`
@@ -170,6 +171,24 @@ func (s S3) GetFile(ctx context.Context, uri, path string) error {
 // RetryOSFailure is explicit operator recovery: archive only this campaign's
 // terminal failure, never remove source data or a successful marker.
 func (s S3) RetryOSFailure(ctx context.Context, job string) error {
+	value, exists, err := s.Read(ctx, Join(strings.TrimSuffix(job, "/os"), "campaign.json"))
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("missing campaign descriptor")
+	}
+	var binding Descriptor
+	if err = json.Unmarshal(value, &binding); err != nil {
+		return err
+	}
+	disabled, err := binding.OSDisabled()
+	if err != nil {
+		return err
+	}
+	if disabled {
+		return fmt.Errorf("OS was not requested; no OS failure can be retried")
+	}
 	if _, exists, err := s.Read(ctx, Join(job, "done.json")); err != nil {
 		return err
 	} else if exists {
@@ -192,4 +211,20 @@ func (s S3) RetryOSFailure(ctx context.Context, job string) error {
 		return fmt.Errorf("remove archived OS failure: %w: %s", err, output)
 	}
 	return nil
+}
+
+// Missing policy is the enabled legacy default, never an implicit skip.
+func (d Descriptor) OSDisabled() (bool, error) {
+	switch d.OSMode {
+	case "", "enabled":
+		return false, nil
+	case "disabled":
+		return true, nil
+	default:
+		return false, fmt.Errorf("unknown campaign os_mode %q", d.OSMode)
+	}
+}
+
+func PublishOSNotRequested(ctx context.Context, store Store, prefix, campaign string) error {
+	return Immutable(ctx, store, Join(prefix, "continental", campaign, "os", "not-requested.json"), map[string]any{"version": 1, "campaign_id": campaign, "status": "not_requested"})
 }

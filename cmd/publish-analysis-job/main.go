@@ -15,6 +15,8 @@ import (
 
 func main() {
 	zmapID := flag.String("zmap", "", "zmap measurement id (also used as job id)")
+	skipOS := flag.Bool("skip-os", false, "explicitly disable OS scanning and OS-dependent analyses")
+	recordPolicy := flag.Bool("record-os-policy", false, "persist/check OS policy before starting measurements; no analysis request is published")
 	osID := flag.String("os", "", "OS measurement id")
 	rtBase := flag.String("rt-base", "", "stateless RT-based base IPID measurement id")
 	fixedMass := flag.String("fixed-mass", "", "stateless fixed-interval mass IPID id")
@@ -30,6 +32,17 @@ func main() {
 	osConfig := flag.String("os-config", files.OSConfigFilePath, "OS config path")
 	ipidConfig := flag.String("ipid-config", files.IPIDConfigFilePath, "IPID config path")
 	flag.Parse()
+	if *recordPolicy {
+		if *osID != "" {
+			log.Fatal("--record-os-policy does not accept --os")
+		}
+		uri, err := postprocessworkflow.RecordOSPolicy(context.Background(), *zmapID, *skipOS, *ipidConfig, filepath.Join(root.Root, "analysis-jobs"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(uri)
+		return
+	}
 	var repeatIDs []string
 	if *randomReproducibilityRepeats != "" {
 		repeatIDs = strings.Split(*randomReproducibilityRepeats, ",")
@@ -39,6 +52,7 @@ func main() {
 		context.Background(),
 		postprocessworkflow.Measurements{
 			ZMap:                                *zmapID,
+			SkipOS:                              *skipOS,
 			OS:                                  *osID,
 			RTBase:                              *rtBase,
 			FixedMass:                           *fixedMass,

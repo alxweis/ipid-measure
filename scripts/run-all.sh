@@ -5,17 +5,19 @@ cd "$(dirname "$0")/.."
 
 usage() {
     cat >&2 <<EOF
-usage: $0 [icmp|tcp|udp] [--zmap-id ID] [--os-id ID]
+usage: $0 [icmp|tcp|udp] [--zmap-id ID] [--os-id ID] [--skip-os]
 
 Without existing ids, run the complete sweep. --zmap-id reuses a local ZMap
 measurement and starts at OS; adding --os-id reuses both and starts at IPID.
 --os-id requires --zmap-id, and resume options require a single protocol.
+--skip-os explicitly disables OS; keep the same mode when resuming.
 EOF
 }
 
 SELECTED_PROTOCOL=all
 RESUME_ZMAP_ID=
 RESUME_OS_ID=
+SKIP_OS=false
 
 if [[ $# -gt 0 && "$1" != --* ]]; then
     SELECTED_PROTOCOL=$1
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --zmap-id=*)
             RESUME_ZMAP_ID=${1#*=}
+            shift
+            ;;
+        --skip-os)
+            SKIP_OS=true
             shift
             ;;
         --os-id)
@@ -62,6 +68,10 @@ case "$SELECTED_PROTOCOL" in
     *) echo "unknown protocol: $SELECTED_PROTOCOL" >&2; usage; exit 1 ;;
 esac
 
+if [[ "$SKIP_OS" == true && -n "$RESUME_OS_ID" ]]; then
+    echo "--skip-os cannot be combined with --os-id" >&2
+    exit 1
+fi
 if [[ -n "$RESUME_OS_ID" && -z "$RESUME_ZMAP_ID" ]]; then
     echo "--os-id requires --zmap-id" >&2
     exit 1
@@ -215,6 +225,15 @@ for proto in "${PROTOS[@]}"; do
     ZMAP[$proto]=$id
     SUMMARY+=("zmap  $proto  $id")
 
+    policy_args=(--record-os-policy --zmap "$id")
+    if [[ "$SKIP_OS" == true ]]; then policy_args+=(--skip-os); fi
+    ./bin/publish-analysis-job "${policy_args[@]}" >/dev/null
+    if [[ "$SKIP_OS" == true ]]; then
+        OS[$proto]=
+        SUMMARY+=("os    $proto  not_requested")
+        continue
+    fi
+
     if [[ -n "$RESUME_OS_ID" ]]; then
         os_id=$RESUME_OS_ID
         echo "=== [$proto] reusing os id = $os_id ==="
@@ -322,7 +341,6 @@ echo "=== sweep complete ==="
 # is uploaded last, so the analysis VM never observes a partially written job.
 for proto in "${PROTOS[@]}"; do
     publish_args=(--zmap "${ZMAP[$proto]}"
-                  --os "${OS[$proto]}"
                   --rt-base "${RT_BASE[$proto]}"
                   --fixed-mass "${FIXED_MASS[$proto]}"
                   --fixed-base "${FIXED_BASE[$proto]}"
@@ -330,6 +348,11 @@ for proto in "${PROTOS[@]}"; do
                   --random-reproducibility-repeats "${RANDOM_REPRODUCIBILITY_REPEATS[$proto]}"
                   --random-reproducibility-maximum-targets "$RANDOM_REPRODUCIBILITY_MAXIMUM_TARGETS"
                   --random-reproducibility-selection-seed "$RANDOM_REPRODUCIBILITY_SELECTION_SEED")
+    if [[ "$SKIP_OS" == true ]]; then
+        publish_args+=(--skip-os)
+    else
+        publish_args+=(--os "${OS[$proto]}")
+    fi
     if [[ "$proto" == "tcp-80" ]]; then
         publish_args+=(--connection-target "${CONNECTION_TARGET[$proto]}"
                        --connection-rt-base "${CONNECTION_RT[$proto]}"
