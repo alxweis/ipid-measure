@@ -582,3 +582,5 @@ See [docs/continental-workflow.md](docs/continental-workflow.md) for the additiv
 OS scans remain enabled by default in both workflow types. Use `SKIP_OS=1`
 for an explicit, persistent opt-out; see the optional-OS section in
 [docs/continental-workflow.md](docs/continental-workflow.md).
+
+See [Late OS enrichment](docs/LATE_OS_ENRICHMENT.md) to add OS results to an immutable completed No-OS core.

@@ -110,6 +110,13 @@ func RunOS(ctx context.Context, store Store, execute Execute, repo, workspace, p
 			return false, fmt.Errorf("invalid OS reference")
 		}
 	}
+	return runOSScan(ctx, store, execute, repo, workspace, job, Join(request.RawRoot, "continental", campaign, "os", "shared-os"), campaign, data, request, false, "shared-os-vm", retryIncomplete...)
+}
+
+// runOSScan is the existing closed-file scan/recovery/publication path. Callers
+// validate their own immutable policy and provenance before entering it.
+func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspace, job, rawPrefix, campaign string, data []byte, request OSRequest, late bool, vantage string, retryIncomplete ...bool) (bool, error) {
+	var err error
 	if err = os.MkdirAll(workspace, 0755); err != nil {
 		return false, err
 	}
@@ -241,12 +248,28 @@ func RunOS(ctx context.Context, store Store, execute Execute, repo, workspace, p
 		if marker.Files[name] != evidence {
 			return false, fmt.Errorf("OS source changed since completion: %s", name)
 		}
-		if err = store.PutFile(ctx, Join(request.RawRoot, "continental", campaign, "os", "shared-os", name), path); err != nil {
+		if err = store.PutFile(ctx, Join(rawPrefix, name), path); err != nil {
 			return false, err
 		}
 		files[name] = evidence
 	}
-	done := map[string]any{"version": 1, "campaign_id": campaign, "measurement_id": step.ID, "target": request.Target, "members": request.Members, "vantage": "shared-os-vm", "files": files}
+	done := map[string]any{"version": 1, "campaign_id": campaign, "measurement_id": step.ID, "target": request.Target, "members": request.Members, "vantage": vantage, "files": files}
+	if late {
+		done["late_enrichment"] = true
+		done["started_at"] = step.Stamp
+		closed, err := os.Stat(complete)
+		if err != nil {
+			return false, err
+		}
+		// Preserve the scan's closed-file time across later upload retries.
+		done["completed_at"] = closed.ModTime().UTC().Format(time.RFC3339)
+		done["raw_prefix"] = rawPrefix
+		hostname, err := os.Hostname()
+		if err != nil {
+			return false, err
+		}
+		done["executor_hostname"] = hostname
+	}
 	if err = Immutable(ctx, store, Join(job, "done.json"), done); err != nil {
 		return false, err
 	}

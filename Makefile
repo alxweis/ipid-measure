@@ -157,3 +157,13 @@ $(addprefix run-all-,$(CONTINENTS)): run-all-%:
 
 workflow-os-worker:
 	./$(BIN_DIR)/continental-os-worker --campaign "$(CAMPAIGN_ID)" $(ARGS)
+
+# Late OS enrichment has an independent lifecycle; never change SKIP_OS on a core.
+ZMAP_ID ?=
+VANTAGE ?=
+ENRICHMENT_ID_ARGS = $(if $(ZMAP_ID),--zmap "$(ZMAP_ID)",--campaign "$(CAMPAIGN_ID)")
+.PHONY: run-os-enrichment workflow-os-enrichment-worker
+run-os-enrichment:
+	./$(BIN_DIR)/continental-os-worker --request-enrichment $(ENRICHMENT_ID_ARGS) --vantage "$(VANTAGE)" $(ARGS)
+workflow-os-enrichment-worker:
+	./$(BIN_DIR)/continental-os-worker --enrichment $(ENRICHMENT_ID_ARGS) $(ARGS)
