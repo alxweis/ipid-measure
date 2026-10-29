@@ -144,6 +144,45 @@ inspection, `make run-all-eu ARGS="--retry-incomplete"` archives it locally and
 starts that step with a new measurement ID. It never deletes S3 data or reuses
 an identity whose old handoff might already be complete.
 
+### Recovery from a ZMap upload failure
+
+The `Destination S3 URI must end with '/'` error (s3cmd exit 64) occurs
+after ZMap has closed its output but before the scoped raw completion marker
+is created and uploaded. The central uploader now normalizes only the sync
+destination to end in exactly one `/`. The source directory argument is
+unchanged: its basename still produces
+`<raw>/continental/<campaign>/<site>/zmap/<measurement-id>/...`.
+Classic destinations already ending in `/` retain the same behavior.
+
+The existing Geographic CLI cannot republish such an uncommitted ZMap result
+without scanning again. A closed parquet file and snapshot alone are not the
+durable, verified completion required by the runner; simply rerunning the
+command stops at `uncommitted`. There is no publish-existing-only command.
+Do not fabricate a completion marker or edit `state.json` to bypass this
+check. No new recovery mechanism is introduced for this transport fix.
+
+After updating to the fix, rebuild the measurement binaries (on each affected
+measurement VM, `make setcap` rebuilds and reapplies their usual capabilities).
+Retain the same campaign, site, configuration, OS policy and local workspace.
+For the two failed No-OS test runs, the supported explicit restart is:
+
+```sh
+# On the EU VM:
+make run-all-eu CAMPAIGN_ID=geo-test-200k SKIP_OS=1 ARGS="--retry-incomplete"
+# On the AS VM:
+make run-all-as CAMPAIGN_ID=geo-test-200k SKIP_OS=1 ARGS="--retry-incomplete"
+```
+
+This **does run ZMap again**, with a new measurement ID. The original local
+directory is preserved byte-for-byte under
+`continental/geo-test-200k/<site>/attempts/zmap-icmp-<old-measurement-id>/`.
+Previously committed steps are still verified and adopted without reprobing.
+The flag applies to any uncommitted step encountered, so inspect retained
+attempts before using it later in a campaign. No S3 data, prior completion
+markers or immutable campaign policy are deleted or rewritten. For this
+first-discovery upload failure, no Analysis-worker retry is needed: the site's
+three-protocol discovery event has not yet been published.
+
 Analysis failures retain the existing explicit archive-and-retry procedure.
 See the companion analysis guide for scoped request URIs. On the OS VM:
 

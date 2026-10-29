@@ -293,6 +293,52 @@ func TestIncompleteAttemptRequiresExplicitRetry(t *testing.T) {
 	}
 }
 
+func TestClosedZMapWithoutUploadCompletionRequiresExplicitRetry(t *testing.T) {
+	r, store, _ := fixture(t, true)
+	ctx := context.Background()
+	original := r.Execute
+	calls := 0
+	r.Execute = func(_ context.Context, _ string, _ []string, env []string) (string, error) {
+		calls++
+		stamp, _ := time.Parse(time.RFC3339, environment(env, "IPID_MEASUREMENT_TIME"))
+		id := "icmp_" + stamp.Format("2006-01-02_15-04-05")
+		// Both closed outputs exist, but sync failed before completeScoped.
+		for _, name := range []string{"zmap.pq", "zmap.snapshot.yaml"} {
+			mustWrite(t, r.rawPath("zmap", id, name), []byte("closed-"+name))
+		}
+		return "", errors.New("sync to s3: exit status 64")
+	}
+	if _, err := r.measure(ctx, "zmap-icmp", "zmap", "icmp", "--payload", "icmp"); err == nil {
+		t.Fatal("upload failure ignored")
+	}
+	old := r.state.Steps["zmap-icmp"].ID
+	if _, exists := store.values[Join(r.rawPrefix("zmap"), old, "measurement-complete.json")]; exists {
+		t.Fatal("failed upload committed raw completion")
+	}
+	if err := r.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.measure(ctx, "zmap-icmp", "zmap", "icmp", "--payload", "icmp"); err == nil || !strings.Contains(err.Error(), "--retry-incomplete") {
+		t.Fatalf("closed files without publication were silently adopted: %v", err)
+	}
+	if calls != 1 {
+		t.Fatal("restart silently rescanned")
+	}
+	r.Execute = original
+	r.RetryIncomplete = true
+	id, err := r.measure(ctx, "zmap-icmp", "zmap", "icmp", "--payload", "icmp")
+	if err != nil || id == old {
+		t.Fatalf("explicit retry did not use a new identity: %s: %v", id, err)
+	}
+	for _, name := range []string{"zmap.pq", "zmap.snapshot.yaml"} {
+		path := filepath.Join(r.Workspace, "attempts", "zmap-icmp-"+old, name)
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != "closed-"+name {
+			t.Fatalf("original closed output was not retained: %s: %v", path, err)
+		}
+	}
+}
+
 func TestImmutableAndConfigurationBinding(t *testing.T) {
 	r, store, _ := fixture(t)
 	ctx := context.Background()
