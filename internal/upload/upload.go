@@ -14,7 +14,9 @@ import (
 // syncToS3 mirrors the measurement directory into the S3 destination using s3cmd (creds from the local ~/.s3cfg).
 func syncToS3(localDir, destination string) error {
 	src := strings.TrimRight(localDir, "/")
-	cmd := exec.Command("s3cmd", "sync", src, destination)
+	// s3cmd requires a directory destination; keep the source basename intact.
+	dst := strings.TrimRight(destination, "/") + "/"
+	cmd := exec.Command("s3cmd", "sync", src, dst)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
