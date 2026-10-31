@@ -167,3 +167,18 @@ run-os-enrichment:
 	./$(BIN_DIR)/continental-os-worker --request-enrichment $(ENRICHMENT_ID_ARGS) --vantage "$(VANTAGE)" $(ARGS)
 workflow-os-enrichment-worker:
 	./$(BIN_DIR)/continental-os-worker --enrichment $(ENRICHMENT_ID_ARGS) $(ARGS)
+
+# --- instance metadata -------------------------------------------------------
+
+# Upload the full GCE instance + project metadata to S3 (needs s3cmd + ~/.s3cfg).
+#   make collect-metadata METADATA_S3=s3://netds3o:aweis/ipid-2/raw/metadata/<host>
+METADATA_S3  ?=
+METADATA_URL := http://metadata.google.internal/computeMetadata/v1/?recursive=true&alt=json
+
+.PHONY: collect-metadata
+collect-metadata:
+	@test -n "$(METADATA_S3)" || (echo 'Set METADATA_S3 to the S3 destination prefix' >&2; exit 1)
+	@ts=$$(date --utc +%Y-%m-%dT%H_%M_%SZ); tmp=$$(mktemp --suffix=.json); \
+	curl --fail --silent --show-error -H "Metadata-Flavor: Google" "$(METADATA_URL)" > "$$tmp" \
+	  && s3cmd put "$$tmp" "$(METADATA_S3)/$$ts.json"; \
+	rc=$$?; rm -f "$$tmp"; exit $$rc
