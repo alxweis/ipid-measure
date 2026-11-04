@@ -47,3 +47,41 @@ The analysis stages, early core results, OS-only results and continent completio
 have separate completion markers. A finished protocol measurement controller is
 not final scientific completion. No cross-continent scientific aggregation is
 introduced.
+
+## Local interprotocol references
+
+New parallel campaigns pin `local_references: true` in `parallel.json` and
+publish `local-references.json` as the scheduler's completion dependency.
+Deploy the companion reference consumer before starting a fresh campaign.
+Do not upgrade an already started campaign from the foundation-only layout;
+its immutable layout marker intentionally prevents changing its experiment.
+
+After the three local protocol sweeps and their strategy merges, the UDP VM
+downloads the original four target files plus six additive target files named
+`reference-<icmp|tcp|udp>-<base|mass>-targets.pq`. Each reference population is
+the deduplicated union of the original groups involving that protocol, split
+into BASE (five deterministic strategies) and MASS (MULTI/RANDOM). No original
+group is filtered or reclassified.
+
+Before the eight existing interleaved measurements, it runs, in order:
+ICMP BASE, TCP BASE, UDP BASE, ICMP MASS, TCP MASS, UDP MASS. These controls use
+`measure-interprotocol --local-reference --protocols <one protocol>` and the
+same UDP-VM configuration, two source IPv4 addresses, request-IPID indexing,
+TCP flags/ports, zero retries and sampling rules as the interleaved probes.
+BASE is RT-based 4x4; MASS is fixed-interval 4x25 with minimum reply rate 0.8.
+Only the number of interleaved protocols changes. No probes run concurrently
+on the UDP VM during this phase; the other continents remain independent.
+
+Reference IDs are `interprotocol-<protocol>_<timestamp>_<sample>`, distinct from
+all original single-protocol and mixed-group IDs. Under the usual local
+`ipid/raw/<id>/` and raw S3 prefix they write `interprotocol.pq`,
+`interprotocol.snapshot.yaml`, logs, target symlink and the existing raw commit
+marker. A completed reference immediately publishes
+`sites/<site>/reference-jobs/reference-<protocol>-<sample>/request.json` with
+the raw identity and target size/hash. After all six, the UDP VM publishes
+`sites/<site>/reference-comparison/request.json`. Existing per-step checkpoint
+and explicit retry rules apply; a failed event upload does not repeat probes.
+Empty cohorts produce valid empty measurements and analysis artifacts.
+
+Each continent therefore adds six local measurements, with no changes to its
+26 original IPID measurements or eight original interprotocol measurements.
