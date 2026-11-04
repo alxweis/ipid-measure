@@ -45,22 +45,30 @@ func Command(ctx context.Context, tool string, args, env []string) (string, erro
 
 type Runner struct {
 	Repo, Workspace, Campaign, Site, Prefix, RawRoot string
-	Store                                            Store
-	Execute                                          Execute
-	RetryIncomplete                                  bool
-	SkipOS                                           bool
-	state                                            State
-	configs                                          map[string]string
-	workflow                                         config.AnalysisWorkflowConfig
-	handoffOverride                                  func(context.Context, string, bool) error
-	targetsOverride                                  func(context.Context, string, string, map[string]string, string) (string, error)
-	publishOverride                                  func(context.Context, string, string) (string, error)
-	uploads                                          map[string]config.UploadConfig
+	// Protocol selects the additive 18-VM mode; empty retains the six-VM mode.
+	Protocol        string
+	Store           Store
+	Execute         Execute
+	RetryIncomplete bool
+	SkipOS          bool
+	state           State
+	configs         map[string]string
+	workflow        config.AnalysisWorkflowConfig
+	handoffOverride func(context.Context, string, bool) error
+	targetsOverride func(context.Context, string, string, map[string]string, string) (string, error)
+	publishOverride func(context.Context, string, string) (string, error)
+	uploads         map[string]config.UploadConfig
 }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 func (r *Runner) sitePrefix() string {
 	return Join(r.Prefix, "continental", r.Campaign, "sites", r.Site)
+}
+func (r *Runner) flowPrefix() string {
+	if r.Protocol != "" {
+		return Join(r.sitePrefix(), "protocols", r.Protocol)
+	}
+	return r.sitePrefix()
 }
 func (r *Runner) rawPrefix(kind string) string {
 	return Join(r.RawRoot, "continental", r.Campaign, r.Site, kind)
@@ -75,6 +83,9 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	if err := Validate(r.Campaign, r.Site); err != nil {
 		return err
 	}
+	if r.Protocol != "" && !validProtocol(r.Protocol) {
+		return fmt.Errorf("protocol must be icmp, tcp or udp-dns")
+	}
 	if r.Execute == nil {
 		r.Execute = Command
 	}
@@ -82,6 +93,9 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	r.uploads = map[string]config.UploadConfig{}
 	source := map[string]map[string]any{}
 	binding := map[string]any{"campaign": r.Campaign, "site": r.Site, "version": 1}
+	if r.Protocol != "" {
+		binding["protocol"] = r.Protocol
+	}
 	if r.SkipOS {
 		binding["os_mode"] = "disabled"
 	}
@@ -148,6 +162,23 @@ func (r *Runner) Prepare(ctx context.Context) error {
 	if err = Immutable(ctx, r.Store, Join(prefix, "continental", r.Campaign, "campaign.json"), descriptor); err != nil {
 		return err
 	}
+	parallelURI := Join(prefix, "continental", r.Campaign, "parallel.json")
+	if r.Protocol != "" {
+		for _, site := range Sites {
+			if _, exists, readErr := r.Store.Read(ctx, Join(prefix, "continental", r.Campaign, "sites", site, "discovery.json")); readErr != nil {
+				return readErr
+			} else if exists {
+				return fmt.Errorf("campaign already contains legacy six-VM discovery; choose a new campaign ID")
+			}
+		}
+		if err = Immutable(ctx, r.Store, parallelURI, map[string]any{"version": 1, "mode": "parallel-protocols", "campaign_id": r.Campaign}); err != nil {
+			return err
+		}
+	} else if _, exists, readErr := r.Store.Read(ctx, parallelURI); readErr != nil {
+		return readErr
+	} else if exists {
+		return fmt.Errorf("campaign uses protocol-specific VMs; use a run-all-<site>-<protocol> command")
+	}
 	if r.SkipOS {
 		if err = PublishOSNotRequested(ctx, r.Store, prefix, r.Campaign); err != nil {
 			return err
@@ -159,7 +190,7 @@ func (r *Runner) Prepare(ctx context.Context) error {
 		value["upload"] = map[string]any{"enable": true, "delete_local": false, "s3_destination": destination}
 		if kind == "ipid" {
 			workflow := value["analysis_workflow"].(map[string]any)
-			workflow["s3_prefix"] = r.sitePrefix()
+			workflow["s3_prefix"] = r.flowPrefix()
 			workflow["enable"] = false
 		}
 		encoded, err := yaml.Marshal(value)
@@ -373,6 +404,9 @@ func (r *Runner) ipid(ctx context.Context, name, payload, zmap, target string, m
 }
 
 func (r *Runner) Run(ctx context.Context) error {
+	if r.Protocol != "" {
+		return r.runProtocol(ctx)
+	}
 	if _, exists, err := r.Store.Read(ctx, Join(r.sitePrefix(), "final", "request.json")); err != nil {
 		return err
 	} else if exists {

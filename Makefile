@@ -158,6 +158,14 @@ $(addprefix run-all-,$(CONTINENTS)): run-all-%:
 workflow-os-worker:
 	./$(BIN_DIR)/continental-os-worker --campaign "$(CAMPAIGN_ID)" $(ARGS)
 
+# Protocol-specific VMs; the existing six-site targets remain available.
+PARALLEL_TARGETS := $(foreach s,$(CONTINENTS),$(foreach p,icmp tcp udp,run-all-$(s)-$(p)))
+.PHONY: $(PARALLEL_TARGETS)
+$(PARALLEL_TARGETS): run-all-%:
+	@test -n "$(CAMPAIGN_ID)" || (echo 'Set CAMPAIGN_ID on all 18 VMs' >&2; exit 1)
+	$(MAKE) pull-blocklist
+	./$(BIN_DIR)/run-continental --site "$(word 1,$(subst -, ,$*))" --protocol "$(word 2,$(subst -, ,$*))" --campaign "$(CAMPAIGN_ID)" $(RUN_ALL_OS_ARGS) $(ARGS)
+
 # Late OS enrichment has an independent lifecycle; never change SKIP_OS on a core.
 ZMAP_ID ?=
 VANTAGE ?=

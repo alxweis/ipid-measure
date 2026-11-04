@@ -576,6 +576,8 @@ to keep results local only).
 
 ## Six-site continental campaigns
 
+For one protocol per VM (18 VMs), see [parallel geographic campaigns](docs/parallel-geographic.md).
+
 See [docs/continental-workflow.md](docs/continental-workflow.md) for the additive
 `run-all-{eu,as,af,na,sa,au}` commands, shared OS worker and recovery procedure.
 
