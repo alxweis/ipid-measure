@@ -154,6 +154,11 @@ func fixture(t *testing.T, noOS ...bool) (*Runner, *memoryStore, *[]string) {
 		for _, group := range interprotocolworkflow.OrderedGroups {
 			mustWrite(t, filepath.Join(directory, group+"-targets.pq"), []byte("targets"))
 		}
+		for _, p := range []string{"icmp", "tcp", "udp"} {
+			for _, sample := range []string{"base", "mass"} {
+				mustWrite(t, filepath.Join(directory, "reference-"+p+"-"+sample+"-targets.pq"), []byte("targets"))
+			}
+		}
 		return directory, nil
 	}
 	r.publishOverride = func(_ context.Context, _, path string) (string, error) {

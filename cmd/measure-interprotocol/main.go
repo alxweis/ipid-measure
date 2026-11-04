@@ -36,6 +36,7 @@ type interProtocolSnapshot struct {
 		UDPPort          uint16   `yaml:"udp_port"`
 		Schedule         string   `yaml:"schedule"`
 		Retries          int      `yaml:"retries"`
+		LocalReference   bool     `yaml:"local_reference,omitempty"`
 	} `yaml:"interprotocol"`
 }
 
@@ -48,11 +49,15 @@ func main() {
 	tcpPort := flag.Uint("tcp-port", 80, "stateless TCP destination port")
 	udpPort := flag.Uint("udp-port", 53, "UDP DNS destination port")
 	printID := flag.Bool("print-id", false, "print measurement id on success")
+	reference := flag.Bool("local-reference", false, "single-protocol control using the interprotocol probe engine")
 	flag.Parse()
 	if *targetFlag == "" {
 		log.Fatal("--target-file is required")
 	}
 	protocols, names, err := parseProtocols(*protocolFlag)
+	if *reference {
+		protocols, names, err = parseReferenceProtocol(*protocolFlag)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -80,6 +85,9 @@ func main() {
 		c.TCPConfig.EstablishConnection = false
 		c.AnalysisWorkflowConfig.Enable = false
 		samplingErr = config.ConfigureInterprotocolSampling(c, len(protocols), *sampleFlag)
+		if *reference {
+			samplingErr = config.ConfigureLocalReferenceSampling(c, *sampleFlag)
+		}
 	})
 	if samplingErr != nil {
 		log.Fatalf("inter-protocol sampling: %v", samplingErr)
@@ -113,6 +121,7 @@ func main() {
 	snapshot.InterProtocol.UDPPort = uint16(*udpPort)
 	snapshot.InterProtocol.Schedule = "protocol order repeated per logical position; fixed interval is between all consecutive requests per target"
 	snapshot.InterProtocol.Retries = 0
+	snapshot.InterProtocol.LocalReference = *reference
 	data, err := yaml.Marshal(snapshot)
 	if err != nil {
 		log.Fatalf("marshal snapshot: %v", err)
@@ -163,4 +172,13 @@ func parseProtocols(value string) ([]types.Payload, []string, error) {
 		return nil, nil, fmt.Errorf("unsupported protocol group %q", value)
 	}
 	return protocols, names, nil
+}
+
+func parseReferenceProtocol(value string) ([]types.Payload, []string, error) {
+	name := strings.ToLower(strings.TrimSpace(value))
+	payload, ok := map[string]types.Payload{"icmp": types.PayloadICMP, "tcp": types.PayloadTCP, "udp": types.PayloadUDPDNS}[name]
+	if !ok {
+		return nil, nil, fmt.Errorf("local reference requires exactly one of icmp, tcp, udp")
+	}
+	return []types.Payload{payload}, []string{name}, nil
 }

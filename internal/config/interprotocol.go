@@ -22,6 +22,16 @@ func ConfigureInterprotocolSampling(c *IPIDConfig, protocolCount int, sample str
 	if protocolCount != 2 && protocolCount != 3 {
 		return fmt.Errorf("interprotocol sampling requires two or three protocols")
 	}
+	return configureInterprotocolSampling(c, sample)
+}
+
+// ConfigureLocalReferenceSampling retains the exact interprotocol schedule and
+// retry policy for a single-protocol control from the same source-address pair.
+func ConfigureLocalReferenceSampling(c *IPIDConfig, sample string) error {
+	return configureInterprotocolSampling(c, sample)
+}
+
+func configureInterprotocolSampling(c *IPIDConfig, sample string) error {
 	c.ConnectionCount = 4
 	switch sample {
 	case "base":
