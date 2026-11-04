@@ -24,6 +24,9 @@ func (r *Runner) interprotocol(ctx context.Context, manifests map[string]string)
 		return err
 	}
 	manifest := &interprotocolworkflow.Manifest{Version: 2, CampaignID: runID, RunID: runID, CreatedAt: r.state.Steps["icmp-rt"].Stamp, Config: r.configs["ipid"], TargetsDir: targets, TCPPort: 80, UDPPort: 53, BaseManifests: manifests, Groups: map[string]*interprotocolworkflow.GroupRun{}}
+	if r.Protocol != "" {
+		manifest.CreatedAt = r.state.Steps[r.Protocol+"-rt"].Stamp
+	}
 	for _, group := range interprotocolworkflow.OrderedGroups {
 		manifest.Groups[group] = &interprotocolworkflow.GroupRun{Protocols: interprotocolworkflow.GroupProtocols[group], TargetFile: filepath.Join(targets, group+"-targets.pq"), Measurements: map[string]string{}, Status: "pending"}
 	}
