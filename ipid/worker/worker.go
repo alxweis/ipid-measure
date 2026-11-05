@@ -76,6 +76,11 @@ func StreamZMapToWorkers() error {
 
 	// Record the total target count so the stats logger can compute progress.
 	atomic.StoreInt64(&stats.NumberOfTargetIPAddresses, reader.NumRows())
+	// PyArrow can emit an empty row group whose page offset is not readable.
+	// A valid zero-row cohort is complete without reading any data pages.
+	if reader.NumRows() == 0 {
+		return nil
+	}
 
 	buffer := make([]records.ZMap, consts.ZMapReadBufferSize)
 
@@ -117,6 +122,9 @@ func streamInterProtocolTargets(file *os.File) error {
 	reader := parquet.NewGenericReader[records.InterProtocolTarget](file)
 	defer reader.Close()
 	atomic.StoreInt64(&stats.NumberOfTargetIPAddresses, 0)
+	if reader.NumRows() == 0 {
+		return nil
+	}
 	buffer := make([]records.InterProtocolTarget, consts.ZMapReadBufferSize)
 	for {
 		count, err := reader.Read(buffer)
