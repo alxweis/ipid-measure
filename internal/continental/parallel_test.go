@@ -94,8 +94,20 @@ func TestParallelUDPAloneOwnsInterprotocol(t *testing.T) {
 	if err := r.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(*calls) != 17 {
-		t.Fatalf("want one discovery + eight UDP + eight interprotocol: %v", *calls)
+	if len(*calls) != 23 {
+		t.Fatalf("want one discovery + eight UDP + six local controls + eight interprotocol: %v", *calls)
+	}
+	for i, protocol := range []string{"icmp", "tcp", "udp", "icmp", "tcp", "udp"} {
+		if !strings.HasPrefix((*calls)[9+i], "interprotocol:interprotocol-"+protocol+":") {
+			t.Fatalf("local reference order differs: %v", *calls)
+		}
+	}
+	for _, protocol := range []string{"icmp", "tcp", "udp"} {
+		for _, sample := range []string{"base", "mass"} {
+			if _, ok := s.values[Join(r.sitePrefix(), "reference-jobs", "reference-"+protocol+"-"+sample, "request.json")]; !ok {
+				t.Fatal("missing immediately published local reference")
+			}
+		}
 	}
 	if _, ok := s.values[Join(r.sitePrefix(), "final", "request.json")]; !ok {
 		t.Fatal("missing continent final")
@@ -103,7 +115,7 @@ func TestParallelUDPAloneOwnsInterprotocol(t *testing.T) {
 	if err := r.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(*calls) != 17 {
+	if len(*calls) != 23 {
 		t.Fatal("UDP resume repeated interprotocol")
 	}
 }
@@ -120,5 +132,33 @@ func TestParallelFailuresAndConfigurationCannotBeSilentlyReused(t *testing.T) {
 	mustWrite(t, filepath.Join(r.Repo, "config", "ipid.yaml"), []byte("changed: true"))
 	if err := r.Prepare(context.Background()); err == nil {
 		t.Fatal("changed resume configuration accepted")
+	}
+}
+
+func TestReferencePublicationFailureDoesNotRepeatCommittedProbes(t *testing.T) {
+	r, s, calls := parallelFixture(t, "udp-dns")
+	for _, p := range []string{"icmp", "tcp"} {
+		flow := Join(r.sitePrefix(), "protocols", p)
+		job := p + "_2026-01-01_00-00-00"
+		uri := Join(flow, "analysis-jobs", job, "manifest.json")
+		s.values[uri] = []byte("{}")
+		s.values[Join(flow, "done.json")] = Encode(map[string]any{"version": 1, "campaign_id": r.Campaign, "site": r.Site, "protocol": p, "manifest_uri": uri, "job_id": job})
+	}
+	s.fail = Join(r.sitePrefix(), "reference-jobs", "reference-tcp-base", "request.json")
+	if err := r.Run(context.Background()); err == nil {
+		t.Fatal("lost publication was ignored")
+	}
+	if len(*calls) != 11 {
+		t.Fatalf("unexpected work before lost publication: %v", *calls)
+	}
+	if _, ok := s.values[Join(r.sitePrefix(), "final", "request.json")]; ok {
+		t.Fatal("failed reference claimed final completion")
+	}
+	s.fail = ""
+	if err := r.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 23 {
+		t.Fatalf("resume repeated committed reference probes: %v", *calls)
 	}
 }

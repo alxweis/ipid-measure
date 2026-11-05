@@ -14,6 +14,9 @@ func (r *Runner) interprotocol(ctx context.Context, manifests map[string]string)
 	prepare := r.targetsOverride
 	if prepare == nil {
 		prepare = interprotocolworkflow.PrepareTargetsReady
+		if r.Protocol != "" {
+			prepare = interprotocolworkflow.PrepareTargetsWithReferences
+		}
 	}
 	publish := r.publishOverride
 	if publish == nil {
@@ -22,6 +25,11 @@ func (r *Runner) interprotocol(ctx context.Context, manifests map[string]string)
 	targets, err := prepare(ctx, r.configs["ipid"], runID, manifests, directory)
 	if err != nil {
 		return err
+	}
+	if r.Protocol != "" {
+		if err = r.localReferences(ctx, targets); err != nil {
+			return err
+		}
 	}
 	manifest := &interprotocolworkflow.Manifest{Version: 2, CampaignID: runID, RunID: runID, CreatedAt: r.state.Steps["icmp-rt"].Stamp, Config: r.configs["ipid"], TargetsDir: targets, TCPPort: 80, UDPPort: 53, BaseManifests: manifests, Groups: map[string]*interprotocolworkflow.GroupRun{}}
 	if r.Protocol != "" {

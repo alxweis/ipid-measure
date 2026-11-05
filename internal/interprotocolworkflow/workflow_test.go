@@ -172,6 +172,34 @@ func TestPublishRequiresCompleteGroups(t *testing.T) {
 	}
 }
 
+func TestPrepareTargetsDownloadsReferencesOnlyWhenRequested(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "ipid.yaml")
+	if err := os.WriteFile(config, []byte("upload:\n  s3_destination: s3://bucket/raw/ipid/\nanalysis_workflow:\n  s3_prefix: s3://bucket/workflow/\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifests := map[string]string{"icmp": "s3://bucket/workflow/analysis-jobs/icmp_1/manifest.json", "tcp": "s3://bucket/workflow/analysis-jobs/tcp_1/manifest.json", "udp": "s3://bucket/workflow/analysis-jobs/udp_1/manifest.json"}
+	targets, err := prepareTargetsReady(context.Background(), &targetRunner{runID: "reference-test"}, config, "reference-test", manifests, root, "done.json", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"icmp", "tcp", "udp"} {
+		for _, sample := range []string{"base", "mass"} {
+			if _, err := os.Stat(filepath.Join(targets, "reference-"+p+"-"+sample+"-targets.pq")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "target-request.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request TargetRequest
+	if err := json.Unmarshal(data, &request); err != nil || !request.LocalReferences {
+		t.Fatalf("missing explicit reference contract: %s", data)
+	}
+}
+
 func TestTwoStageManifest(t *testing.T) {
 	g := &GroupRun{Protocols: []string{"icmp", "tcp"}, Status: "complete", Measurements: map[string]string{
 		"base": "interprotocol-icmp-tcp_2026-10-20_00-00-00_base",

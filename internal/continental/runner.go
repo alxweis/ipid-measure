@@ -171,7 +171,10 @@ func (r *Runner) Prepare(ctx context.Context) error {
 				return fmt.Errorf("campaign already contains legacy six-VM discovery; choose a new campaign ID")
 			}
 		}
-		if err = Immutable(ctx, r.Store, parallelURI, map[string]any{"version": 1, "mode": "parallel-protocols", "campaign_id": r.Campaign}); err != nil {
+		if err = Immutable(ctx, r.Store, parallelURI, map[string]any{"version": 1, "mode": "parallel-protocols", "campaign_id": r.Campaign, "local_references": true}); err != nil {
+			return err
+		}
+		if err = Immutable(ctx, r.Store, Join(prefix, "continental", r.Campaign, "local-references.json"), map[string]any{"version": 1, "campaign_id": r.Campaign}); err != nil {
 			return err
 		}
 	} else if _, exists, readErr := r.Store.Read(ctx, parallelURI); readErr != nil {
