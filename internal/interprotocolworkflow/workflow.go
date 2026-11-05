@@ -81,14 +81,15 @@ type Failed struct {
 }
 
 type TargetRequest struct {
-	Version      int               `json:"version"`
-	JobID        string            `json:"job_id"`
-	CampaignID   string            `json:"campaign_id"`
-	Manifests    map[string]string `json:"manifests"`
-	TargetPrefix string            `json:"target_prefix"`
-	DoneURI      string            `json:"done_uri"`
-	FailedURI    string            `json:"failed_uri"`
-	CreatedAt    time.Time         `json:"created_at"`
+	Version         int               `json:"version"`
+	JobID           string            `json:"job_id"`
+	CampaignID      string            `json:"campaign_id"`
+	Manifests       map[string]string `json:"manifests"`
+	TargetPrefix    string            `json:"target_prefix"`
+	DoneURI         string            `json:"done_uri"`
+	FailedURI       string            `json:"failed_uri"`
+	CreatedAt       time.Time         `json:"created_at"`
+	LocalReferences bool              `json:"local_references,omitempty"`
 }
 
 type TargetDone struct {
@@ -385,6 +386,7 @@ func prepareTargetsReady(
 	manifests map[string]string,
 	runDirectory string,
 	marker string,
+	references ...bool,
 ) (string, error) {
 	if !SafeID.MatchString(runID) {
 		return "", fmt.Errorf("invalid inter-protocol run id")
@@ -416,6 +418,7 @@ func prepareTargetsReady(
 		DoneURI: joinS3(jobPrefix, "done.json"), FailedURI: joinS3(jobPrefix, "failed.json"),
 		CreatedAt: time.Now().UTC(),
 	}
+	request.LocalReferences = len(references) > 0 && references[0]
 	if err := os.MkdirAll(runDirectory, 0755); err != nil {
 		return "", fmt.Errorf("create run directory: %w", err)
 	}
@@ -461,6 +464,16 @@ func prepareTargetsReady(
 				name := group + "-targets.pq"
 				if _, err := r.Run(waitContext, "get", "--force", "--no-progress", joinS3(request.TargetPrefix, name), filepath.Join(targetsDir, name)); err != nil {
 					return "", fmt.Errorf("download %s targets: %w", group, err)
+				}
+			}
+			if request.LocalReferences {
+				for _, protocol := range []string{"icmp", "tcp", "udp"} {
+					for _, sample := range []string{"base", "mass"} {
+						name := "reference-" + protocol + "-" + sample + "-targets.pq"
+						if _, err := r.Run(waitContext, "get", "--force", "--no-progress", joinS3(request.TargetPrefix, name), filepath.Join(targetsDir, name)); err != nil {
+							return "", fmt.Errorf("download local reference targets: %w", err)
+						}
+					}
 				}
 			}
 			return targetsDir, nil
@@ -586,4 +599,8 @@ func wait(ctx context.Context, r runner, configPath, manifestPath string) (Done,
 // strategies-ready marker never claims that final scientific analysis is done.
 func PrepareTargetsReady(ctx context.Context, configPath, runID string, manifests map[string]string, runDirectory string) (string, error) {
 	return prepareTargetsReady(ctx, commandRunner{}, configPath, runID, manifests, runDirectory, "strategies-ready.json")
+}
+
+func PrepareTargetsWithReferences(ctx context.Context, configPath, runID string, manifests map[string]string, runDirectory string) (string, error) {
+	return prepareTargetsReady(ctx, commandRunner{}, configPath, runID, manifests, runDirectory, "strategies-ready.json", true)
 }
