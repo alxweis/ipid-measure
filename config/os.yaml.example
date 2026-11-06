@@ -20,6 +20,8 @@ snmp_workers: 3000
 
 connect_timeout: 1s
 read_timeout: 1s
+# Independent of TCP read_timeout; omitted/zero retains the legacy read_timeout fallback.
+dns_chaos_timeout: 1s
 snmp_timeout: 1s
 
 snmp_community: public

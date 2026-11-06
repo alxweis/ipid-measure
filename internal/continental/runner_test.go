@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/interprotocolworkflow"
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"github.com/alxweis/ipid-measure/internal/upload"
@@ -475,6 +476,20 @@ func TestOSWorkerDoesNotReadOSRequestOrDoneWhenDisabled(t *testing.T) {
 
 func TestSharedOSCommitAndIntegrity(t *testing.T) {
 	r, store, _ := fixture(t)
+	mustWrite(t, filepath.Join(r.Repo, "config", "os.yaml"), []byte(`
+zmap: tcp-80_2026-10-25_01-00-00
+modules: {ssh: true, smb: true, http: true, https: true, snmp: true, dns_chaos: true}
+zgrab2_senders: 37
+dns_chaos_workers: 11
+snmp_workers: 17
+connect_timeout: 3s
+read_timeout: 5s
+dns_chaos_timeout: 2s
+snmp_timeout: 3s
+snmp_community: public
+log_to_file: true
+upload: {enable: true, s3_destination: "s3://bucket/raw/os/", delete_local: false}
+`))
 	ctx := context.Background()
 	job := Join(r.Prefix, "continental", r.Campaign, "os")
 	target := []byte("union")
@@ -494,6 +509,21 @@ func TestSharedOSCommitAndIntegrity(t *testing.T) {
 	executed := 0
 	execute := func(_ context.Context, _ string, args, env []string) (string, error) {
 		executed++
+		for _, flag := range []string{"--zgrab2-senders", "--dns-chaos-workers", "--snmp-workers", "--connect-timeout", "--read-timeout", "--dns-chaos-timeout", "--snmp-timeout"} {
+			if value := argument(args, flag); value != "" {
+				t.Fatalf("OS worker overrides configured %s with %s", flag, value)
+			}
+		}
+		c, err := config.LoadOSConfig(argument(args, "--config"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if *c.ZGrab2Senders != 37 || *c.DNSChaosWorkers != 11 || *c.SNMPWorkers != 17 || c.ConnectTimeout != 3*time.Second || c.ReadTimeout != 5*time.Second || c.DNSChaosTimeout != 2*time.Second || c.SNMPTimeout != 3*time.Second || !c.LogToFile {
+			t.Fatalf("OS settings changed: %+v", c)
+		}
+		if c.UploadConfig.Enable || !c.RecordTargetStatus {
+			t.Fatal("worker must own uploads and retain per-target status")
+		}
 		if argument(args, "--target-file") == "" {
 			t.Fatal("OS union not selected")
 		}
@@ -502,7 +532,7 @@ func TestSharedOSCommitAndIntegrity(t *testing.T) {
 		for _, name := range []string{"os.pq", "os-observations.pq", "os-coverage.json", "os.snapshot.yaml"} {
 			mustWrite(t, filepath.Join(workspace, "os", "raw", id, name), []byte(name))
 		}
-		_, err := upload.WriteCompletion(paths.Measurement{ID: id, Path: filepath.Join(workspace, "os", "raw", id)})
+		_, err = upload.WriteCompletion(paths.Measurement{ID: id, Path: filepath.Join(workspace, "os", "raw", id)})
 		return id, err
 	}
 	store.fail = Join(r.RawRoot, "continental", r.Campaign, "os", "shared-os", "os-coverage.json")

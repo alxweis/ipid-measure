@@ -28,6 +28,7 @@ func Run(c *config.OSConfig, m *paths.OSMeasurement) (uint64, error) {
 	log.Printf("snmp_workers           = %s", c.SNMPWorkers.String())
 	log.Printf("connect_timeout        = %s", c.ConnectTimeout)
 	log.Printf("read_timeout           = %s", c.ReadTimeout)
+	log.Printf("dns_chaos_timeout      = %s", c.DNSChaosTimeout)
 	log.Printf("snmp_timeout           = %s", c.SNMPTimeout)
 	log.Printf("snmp_community         = %s", c.SNMPCommunity)
 

@@ -19,9 +19,10 @@ type OSConfig struct {
 	DNSChaosWorkers *ScaledNumber `yaml:"dns_chaos_workers"`
 	SNMPWorkers     *ScaledNumber `yaml:"snmp_workers"`
 
-	ConnectTimeout time.Duration `yaml:"connect_timeout"`
-	ReadTimeout    time.Duration `yaml:"read_timeout"`
-	SNMPTimeout    time.Duration `yaml:"snmp_timeout"`
+	ConnectTimeout  time.Duration `yaml:"connect_timeout"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	DNSChaosTimeout time.Duration `yaml:"dns_chaos_timeout"`
+	SNMPTimeout     time.Duration `yaml:"snmp_timeout"`
 
 	SNMPCommunity string `yaml:"snmp_community"`
 
@@ -101,6 +102,15 @@ func validateOSConfig(config *OSConfig) error {
 
 	if config.ReadTimeout < 500*time.Millisecond || config.ReadTimeout > 10*time.Second {
 		return fmt.Errorf("read_timeout must be in [500ms, 10s]")
+	}
+
+	// Older configurations used read_timeout for DNS CHAOS as well. Resolve
+	// the fallback before writing the snapshot so it records the effective value.
+	if config.DNSChaosTimeout == 0 {
+		config.DNSChaosTimeout = config.ReadTimeout
+	}
+	if config.DNSChaosTimeout < 500*time.Millisecond || config.DNSChaosTimeout > 10*time.Second {
+		return fmt.Errorf("dns_chaos_timeout must be in [500ms, 10s]")
 	}
 
 	if config.SNMPTimeout < 500*time.Millisecond || config.SNMPTimeout > 10*time.Second {
