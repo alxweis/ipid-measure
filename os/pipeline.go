@@ -91,7 +91,7 @@ func runPipeline(
 	zgrabIn := make(chan string, ScannerInputBuffer)
 	dnsIn := make(chan string, ScannerInputBuffer)
 	snmpIn := make(chan string, ScannerInputBuffer)
-	dnsOut := NewDNSChaosProbe(c.ReadTimeout).Run(ctx, dnsIn, int(*c.DNSChaosWorkers))
+	dnsOut := NewDNSChaosProbe(c.DNSChaosTimeout).Run(ctx, dnsIn, int(*c.DNSChaosWorkers))
 	snmpOut := NewSNMPProbe(c.SNMPCommunity, c.SNMPTimeout).Run(ctx, snmpIn, int(*c.SNMPWorkers))
 
 	scannerErrCh := make(chan error, 4)

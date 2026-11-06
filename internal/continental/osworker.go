@@ -214,7 +214,9 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		}
 		// Explicit target-file overrides the legacy reference's data path. The
 		// request and done marker retain all 18 sources, never just this reference.
-		args := []string{"--config", configPath, "--zmap", request.ZMap, "--target-file", target, "--record-target-status", "--zgrab2-senders", "5K", "--dns-chaos-workers", "1K", "--snmp-workers", "3K", "--connect-timeout", "1s", "--read-timeout", "1s", "--snmp-timeout", "1s", "--print-id"}
+		// Scanner concurrency and timeouts belong to config/os.yaml. Only the
+		// campaign input and bookkeeping are overridden by the worker.
+		args := []string{"--config", configPath, "--zmap", request.ZMap, "--target-file", target, "--record-target-status", "--print-id"}
 		runner := Runner{Workspace: workspace}
 		if _, err = execute(ctx, filepath.Join(repo, "bin", "measure-os"), args, runner.env(step.Stamp)); err != nil {
 			return false, err

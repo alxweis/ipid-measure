@@ -130,7 +130,8 @@ cp config/ipid.yaml.example config/ipid.yaml
 | `zmap` | measurement-id | zmap run to scan, e.g. `tcp-80_2026-06-03_00-13-06` (usually set via `--zmap`) |
 | `modules.{ssh,smb,http,https,snmp,dns_chaos}` | bool | the six required OS-evidence services; all are scanned for every target |
 | `zgrab2_senders` / `dns_chaos_workers` / `snmp_workers` | scaled-int | bounded concurrency for ZGrab2, DNS CHAOS, and SNMP |
-| `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | timeouts |
+| `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | TCP connect/read and SNMP timeouts |
+| `dns_chaos_timeout` | duration | independent DNS CHAOS timeout; omitted/zero uses `read_timeout` for compatibility |
 | `snmp_community` | string | SNMPv2c community |
 | `log_to_file` | bool | also write `<run>/os.log` |
 | `upload.*` | | optional S3 upload |
@@ -195,6 +196,7 @@ ICMP scans retain only validated echo replies.
 | `--zmap <id>` | override the `zmap` run id |
 | `--zgrab2-senders` / `--dns-chaos-workers` / `--snmp-workers` | override scanner concurrency |
 | `--connect-timeout` / `--read-timeout` / `--snmp-timeout` | override scanner timeouts |
+| `--dns-chaos-timeout` | override DNS CHAOS timeout independently of TCP reads |
 
 Every ZMap target is scanned for SSH/22, SMB/445, HTTP/80, HTTPS/443, SNMP/161,
 and DNS CHAOS `version.bind`/53. ZGrab2 handles the four TCP services in one

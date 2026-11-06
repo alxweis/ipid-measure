@@ -31,6 +31,7 @@ func main() {
 	snmpWorkersFlag := flag.String("snmp-workers", "", "override SNMP worker concurrency")
 	connectTimeoutFlag := flag.Duration("connect-timeout", 0, "override application connect timeout")
 	readTimeoutFlag := flag.Duration("read-timeout", 0, "override application read timeout")
+	dnsChaosTimeoutFlag := flag.Duration("dns-chaos-timeout", 0, "override DNS CHAOS timeout")
 	snmpTimeoutFlag := flag.Duration("snmp-timeout", 0, "override SNMP timeout")
 	printID := flag.Bool("print-id", false, "print the measurement id to stdout on success")
 	flag.Parse()
@@ -67,6 +68,9 @@ func main() {
 		}
 		if *readTimeoutFlag != 0 {
 			c.ReadTimeout = *readTimeoutFlag
+		}
+		if *dnsChaosTimeoutFlag != 0 {
+			c.DNSChaosTimeout = *dnsChaosTimeoutFlag
 		}
 		if *snmpTimeoutFlag != 0 {
 			c.SNMPTimeout = *snmpTimeoutFlag
