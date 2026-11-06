@@ -29,7 +29,7 @@ func TestBaseTCPDataAcknowledgments(t *testing.T) {
 					flags = sets.New(types.TCPFlagACK, types.TCPFlagPSH)
 				}
 				serverSeq := uint32(2001 + (request-1)*3)
-				if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001+uint32(request), serverSeq, 42+seq, flags, 200, 3) {
+				if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001+uint32(request), serverSeq, 42+seq, flags, 200, 3, false) {
 					t.Fatal("contiguous data rejected")
 				}
 				if !p.flushTCPACKs() {
@@ -67,7 +67,7 @@ func TestBaseTCPSequenceValidation(t *testing.T) {
 			deliverSYNACK(t, p, key, 0)
 			p.Samples[4].MarkSent(100)
 			before := atomic.LoadInt64(&stats.AbortTCPSequence)
-			if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, test.sequence, 99, types.AckFlagSet, 200, test.length) || p.complete() {
+			if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, test.sequence, 99, types.AckFlagSet, 200, test.length, false) || p.complete() {
 				t.Fatal("invalid server sequence accepted")
 			}
 			if atomic.LoadInt64(&stats.AbortTCPSequence) != before+1 || p.Samples[4].IsReceived() {
@@ -85,7 +85,7 @@ func TestBaseTCPExtraReplyStillAborts(t *testing.T) {
 			p, key, _ := handshakeFixture(t)
 			deliverSYNACK(t, p, key, 0)
 			before := atomic.LoadInt64(&stats.AbortDup)
-			if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, 2001, 42, flags, 201, 0) || p.complete() {
+			if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, 2001, 42, flags, 201, 0, false) || p.complete() {
 				t.Fatal("additional response accepted as handshake replacement")
 			}
 			if atomic.LoadInt64(&stats.AbortDup) != before+1 || p.Samples[0].IpID != 42 {
@@ -104,7 +104,7 @@ func TestBaseTCPFixedACKReordering(t *testing.T) {
 		p.Samples[seq].MarkSent(100)
 	}
 	for seq := uint16(15); seq >= 4; seq-- {
-		if !FulfillReply(key, sender.GetSender(seq).IPBytes, 40000+seq%4, 1001+uint32(seq%4+seq/4), 2001, seq, types.AckFlagSet, 200, 0) {
+		if !FulfillReply(key, sender.GetSender(seq).IPBytes, 40000+seq%4, 1001+uint32(seq%4+seq/4), 2001, seq, types.AckFlagSet, 200, 0, false) {
 			t.Fatal("reordered pure ACK rejected")
 		}
 	}
@@ -122,7 +122,7 @@ func TestBaseTCPFinalDataACK(t *testing.T) {
 			entry := Inflight.Lookup(key)
 			entry.expectedCount = 2
 			p.Samples[4].MarkSent(100)
-			if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, 2001, 44, types.AckFlagSet, 200, 5) {
+			if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, 2001, 44, types.AckFlagSet, 200, 5, false) {
 				t.Fatal("last data rejected")
 			}
 			calls := 0
@@ -152,7 +152,7 @@ func TestBaseTCPFlagAllowlist(t *testing.T) {
 			if extra != "" {
 				flags.Add(extra)
 			}
-			accepted := FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, 2001, 44, flags, 200, 0)
+			accepted := FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, 2001, 44, flags, 200, 0, false)
 			if accepted != (extra == "" || extra == "P") {
 				t.Fatal("wrong flag acceptance")
 			}
@@ -163,15 +163,15 @@ func TestBaseTCPFlagAllowlist(t *testing.T) {
 func TestBaseTCPDataSequenceWrapAndDelayedACK(t *testing.T) {
 	p, key, _ := handshakeFixture(t)
 	p.Samples[0].MarkSent(100)
-	if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, ^uint32(0)-1, 42, types.SynAckFlagSet, 200, 0) {
+	if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, ^uint32(0)-1, 42, types.SynAckFlagSet, 200, 0, false) {
 		t.Fatal("SYN-ACK rejected")
 	}
 	p.Samples[4].MarkSent(100)
 	p.Samples[8].MarkSent(100)
-	if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1003, ^uint32(0), 48, types.AckFlagSet, 200, 3) || p.tcpAcknowledgments[0].Load() != 2 {
+	if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1003, ^uint32(0), 48, types.AckFlagSet, 200, 3, false) || p.tcpAcknowledgments[0].Load() != 2 {
 		t.Fatal("wrapped data sequence rejected")
 	}
-	if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, ^uint32(0), 44, types.AckFlagSet, 201, 0) || p.tcpAcknowledgments[0].Load() != 2 {
+	if !FulfillReply(key, sender.SenderA.IPBytes, 40000, 1002, ^uint32(0), 44, types.AckFlagSet, 201, 0, false) || p.tcpAcknowledgments[0].Load() != 2 {
 		t.Fatal("delayed pure ACK rejected or receive sequence regressed")
 	}
 }

@@ -29,7 +29,7 @@ func TestBaseTCPBadFlagsDiagnostics(t *testing.T) {
 				p.Samples[seq].MarkSent(100)
 				before := atomic.LoadInt64(&stats.AbortBadFlags)
 				flags := sets.New(types.TCPFlagACK, types.TCPFlagURG)
-				if FulfillReply(key, sender.GetSender(seq).IPBytes, 40000, recovered, 2000, 99, flags, 200, 0) {
+				if FulfillReply(key, sender.GetSender(seq).IPBytes, 40000, recovered, 2000, 99, flags, 200, 0, false) {
 					t.Fatal("diagnostic changed invalid reply acceptance")
 				}
 				if atomic.LoadInt64(&stats.AbortBadFlags) != before+1 || p.complete() {
@@ -39,7 +39,7 @@ func TestBaseTCPBadFlagsDiagnostics(t *testing.T) {
 				if !strings.Contains(summary, phase+":AU=") {
 					t.Fatalf("missing phase and flags: %s", summary)
 				}
-				FulfillReply(key, sender.GetSender(seq).IPBytes, 40000, recovered, 2000, 99, flags, 200, 0)
+				FulfillReply(key, sender.GetSender(seq).IPBytes, 40000, recovered, 2000, 99, flags, 200, 0, false)
 				if stats.TCPBadFlagsSummary() != summary || p.Samples[seq].IsReceived() {
 					t.Fatal("failed target was counted again or sample was filled")
 				}
@@ -64,7 +64,7 @@ func TestTCPBadFlagsDiagnosticsExclusions(t *testing.T) {
 				p.strict, flags = false, types.AckFlagSet
 			}
 			before := stats.TCPBadFlagsSummary()
-			accepted := FulfillReply(key, sender.SenderA.IPBytes, 40000, recovered, 2000, 99, flags, 200, 0)
+			accepted := FulfillReply(key, sender.SenderA.IPBytes, 40000, recovered, 2000, 99, flags, 200, 0, false)
 			if accepted != (name == "accepted") || stats.TCPBadFlagsSummary() != before {
 				t.Fatal("acceptance changed or unrelated event entered TCP Base diagnostics")
 			}

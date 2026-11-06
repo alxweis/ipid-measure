@@ -39,20 +39,23 @@ func TestInterprotocolFixedReplyUsesLogicalSourceAndConnection(t *testing.T) {
 	t.Cleanup(func() { measurement.InterProtocols = old })
 	p.Samples[1].MarkSent(100)
 	// TCP at global position 1 still belongs to logical connection 0/source A.
-	if FulfillProtocolReply(key, sender.SenderB.IPBytes, layers.IPProtocolTCP, 40000, 1, 0, 42, types.SynAckFlagSet, 200, 0) {
+	if FulfillProtocolReply(key, sender.SenderB.IPBytes, layers.IPProtocolTCP, 40000, 1, 0, 42, types.SynAckFlagSet, 200, 0, false) {
 		t.Fatal("accepted wrong source")
 	}
-	if FulfillProtocolReply(key, sender.SenderA.IPBytes, layers.IPProtocolTCP, 40001, 1, 0, 42, types.SynAckFlagSet, 200, 0) {
+	if FulfillProtocolReply(key, sender.SenderA.IPBytes, layers.IPProtocolTCP, 40001, 1, 0, 42, types.SynAckFlagSet, 200, 0, false) {
 		t.Fatal("accepted wrong connection")
 	}
-	if !FulfillProtocolReply(key, sender.SenderA.IPBytes, layers.IPProtocolTCP, 40000, 1, 0, 42, types.SynAckFlagSet, 200, 0) {
+	if !FulfillProtocolReply(key, sender.SenderA.IPBytes, layers.IPProtocolTCP, 40000, 1, 0, 42, types.SynAckFlagSet, 200, 0, true) {
 		t.Fatal("valid reply rejected")
 	}
-	if FulfillProtocolReply(key, sender.SenderA.IPBytes, layers.IPProtocolTCP, 40000, 1, 0, 42, types.SynAckFlagSet, 200, 0) {
+	if FulfillProtocolReply(key, sender.SenderA.IPBytes, layers.IPProtocolTCP, 40000, 1, 0, 42, types.SynAckFlagSet, 200, 0, false) {
 		t.Fatal("duplicate accepted")
 	}
+	if !p.Samples[1].DontFragment || p.Samples[0].DontFragment {
+		t.Fatal("DF lost, overwritten by duplicate, or assigned to wrong protocol position")
+	}
 	p.Samples[4].MarkSent(100)
-	if FulfillProtocolReply(key, sender.SenderB.IPBytes, layers.IPProtocolTCP, 40001, 4, 0, 42, types.SynAckFlagSet, 100+time.Second.Microseconds()+1, 0) {
+	if FulfillProtocolReply(key, sender.SenderB.IPBytes, layers.IPProtocolTCP, 40001, 4, 0, 42, types.SynAckFlagSet, 100+time.Second.Microseconds()+1, 0, false) {
 		t.Fatal("late reply accepted")
 	}
 }

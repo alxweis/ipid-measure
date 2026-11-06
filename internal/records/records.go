@@ -30,6 +30,7 @@ type IPIDRecord struct {
 	IPIDSequence             string `parquet:"IPID_SEQUENCE,plain"`
 	SendTimestampSequence    string `parquet:"SEND_TIMESTAMP_SEQUENCE,plain"`
 	ReceiveTimestampSequence string `parquet:"RECEIVE_TIMESTAMP_SEQUENCE,plain"`
+	DFSequence               string `parquet:"DF_SEQUENCE,plain"`
 }
 
 type InterProtocolTarget struct {
@@ -43,4 +44,5 @@ type InterProtocolRecord struct {
 	IPIDSequence             string `parquet:"IPID_SEQUENCE,plain"`
 	SendTimestampSequence    string `parquet:"SEND_TIMESTAMP_SEQUENCE,plain"`
 	ReceiveTimestampSequence string `parquet:"RECEIVE_TIMESTAMP_SEQUENCE,plain"`
+	DFSequence               string `parquet:"DF_SEQUENCE,plain"`
 }

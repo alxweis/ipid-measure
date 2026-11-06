@@ -140,7 +140,7 @@ func waitForBaseReply(p *Probe, timer *time.Timer) bool {
 	}
 }
 
-func fulfillBaseReply(entry *InflightEntry, dst [4]byte, protocol layers.IPProtocol, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64, tcpPayloadLength uint16) bool {
+func fulfillBaseReply(entry *InflightEntry, dst [4]byte, protocol layers.IPProtocol, dstPort uint16, recoveredSeq, tcpSeq uint32, ipID uint16, flags sets.Set[string], received int64, tcpPayloadLength uint16, dontFragment bool) bool {
 	p := entry.Probe
 	start := diagnostics.ReplyLock.Start()
 	p.mu.Lock()
@@ -229,7 +229,7 @@ func fulfillBaseReply(entry *InflightEntry, dst [4]byte, protocol layers.IPProto
 		}
 	}
 	sample.tcpSequence = tcpSeq
-	if !sample.TryFill(ipID, received) {
+	if !sample.TryFill(ipID, received, dontFragment) {
 		return reject(&stats.DropDup, &stats.AbortDup)
 	}
 	if measurement.TcpEstablishConnection && expected == FlagsSynAck {
