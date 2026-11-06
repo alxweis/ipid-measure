@@ -408,6 +408,26 @@ timestamps use the host wall clock, so clock steps can distort RTTs. The Parquet
 schema and timestamp units are unchanged; older files retain their original
 userspace processing timestamps.
 
+New IPID and interprotocol Parquet records additionally contain `DF_SEQUENCE`.
+This comma-separated sequence stores the IPv4 Don't Fragment bit of each
+accepted reply as `0` or `1`, in exactly the same logical request positions as
+`IPID_SEQUENCE`, `SEND_TIMESTAMP_SEQUENCE`, and `RECEIVE_TIMESTAMP_SEQUENCE`.
+A missing reply is `-` in all four sequences, including retained zero-reply
+interprotocol targets. Receive order does not change these positions. TCP
+connection measurements include the DF bits of both the measured SYN-ACK and
+subsequent data replies; confirmation ACKs and cleanup resets add no samples.
+Duplicates, invalid replies, fragments, and late replies do not replace an
+accepted sample or its DF bit. This applies to RT and Fixed-Interval Base/Mass
+measurements and all interleaved protocols. Outgoing probes continue to use
+DF=0; collecting response DF does not change probing or classification rules.
+
+Older files without `DF_SEQUENCE` have unknown response DF. Absence, NULL, or
+an empty value must never be interpreted as an all-zero sequence. Existing
+analysis consumers can continue projecting the original columns. DF-specific
+analyses can later derive per-target counts and mixed-DF cohorts from the new
+sequence; an ID of zero together with DF=1 is an observation, not proof of its
+cause. Accepted replies already exclude MF=1 and nonzero fragment offsets.
+
 `capture[packets=... dropped=... errors=...]` accumulates kernel packet-socket
 statistics across both receivers. Kernel packet totals include dropped packets;
 `errors` counts statistics-read failures, so zero reported drops with errors does

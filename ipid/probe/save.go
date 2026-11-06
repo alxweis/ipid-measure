@@ -132,6 +132,7 @@ func saveInterProtocol(bw *bufio.Writer, f *os.File) {
 			IPIDSequence:             base.IPIDSequence,
 			SendTimestampSequence:    base.SendTimestampSequence,
 			ReceiveTimestampSequence: base.ReceiveTimestampSequence,
+			DFSequence:               base.DFSequence,
 		})
 		if len(batch) >= ParquetWriteBatchSize {
 			flush()
@@ -157,10 +158,11 @@ func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 	}
 
 	// Preallocate builders: ipId up to 5 chars + comma; timestamps up to 16.
-	var ipIds, sent, recv strings.Builder
+	var ipIds, sent, recv, df strings.Builder
 	ipIds.Grow(n * 6)
 	sent.Grow(n * 17)
 	recv.Grow(n * 17)
+	df.Grow(n * 2)
 
 	for seqNum := 0; seqNum < n; seqNum++ {
 		r := &p.Samples[seqNum]
@@ -175,16 +177,23 @@ func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 			ipIds.WriteByte(ValueSeparator)
 			sent.WriteByte(ValueSeparator)
 			recv.WriteByte(ValueSeparator)
+			df.WriteByte(ValueSeparator)
 		}
 
 		if received {
 			ipIds.WriteString(strconv.FormatUint(uint64(r.IpID), 10))
 			sent.WriteString(strconv.FormatInt(r.SentTime, 10))
 			recv.WriteString(strconv.FormatInt(r.ReceiveTime, 10))
+			if r.DontFragment {
+				df.WriteByte('1')
+			} else {
+				df.WriteByte('0')
+			}
 		} else {
 			ipIds.WriteByte(InvalidSymbol)
 			sent.WriteByte(InvalidSymbol)
 			recv.WriteByte(InvalidSymbol)
+			df.WriteByte(InvalidSymbol)
 		}
 	}
 
@@ -193,6 +202,7 @@ func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 		IPIDSequence:             ipIds.String(),
 		SendTimestampSequence:    sent.String(),
 		ReceiveTimestampSequence: recv.String(),
+		DFSequence:               df.String(),
 	}, true
 }
 

@@ -49,7 +49,7 @@ func TestCaptureTimestampRTTBounds(t *testing.T) {
 					counter = &stats.DropUnsent
 				}
 				before := atomic.LoadInt64(counter)
-				got := FulfillReply(key, sender.SenderA.IPBytes, 40000, 0, 2000, 42, types.SynAckFlagSet, received, 0)
+				got := FulfillReply(key, sender.SenderA.IPBytes, 40000, 0, 2000, 42, types.SynAckFlagSet, received, 0, false)
 				if got != test.ok || p.Samples[0].IsReceived() != test.ok {
 					t.Fatalf("reply accepted = %v, want %v", got, test.ok)
 				}
@@ -90,7 +90,7 @@ func TestCaptureTimestampsPreservedInParquet(t *testing.T) {
 					received = start + int64(len(p.Samples)-seq)*1000
 				}
 				p.Samples[seq].MarkSent(sent)
-				if !FulfillReply(key, sender.GetSender(uint16(seq)).IPBytes, 40000+uint16(seq)%4, uint32(seq), 2000, uint16(seq), types.SynAckFlagSet, received, 0) {
+				if !FulfillReply(key, sender.GetSender(uint16(seq)).IPBytes, 40000+uint16(seq)%4, uint32(seq), 2000, uint16(seq), types.SynAckFlagSet, received, 0, false) {
 					t.Fatalf("reply %d rejected", seq)
 				}
 				want[seq] = strconv.FormatInt(received, 10)

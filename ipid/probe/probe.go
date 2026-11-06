@@ -52,10 +52,11 @@ type Probe struct {
 type Sample struct {
 	state atomic.Int32 // SampleState
 
-	SentTime    int64
-	ReceiveTime int64
-	IpID        uint16
-	tcpSequence uint32
+	SentTime     int64
+	ReceiveTime  int64
+	IpID         uint16
+	DontFragment bool
+	tcpSequence  uint32
 }
 
 func (s *Sample) MarkSent(now int64) {
@@ -63,12 +64,13 @@ func (s *Sample) MarkSent(now int64) {
 	s.state.Store(int32(SampleSent))
 }
 
-func (s *Sample) TryFill(ipID uint16, receiveTime int64) bool {
+func (s *Sample) TryFill(ipID uint16, receiveTime int64, dontFragment bool) bool {
 	if !s.state.CompareAndSwap(int32(SampleSent), int32(SamplePending)) {
 		return false
 	}
 	s.IpID = ipID
 	s.ReceiveTime = receiveTime
+	s.DontFragment = dontFragment
 	s.state.Store(int32(SampleReceived))
 	return true
 }
@@ -408,8 +410,9 @@ func FulfillReply(
 	replyFlags sets.Set[string],
 	receiveTime int64,
 	tcpPayloadLength uint16,
+	dontFragment bool,
 ) bool {
-	return FulfillProtocolReply(srcIP4, dstIP4, payload.Active.ProtocolID, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+	return FulfillProtocolReply(srcIP4, dstIP4, payload.Active.ProtocolID, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength, dontFragment)
 }
 
 func FulfillProtocolReply(
@@ -423,21 +426,23 @@ func FulfillProtocolReply(
 	replyFlags sets.Set[string],
 	receiveTime int64,
 	tcpPayloadLength uint16,
+	dontFragment bool,
 ) bool {
 	entry := Inflight.Lookup(srcIP4)
 	if entry == nil {
 		atomic.AddInt64(&stats.DropNoEntry, 1)
 		return false
 	}
-	return entry.FulfillReply(dstIP4, protocol, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+	return entry.FulfillReply(dstIP4, protocol, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength, dontFragment)
 }
 
 func (entry *InflightEntry) FulfillReply(
 	dstIP4 [4]byte, protocol layers.IPProtocol, dstPort uint16, recoveredSeq, replyTCPSeq uint32,
 	ipID uint16, replyFlags sets.Set[string], receiveTime int64, tcpPayloadLength uint16,
+	dontFragment bool,
 ) bool {
 	if entry.Probe.strict {
-		return fulfillBaseReply(entry, dstIP4, protocol, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength)
+		return fulfillBaseReply(entry, dstIP4, protocol, dstPort, recoveredSeq, replyTCPSeq, ipID, replyFlags, receiveTime, tcpPayloadLength, dontFragment)
 	}
 
 	// Destination IP must be one of the expectedDsts.
@@ -511,7 +516,7 @@ func (entry *InflightEntry) FulfillReply(
 		return false
 	}
 
-	if !sample.TryFill(ipID, receiveTime) {
+	if !sample.TryFill(ipID, receiveTime, dontFragment) {
 		// Duplicate reply or sample not in Sent state.
 		atomic.AddInt64(&stats.DropDup, 1)
 		return false

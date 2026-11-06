@@ -26,7 +26,7 @@ func deliverSYNACK(t *testing.T, p *Probe, key [4]byte, connection uint16) {
 	t.Helper()
 	p.Samples[connection].MarkSent(100)
 	if !FulfillReply(key, sender.GetSender(connection).IPBytes, 40000+connection,
-		1001+uint32(connection), 2000, 42, types.SynAckFlagSet, 200, 0) {
+		1001+uint32(connection), 2000, 42, types.SynAckFlagSet, 200, 0, false) {
 		t.Fatal("valid SYN-ACK rejected")
 	}
 }
@@ -124,7 +124,7 @@ func TestDuplicateSYNACKStillAbortsWithoutAnotherACK(t *testing.T) {
 		t.Fatal("ACK failed")
 	}
 	expectHandshakeACK(t, acks, 0)
-	if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, 2000, 42, types.SynAckFlagSet, 201, 0) || p.complete() {
+	if FulfillReply(key, sender.SenderA.IPBytes, 40000, 1001, 2000, 42, types.SynAckFlagSet, 201, 0, false) || p.complete() {
 		t.Fatal("duplicate policy changed")
 	}
 	if len(p.tcpACKReplies) != 0 {

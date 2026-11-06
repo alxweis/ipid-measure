@@ -117,5 +117,6 @@ func (d *packetDecoder) process(data []byte, received time.Time) {
 		}
 		return
 	}
-	entry.FulfillReply(dst, d.ipv4.Protocol, port, seq, tcpSeq, d.ipv4.Id, flags, received.UnixMicro(), length)
+	entry.FulfillReply(dst, d.ipv4.Protocol, port, seq, tcpSeq, d.ipv4.Id, flags, received.UnixMicro(), length,
+		d.ipv4.Flags&layers.IPv4DontFragment != 0)
 }

@@ -179,7 +179,7 @@ func TestDecoderUsesCaptureTimestampForRTT(t *testing.T) {
 	t.Cleanup(func() { probe.Inflight.Deregister(key, entry) })
 	sent := time.Unix(1700000000, 0)
 	p.Samples[0].MarkSent(sent.UnixMicro())
-	p.Samples[0].TryFill(42, sent.Add(time.Millisecond).UnixMicro())
+	p.Samples[0].TryFill(42, sent.Add(time.Millisecond).UnixMicro(), false)
 	for _, test := range []struct {
 		payload *payload.Payload
 		body    []byte
