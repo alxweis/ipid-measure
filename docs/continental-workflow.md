@@ -130,12 +130,60 @@ bits 0–5 for SSH, SMB, HTTP, HTTPS, SNMP and DNS. The analysis worker reconstr
 each site's protocol coverage from this sidecar and its own ZMap set. A shared
 OS vantage must not be described as a regional OS observation.
 
+## Local storage in the 18-VM workflow
+
+Protocol-specific Geo runs (`run-continental --protocol ...`, or
+`make run-all-<site>-<protocol>`) now automatically remove the local `ipid.pq`
+or `interprotocol.pq` of each successfully committed step. This includes
+RT, FI-Mass, FI-Base, reproducibility repeats, TCP connection measurements,
+and the UDP VM's local-reference and interleaved measurements. The large raw
+files do not accumulate across these steps. Scientific parameters, cohorts,
+measurement IDs, analysis requests and S3 outputs are unchanged.
+
+Cleanup runs only after successful upload and validation of the S3
+`measurement-complete.json` against the closed local files. Analyses and
+RT/Mass handoffs read the uploaded raw inputs from S3, so they do not need
+the local bulk file, even when analysis is still queued. Cleanup does not
+wait for asynchronous final analyses. It performs no additional full-file
+download from S3 and never deletes remote objects.
+
+The controller retains ZMap inputs and samples, snapshots, logs, UNCLASSIFIED
+and reproducibility target files, interprotocol/reference target files,
+manifests and checkpoints. These still support later phases and restarts.
+In-progress and uncommitted attempts are never cleaned. OS-worker output,
+the existing single-protocol `make run-all-{icmp,tcp,udp}` workflow and the
+legacy six-VM mode keep their previous retention behavior.
+
+Before unlinking a bulk file, the controller durably records
+`<workspace>/cleanup/<measurement-id>.json`. This small local receipt binds
+the file's size/SHA-256 to the unchanged S3 completion marker and workspace
+configuration. Keep it with `state.json` and the retained inputs. After a
+restart, missing bulk data is accepted only with the matching receipt and
+remote marker. Missing snapshots, changed markers, corrupt recreated files,
+or unavailable S3 are errors, not permission to repeat a measurement.
+A crash between writing the receipt and removing the file is also resumable.
+
+For local debugging, disable further automatic cleanup explicitly:
+
+```sh
+make run-all-eu-icmp CAMPAIGN_ID=round-example ARGS="--retain-local"
+```
+
+This flag does not restore files already removed. Leave `upload.delete_local`
+**false** in the measurement YAML: the controller deliberately keeps generic
+directory deletion disabled and handles the two bulk filenames itself.
+There is no analysis-worker environment flag to enable this behavior; deploy
+the new measurement revision on all protocol VMs. A disk must still fit the
+largest single active output plus retained inputs, logs and operating-system
+space; cleanup is not a fixed disk-size guarantee.
+
 ## Restart and failure recovery
 
 Rerun the same command, campaign and unchanged configuration to resume.
-Completed raw steps are adopted only after local files match their committed
-size/SHA-256 evidence. A lost successful process response does not repeat the
-measurement. Keep the local workspace: automatic recovery from disk loss is
+Completed raw steps are adopted only after retained local files match their
+committed size/SHA-256 evidence; a cleaned bulk file additionally requires the
+matching durable cleanup receipt described above. A lost successful process
+response does not repeat the measurement. Keep the local workspace: automatic recovery from disk loss is
 outside this implementation. Configuration changes during a resumed round are
 rejected; use a new campaign for intentional changes.
 
