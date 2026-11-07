@@ -36,6 +36,15 @@ Each writer owns only its `sites/<site>/protocols/<protocol>/` control queue.
 The immutable `parallel.json` distinguishes this layout from six-VM campaigns.
 Interprotocol control remains at `sites/<site>/interprotocol-*` and is UDP-owned.
 
+Uploaded `ipid.pq` and `interprotocol.pq` files are automatically removed locally
+after the controller verifies their raw completion marker. This bounds retained
+bulk output across successive phases, including the UDP VM's interprotocol and
+local-reference phases. S3 raw data, ZMap inputs, targets, snapshots and logs are
+retained. Durable cleanup receipts in the local workspace allow restart without
+reprobing; keep them with the checkpoint. `ARGS="--retain-local"` disables further
+cleanup for debugging. Keep YAML `upload.delete_local: false`; see
+[storage and recovery details](continental-workflow.md#local-storage-in-the-18-vm-workflow).
+
 Resume with the same command/configuration/workspace. Verified raw completion
 markers are reused. Changed parameters fail rather than silently remeasure.
 An uncommitted attempt requires `ARGS="--retry-incomplete"`, retaining the old

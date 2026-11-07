@@ -18,6 +18,7 @@ func main() {
 	retryFailed := flag.Bool("retry-failed", false, "archive this protocol controller's failure before resuming")
 	skipOS := flag.Bool("skip-os", false, "disable OS for the entire immutable campaign (must match all sites)")
 	retry := flag.Bool("retry-incomplete", false, "retain an incomplete local attempt and start it with a new ID")
+	retainLocal := flag.Bool("retain-local", false, "retain uploaded IPID/interprotocol bulk files in protocol-specific Geo runs")
 	flag.Parse()
 	if err := continental.Validate(*campaign, *site); err != nil {
 		log.Fatal(err)
@@ -44,7 +45,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	store := continental.S3{Directory: filepath.Join(workspace, "publication")}
-	runner := continental.Runner{Repo: repo, Workspace: workspace, Campaign: *campaign, Site: *site, Protocol: *protocol, Store: store, RetryIncomplete: *retry, SkipOS: *skipOS}
+	runner := continental.Runner{Repo: repo, Workspace: workspace, Campaign: *campaign, Site: *site, Protocol: *protocol, Store: store, RetryIncomplete: *retry, SkipOS: *skipOS, RetainLocal: *retainLocal}
 	if err = runner.Prepare(ctx); err != nil {
 		log.Fatal(err)
 	}

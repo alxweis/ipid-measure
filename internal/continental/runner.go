@@ -51,6 +51,8 @@ type Runner struct {
 	Execute         Execute
 	RetryIncomplete bool
 	SkipOS          bool
+	// RetainLocal disables bulk-file cleanup in protocol-specific Geo runs.
+	RetainLocal     bool
 	state           State
 	configs         map[string]string
 	workflow        config.AnalysisWorkflowConfig
@@ -237,8 +239,15 @@ func (r *Runner) env(stamp string) []string {
 }
 
 func (r *Runner) committed(ctx context.Context, kind string, step Step) (bool, error) {
+	receipt, err := r.readCleanupReceipt(kind, step.ID)
+	if err != nil {
+		return false, err
+	}
 	data, exists, err := r.Store.Read(ctx, Join(r.rawPrefix(kind), step.ID, "measurement-complete.json"))
 	if err != nil || !exists {
+		if err == nil && receipt != nil {
+			return false, fmt.Errorf("cleaned measurement %s lost its S3 completion marker", step.ID)
+		}
 		return false, err
 	}
 	var marker struct {
@@ -261,17 +270,28 @@ func (r *Runner) committed(ctx context.Context, kind string, step Step) (bool, e
 			return false, fmt.Errorf("measurement completion omits %s", required)
 		}
 	}
+	if receipt != nil {
+		if err := r.validateCleanupReceipt(receipt, step.ID, data, marker.Files); err != nil {
+			return false, err
+		}
+	}
 	for name, expected := range marker.Files {
 		if filepath.Base(name) != name {
 			return false, fmt.Errorf("unsafe completion file")
 		}
 		actual, err := upload.Evidence(r.rawPath(kind, step.ID, name))
+		if os.IsNotExist(err) && receipt != nil && receipt.File == name {
+			continue
+		}
 		if err != nil {
 			return false, err
 		}
 		if actual != expected {
 			return false, fmt.Errorf("local source differs from committed measurement %s/%s", step.ID, name)
 		}
+	}
+	if err := r.cleanupMeasurement(kind, step.ID, data, marker.Files, receipt); err != nil {
+		return false, err
 	}
 	return true, nil
 }
