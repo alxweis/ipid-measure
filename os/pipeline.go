@@ -35,6 +35,10 @@ func runPipeline(
 	c *config.OSConfig,
 	zmapInputPath, outputPath, coveragePath string,
 ) (uint64, error) {
+	return runPipelineWithResources(ctx, c, zmapInputPath, outputPath, coveragePath, validateProbeResources)
+}
+
+func runPipelineWithResources(ctx context.Context, c *config.OSConfig, zmapInputPath, outputPath, coveragePath string, checkResources func(*config.OSConfig) error) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -46,6 +50,9 @@ func runPipeline(
 	pqReader := parquet.NewGenericReader[records.ZMap](inFile)
 	defer pqReader.Close()
 	numberOfTargets := uint64(pqReader.NumRows())
+	if err := checkResources(c); err != nil {
+		return 0, err
+	}
 
 	ini := BuildZGrab2INI(c.Modules, *c.ZGrab2Senders, c.ConnectTimeout, c.ReadTimeout)
 	iniPath := osstd.TempDir() + "/ipid-zgrab2-" + fmt.Sprint(osstd.Getpid()) + ".ini"
@@ -54,16 +61,11 @@ func runPipeline(
 	}
 	defer func() { _ = osstd.Remove(iniPath) }()
 
-	zgrab, err := StartZGrab2(ctx, ZGrab2Binary, iniPath)
-	if err != nil {
-		return 0, fmt.Errorf("start zgrab2: %w", err)
-	}
-
 	writer, err := NewWriter(outputPath)
 	if err != nil {
-		_ = zgrab.Shutdown()
 		return 0, err
 	}
+	defer writer.Close()
 	coverage := newCoverageStats(numberOfTargets)
 	outRecords := make(chan records.OSRecord, ResultBufferSize)
 	m := newMerger(outRecords, coverage)
@@ -72,10 +74,39 @@ func runPipeline(
 		observations, err = newObservationWriter(filepath.Join(filepath.Dir(outputPath), "os-observations.pq"), cancel)
 		if err != nil {
 			_ = writer.Close()
-			_ = zgrab.Shutdown()
 			return 0, err
 		}
+		defer func() { _ = observations.close(observations.count) }()
 		m.observe = observations.observe
+	}
+	restored, err := restoreOS(ctx, c, outputPath, writer, observations, coverage, numberOfTargets)
+	if err != nil {
+		return 0, fmt.Errorf("restore OS attempt: %w", err)
+	}
+	if restored != nil {
+		m.totalEmitted.Store(restored.evidence)
+		m.totalDropped.Store(restored.completed.count - restored.evidence)
+		m.rxZGrab2.Store(restored.completed.count)
+		m.rxDNSChaos.Store(restored.completed.count)
+		m.rxSNMP.Store(restored.completed.count)
+		m.totalReceived.Store(3 * restored.completed.count)
+		log.Printf("os: restored %d completed targets (%d evidence records); scanning remaining %d targets", restored.completed.count, restored.evidence, numberOfTargets-restored.completed.count)
+		if restored.completed.count == numberOfTargets {
+			if err := writer.Close(); err != nil {
+				return 0, err
+			}
+			if err := observations.close(numberOfTargets); err != nil {
+				return 0, err
+			}
+			if err := coverage.write(coveragePath); err != nil {
+				return 0, err
+			}
+			return writer.Written(), nil
+		}
+	}
+	zgrab, err := StartZGrab2(ctx, ZGrab2Binary, iniPath)
+	if err != nil {
+		return 0, fmt.Errorf("start zgrab2: %w", err)
 	}
 
 	writerErrCh := make(chan error, 1)
@@ -153,7 +184,11 @@ func runPipeline(
 		defer close(zgrabIn)
 		defer close(dnsIn)
 		defer close(snmpIn)
-		feederErrCh <- feedTargets(ctx, pqReader, zgrabIn, dnsIn, snmpIn)
+		if restored == nil {
+			feederErrCh <- feedTargets(ctx, pqReader, zgrabIn, dnsIn, snmpIn)
+		} else {
+			feederErrCh <- feedTargetsSkipping(ctx, pqReader, zgrabIn, dnsIn, snmpIn, &restored.completed)
+		}
 	}()
 
 	statsDone := make(chan struct{})
@@ -226,6 +261,10 @@ func feedTargets(
 	reader *parquet.GenericReader[records.ZMap],
 	zgrabIn, dnsIn, snmpIn chan<- string,
 ) error {
+	return feedTargetsSkipping(ctx, reader, zgrabIn, dnsIn, snmpIn, nil)
+}
+
+func feedTargetsSkipping(ctx context.Context, reader *parquet.GenericReader[records.ZMap], zgrabIn, dnsIn, snmpIn chan<- string, completed *ipv4Set) error {
 	send := func(channel chan<- string, ip string) bool {
 		select {
 		case channel <- ip:
@@ -241,6 +280,15 @@ func feedTargets(
 			ip := buffer[i].IPAddress
 			if ip == "" {
 				continue
+			}
+			if completed != nil {
+				number, err := addressNumber(ip)
+				if err != nil {
+					return err
+				}
+				if completed.has(number) {
+					continue
+				}
 			}
 			if !send(zgrabIn, ip) || !send(dnsIn, ip) || !send(snmpIn, ip) {
 				return ctx.Err()
@@ -282,7 +330,7 @@ func reportOSStats(
 ) {
 	ticker := time.NewTicker(consts.LogUpdateInterval)
 	defer ticker.Stop()
-	var lastCompleted uint64
+	lastCompleted := m.totalEmitted.Load() + m.totalDropped.Load()
 	var memory runtime.MemStats
 	start := time.Now()
 	for {

@@ -22,9 +22,13 @@ func main() {
 	vantage := flag.String("vantage", "", "explicit OS scan vantage identity (required when requesting)")
 	retry := flag.Bool("retry-failed", false, "archive and explicitly retry this campaign OS failure")
 	retryIncomplete := flag.Bool("retry-incomplete", false, "retain a partial OS attempt and scan with a new measurement ID")
+	resumeIncomplete := flag.Bool("resume-incomplete", false, "reuse completed IPs from a closed geographic OS attempt; preserve its files")
 	once := flag.Bool("once", false, "check once and exit; otherwise wait for discovery")
 	poll := flag.Duration("poll-interval", 30*time.Second, "poll interval")
 	flag.Parse()
+	if *resumeIncomplete && (*retryIncomplete || *enrichment || *requestEnrichment) {
+		log.Fatal("--resume-incomplete requires geographic core mode and excludes --retry-incomplete")
+	}
 	if *enrichment && *requestEnrichment {
 		log.Fatal("choose request or scan enrichment mode")
 	}
@@ -109,7 +113,7 @@ func main() {
 		if *enrichment {
 			done, err = continental.RunOSEnrichment(ctx, store, continental.Command, repo, workspace, core, *retryIncomplete)
 		} else {
-			done, err = continental.RunOS(ctx, store, continental.Command, repo, workspace, *prefix, *campaign, *retryIncomplete)
+			done, err = continental.RunOS(ctx, store, continental.Command, repo, workspace, *prefix, *campaign, *retryIncomplete, *resumeIncomplete)
 		}
 		if err != nil {
 			// Explicit terminal failure: no automatic destructive retry of real scans.

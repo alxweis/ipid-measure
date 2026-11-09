@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/upload"
+	osmod "github.com/alxweis/ipid-measure/os"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,6 +30,11 @@ type OSRequest struct {
 	RawRoot  string              `json:"raw_root"`
 	ZMap     string              `json:"reference_zmap"`
 	Members  []map[string]string `json:"members"`
+}
+
+type osScanStep struct {
+	Step
+	ResumeFrom string `json:"resume_from,omitempty"`
 }
 
 // RunOS returns false while discovery is incomplete. It never scans on a site
@@ -156,7 +163,7 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		}
 	}
 	statePath := filepath.Join(workspace, "scan.json")
-	step := Step{}
+	step := osScanStep{}
 	if value, err := os.ReadFile(statePath); err == nil {
 		if err = json.Unmarshal(value, &step); err != nil {
 			return false, err
@@ -165,28 +172,77 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		return false, err
 	} else {
 		stamp := time.Now().UTC().Truncate(time.Second)
-		step = Step{ID: "tcp-80_" + stamp.Format("2006-01-02_15-04-05"), Stamp: stamp.Format(time.RFC3339)}
+		step.Step = Step{ID: "tcp-80_" + stamp.Format("2006-01-02_15-04-05"), Stamp: stamp.Format(time.RFC3339)}
 		if err = AtomicJSON(statePath, step); err != nil {
 			return false, err
+		}
+	}
+	if payload, port, _, err := paths.ParseMeasurementID(step.ID); err != nil || string(payload) != "tcp" || port == nil || *port != 80 {
+		return false, fmt.Errorf("invalid OS scan state measurement ID")
+	}
+	if step.ResumeFrom != "" {
+		root, err := filepath.Abs(filepath.Join(workspace, "os", "raw"))
+		if err != nil {
+			return false, err
+		}
+		source, err := filepath.Abs(step.ResumeFrom)
+		if err != nil {
+			return false, err
+		}
+		if filepath.Dir(source) != root {
+			return false, fmt.Errorf("OS resume source leaves campaign raw directory")
+		}
+		resolved, err := filepath.EvalSymlinks(source)
+		if err != nil {
+			return false, err
+		}
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return false, err
+		}
+		if filepath.Dir(resolved) != resolvedRoot {
+			return false, fmt.Errorf("OS resume source symlink leaves campaign")
 		}
 	}
 	output := filepath.Join(workspace, "os", "raw", step.ID)
 	complete := filepath.Join(output, "measurement-complete.json")
 	if _, err = os.Stat(complete); os.IsNotExist(err) {
 		if _, err = os.Stat(output); err == nil {
-			if len(retryIncomplete) == 0 || !retryIncomplete[0] {
-				return false, fmt.Errorf("incomplete OS attempt retained at %s; inspect and use --retry-incomplete for a new attempt", output)
+			resume := len(retryIncomplete) > 1 && retryIncomplete[1]
+			if !resume && (len(retryIncomplete) == 0 || !retryIncomplete[0]) {
+				return false, fmt.Errorf("incomplete OS attempt retained at %s; inspect and use --resume-incomplete to reuse closed results or --retry-incomplete for a new attempt", output)
 			}
-			archive := output + "-attempt-" + fmt.Sprint(time.Now().UnixNano())
-			if err = os.Rename(output, archive); err != nil {
-				return false, err
+			resumeFrom := ""
+			if resume {
+				if late {
+					return false, fmt.Errorf("OS resume currently requires a geographic core scan")
+				}
+				c, err := config.LoadOSConfig(filepath.Join(repo, "config", "os.yaml"), func(c *config.OSConfig) {
+					c.ZMapID = request.ZMap
+					c.TargetFile = target
+					c.RecordTargetStatus = true
+				})
+				if err != nil {
+					return false, err
+				}
+				if err := osmod.ValidateResumeSource(c, output); err != nil {
+					return false, err
+				}
+				// Keep the closed old output in place. A fresh ID gives all new
+				// files separate paths, including across a crash during copying.
+				resumeFrom = output
+			} else {
+				archive := output + "-attempt-" + fmt.Sprint(time.Now().UnixNano())
+				if err = os.Rename(output, archive); err != nil {
+					return false, err
+				}
 			}
 			stamp := time.Now().UTC().Truncate(time.Second)
 			previous, _ := time.Parse(time.RFC3339, step.Stamp)
 			if !stamp.After(previous) {
 				stamp = previous.Add(time.Second)
 			}
-			step = Step{ID: "tcp-80_" + stamp.Format("2006-01-02_15-04-05"), Stamp: stamp.Format(time.RFC3339)}
+			step = osScanStep{Step: Step{ID: "tcp-80_" + stamp.Format("2006-01-02_15-04-05"), Stamp: stamp.Format(time.RFC3339)}, ResumeFrom: resumeFrom}
 			if err = AtomicJSON(statePath, step); err != nil {
 				return false, err
 			}
@@ -204,6 +260,7 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		}
 		config["upload"] = map[string]any{"enable": false, "delete_local": false}
 		config["record_target_status"] = true
+		delete(config, "resume_from") // recovery state, never a persistent probe override
 		configData, err = yaml.Marshal(config)
 		if err != nil {
 			return false, err
@@ -217,6 +274,9 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		// Scanner concurrency and timeouts belong to config/os.yaml. Only the
 		// campaign input and bookkeeping are overridden by the worker.
 		args := []string{"--config", configPath, "--zmap", request.ZMap, "--target-file", target, "--record-target-status", "--print-id"}
+		if step.ResumeFrom != "" {
+			args = append(args, "--resume-from", step.ResumeFrom)
+		}
 		runner := Runner{Workspace: workspace}
 		if _, err = execute(ctx, filepath.Join(repo, "bin", "measure-os"), args, runner.env(step.Stamp)); err != nil {
 			return false, err
@@ -241,7 +301,8 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		return false, fmt.Errorf("OS local completion mismatch")
 	}
 	files := map[string]upload.FileEvidence{}
-	for _, name := range []string{"os.pq", "os-coverage.json", "os-observations.pq", "os.snapshot.yaml"} {
+	names := []string{"os.pq", "os-coverage.json", "os-observations.pq", "os.snapshot.yaml"}
+	for _, name := range names {
 		path := filepath.Join(output, name)
 		evidence, err := upload.Evidence(path)
 		if err != nil {
@@ -256,6 +317,24 @@ func runOSScan(ctx context.Context, store Store, execute Execute, repo, workspac
 		files[name] = evidence
 	}
 	done := map[string]any{"version": 1, "campaign_id": campaign, "measurement_id": step.ID, "target": request.Target, "members": request.Members, "vantage": vantage, "files": files}
+	// The shared analysis consumer deliberately requires exactly these four
+	// data files. Publish optional resume provenance separately, preserving that
+	// existing contract and avoiding an analysis deployment just for recovery.
+	if expected, ok := marker.Files["os-resume.json"]; ok {
+		path := filepath.Join(output, "os-resume.json")
+		actual, err := upload.Evidence(path)
+		if err != nil {
+			return false, err
+		}
+		if actual != expected {
+			return false, fmt.Errorf("OS resume provenance changed")
+		}
+		uri := Join(rawPrefix, "os-resume.json")
+		if err = store.PutFile(ctx, uri, path); err != nil {
+			return false, err
+		}
+		done["resume"] = map[string]any{"uri": uri, "size_bytes": actual.Size, "sha256": actual.SHA256}
+	}
 	if late {
 		done["late_enrichment"] = true
 		done["started_at"] = step.Stamp

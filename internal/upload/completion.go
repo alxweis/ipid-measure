@@ -55,7 +55,7 @@ func WriteCompletion(m paths.Measurement) (string, error) {
 	files := map[string]FileEvidence{}
 	for _, entry := range entries {
 		name := entry.Name()
-		if !entry.Type().IsRegular() || !(strings.HasSuffix(name, ".pq") || strings.HasSuffix(name, ".snapshot.yaml") || name == "os-coverage.json") {
+		if !entry.Type().IsRegular() || !(strings.HasSuffix(name, ".pq") || strings.HasSuffix(name, ".snapshot.yaml") || name == "os-coverage.json" || name == "os-resume.json") {
 			continue
 		}
 		value, err := Evidence(filepath.Join(m.Path, name))
