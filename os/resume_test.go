@@ -195,6 +195,46 @@ func TestOSResumeRefusesUncommittedEarlierImport(t *testing.T) {
 	}
 }
 
+func TestOSResumeFromCumulativeAttemptAt20KSenders(t *testing.T) {
+	c, _, expectedObs, expectedRows := resumeFixture(t)
+	_, _, first, err := restoreFixture(t, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second interruption retains both the imported prefix and newly
+	// completed no-evidence targets. The snapshot binds the earlier import.
+	snapshot, err := yaml.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first, "os.snapshot.yaml"), snapshot, 0600); err != nil {
+		t.Fatal(err)
+	}
+	expectedObs = append(expectedObs, observation{IP: "127.0.0.3", Status: "no-evidence"})
+	if err := parquet.WriteFile(filepath.Join(first, "os-observations.pq"), expectedObs); err != nil {
+		t.Fatal(err)
+	}
+	c.ResumeFrom = first
+	n := config.ScaledNumber(20000)
+	c.ZGrab2Senders = &n
+	s, coverage, second, err := restoreFixture(t, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := parquet.ReadFile[records.OSRecord](filepath.Join(second, "os.pq"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs, err := parquet.ReadFile[observation](filepath.Join(second, "os-observations.pq"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.completed.count != 3 || s.evidence != 1 || !reflect.DeepEqual(obs, expectedObs) ||
+		!reflect.DeepEqual(rows, expectedRows) || coverage.document.Detail.Targets.WithoutEvidence != 2 {
+		t.Fatal("cumulative completed population or evidence changed on second resume")
+	}
+}
+
 func TestIPv4ResumeSetBoundaries(t *testing.T) {
 	var set ipv4Set
 	for _, n := range []uint32{0, 1, 63, 64, 65535, 65536, 1 << 31, 1<<32 - 1} {

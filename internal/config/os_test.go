@@ -81,6 +81,47 @@ func TestDNSChaosTimeoutValidation(t *testing.T) {
 	}
 }
 
+func TestLoadOSConfigTCP20KProfile(t *testing.T) {
+	c := validTestOSConfig()
+	tcp, udp := ScaledNumber(20000), ScaledNumber(10000)
+	c.ZGrab2Senders, c.DNSChaosWorkers, c.SNMPWorkers = &tcp, &udp, &udp
+	c.ConnectTimeout, c.ReadTimeout = 3*time.Second, 5*time.Second
+	c.DNSChaosTimeout, c.SNMPTimeout = 5*time.Second, 3*time.Second
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "os.yaml")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOSConfig(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *loaded.ZGrab2Senders != 20000 || *loaded.DNSChaosWorkers != 10000 || *loaded.SNMPWorkers != 10000 ||
+		loaded.Modules != c.Modules || loaded.ConnectTimeout != c.ConnectTimeout || loaded.ReadTimeout != c.ReadTimeout ||
+		loaded.DNSChaosTimeout != c.DNSChaosTimeout || loaded.SNMPTimeout != c.SNMPTimeout {
+		t.Fatalf("effective OS profile changed: %+v", loaded)
+	}
+	for _, field := range []string{"tcp", "dns", "snmp"} {
+		changed := *loaded
+		over := ScaledNumber(10001)
+		switch field {
+		case "tcp":
+			over = 20001
+			changed.ZGrab2Senders = &over
+		case "dns":
+			changed.DNSChaosWorkers = &over
+		case "snmp":
+			changed.SNMPWorkers = &over
+		}
+		if err := validateOSConfig(&changed); err == nil {
+			t.Fatalf("out-of-range %s accepted", field)
+		}
+	}
+}
+
 func validTestOSConfig() *OSConfig {
 	zgrab := ScaledNumber(5000)
 	zdns := ScaledNumber(1000)
