@@ -43,6 +43,7 @@ func main() {
 	analysisMaximumTargetsFlag := flag.Int("analysis_workflow.maximum_targets", analysisworkflow.MaximumReproducibilityTargets, "maximum RANDOM reproducibility targets for a 4x25 Mass measurement")
 	analysisSelectionSeedFlag := flag.Int("analysis_workflow.selection_seed", 42, "deterministic RANDOM reproducibility selection seed")
 	printID := flag.Bool("print-id", false, "print the measurement id to stdout on success")
+	checkResources := flag.Bool("check-runtime-resources", false, "validate config/runtime resources without creating output or sending probes")
 	flag.Parse()
 
 	configFilePath, err := filepath.Abs(*configFlag)
@@ -84,6 +85,16 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("load ipid config: %v", err)
+	}
+	profile := config.SingleProtocolResourceProfile(c)
+	if err := config.ApplyIPIDRuntimeResources(configFilePath, c, profile); err != nil {
+		log.Fatalf("IPID runtime resources: %v", err)
+	}
+	if c.RuntimeResources != nil || *checkResources {
+		log.Printf("IPID runtime resources: profile=%s number_of_inflight_probes=%d policy=%+v", profile, c.NumberOfInflightProbes, c.RuntimeResources)
+	}
+	if *checkResources {
+		return
 	}
 
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))

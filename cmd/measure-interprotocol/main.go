@@ -50,6 +50,7 @@ func main() {
 	udpPort := flag.Uint("udp-port", 53, "UDP DNS destination port")
 	printID := flag.Bool("print-id", false, "print measurement id on success")
 	reference := flag.Bool("local-reference", false, "single-protocol control using the interprotocol probe engine")
+	checkResources := flag.Bool("check-runtime-resources", false, "validate config/runtime resources without creating output or sending probes")
 	flag.Parse()
 	if *targetFlag == "" {
 		log.Fatal("--target-file is required")
@@ -94,6 +95,19 @@ func main() {
 	}
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+	profile := "interprotocol-" + *sampleFlag
+	if *reference {
+		profile = "local-reference-" + *sampleFlag
+	}
+	if err := config.ApplyIPIDRuntimeResources(configPath, c, profile); err != nil {
+		log.Fatalf("IPID runtime resources: %v", err)
+	}
+	if c.RuntimeResources != nil || *checkResources {
+		log.Printf("IPID runtime resources: profile=%s number_of_inflight_probes=%d policy=%+v", profile, c.NumberOfInflightProbes, c.RuntimeResources)
+	}
+	if *checkResources {
+		return
 	}
 	log.Printf("inter-protocol %s: %dx%d samples per protocol", *sampleFlag, c.ConnectionCount, c.RequestsPerConnection)
 	measurement.InterProtocolSample = *sampleFlag

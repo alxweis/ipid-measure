@@ -34,6 +34,8 @@ type IPIDConfig struct {
 	UploadConfig UploadConfig `yaml:"upload"`
 
 	AnalysisWorkflowConfig AnalysisWorkflowConfig `yaml:"analysis_workflow"`
+
+	RuntimeResources *IPIDRuntimeEvidence `yaml:"runtime_resources,omitempty"`
 }
 
 type FixedIntervalConfig struct {
