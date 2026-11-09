@@ -31,6 +31,7 @@ type observationWriter struct {
 	count  uint64
 	err    error
 	cancel context.CancelFunc
+	closed bool
 }
 
 func newObservationWriter(path string, cancel context.CancelFunc) (*observationWriter, error) {
@@ -52,17 +53,21 @@ func mask(values ...bool) int32 {
 }
 
 func (w *observationWriter) observe(e evidenceRecord, t serviceTags, d decision) {
+	conflicts := append([]string(nil), d.conflicts...)
+	sort.Strings(conflicts)
+	w.append(observation{e.IPAddress,
+		mask(e.SSHResponded, e.SMBResponded, e.HTTPResponded, e.HTTPSResponded, e.SNMPResponded, e.DNSResponded),
+		mask(e.SSHServerID != "", e.SMBNativeOS != "", e.HTTPServer != "", e.HTTPSServer != "", e.SNMPSysDescr != "", e.DNSVersionBind != ""),
+		mask(t.SSH != "", t.SMB != "", t.HTTP != "", t.HTTPS != "", t.SNMP != "", t.DNS != ""), d.status, strings.Join(conflicts, "|")})
+}
+
+func (w *observationWriter) append(row observation) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.err != nil {
 		return
 	}
-	conflicts := append([]string(nil), d.conflicts...)
-	sort.Strings(conflicts)
-	w.buffer = append(w.buffer, observation{e.IPAddress,
-		mask(e.SSHResponded, e.SMBResponded, e.HTTPResponded, e.HTTPSResponded, e.SNMPResponded, e.DNSResponded),
-		mask(e.SSHServerID != "", e.SMBNativeOS != "", e.HTTPServer != "", e.HTTPSServer != "", e.SNMPSysDescr != "", e.DNSVersionBind != ""),
-		mask(t.SSH != "", t.SMB != "", t.HTTP != "", t.HTTPS != "", t.SNMP != "", t.DNS != ""), d.status, strings.Join(conflicts, "|")})
+	w.buffer = append(w.buffer, row)
 	w.count++
 	if len(w.buffer) >= 10000 {
 		w.flush()
@@ -81,6 +86,10 @@ func (w *observationWriter) flush() {
 }
 
 func (w *observationWriter) close(expected uint64) error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
 	w.flush()
 	closeErr := w.writer.Close()
 	fileErr := w.file.Close()

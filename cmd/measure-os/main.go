@@ -26,6 +26,8 @@ func main() {
 	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
 	targetFlag := flag.String("target-file", "", "explicit ZMap-compatible target parquet")
 	statusFlag := flag.Bool("record-target-status", false, "retain per-target response/evidence status")
+	resumeFlag := flag.String("resume-from", "", "reuse completed IPs from a closed retained OS attempt")
+	checkResumeFlag := flag.Bool("check-resume", false, "validate closed resume source/configuration without scanning or creating output")
 	zgrab2SendersFlag := flag.String("zgrab2-senders", "", "override zgrab2 sender concurrency")
 	dnsChaosWorkersFlag := flag.String("dns-chaos-workers", "", "override DNS CHAOS worker concurrency")
 	snmpWorkersFlag := flag.String("snmp-workers", "", "override SNMP worker concurrency")
@@ -54,6 +56,9 @@ func main() {
 		if *statusFlag {
 			c.RecordTargetStatus = true
 		}
+		if *resumeFlag != "" {
+			c.ResumeFrom = *resumeFlag
+		}
 		if zgrab2Senders != nil {
 			c.ZGrab2Senders = zgrab2Senders
 		}
@@ -81,6 +86,16 @@ func main() {
 	}
 	c.SchemaVersion = osmod.SchemaVersion
 	c.ClassifierVersion = osmod.ClassifierVersion
+	if *checkResumeFlag {
+		if c.ResumeFrom == "" {
+			log.Fatal("--check-resume requires --resume-from")
+		}
+		if err := osmod.ValidateResumeSource(c, c.ResumeFrom); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Closed OS resume source is compatible; complete population checks run during import before probing.")
+		return
+	}
 
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
 

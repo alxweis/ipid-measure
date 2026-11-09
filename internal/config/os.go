@@ -28,6 +28,9 @@ type OSConfig struct {
 
 	LogToFile          bool `yaml:"log_to_file"`
 	RecordTargetStatus bool `yaml:"record_target_status,omitempty"`
+	// ResumeFrom names a closed, retained OS attempt. Scientific settings and
+	// input binding are verified before any remaining targets are dispatched.
+	ResumeFrom string `yaml:"resume_from,omitempty"`
 
 	GoMemoryLimit *ScaledNumber `yaml:"go_memory_limit"`
 
