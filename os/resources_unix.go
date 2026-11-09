@@ -77,5 +77,10 @@ func checkProbeResources(dns, snmp, senders, modules, nofile uint64, low, high i
 	if high > 0 && (high < low || dns+snmp+1024 > uint64(high-low+1)) {
 		return fmt.Errorf("OS UDP concurrency exceeds ephemeral port headroom: workers=%d range=%d-%d", dns+snmp, low, high)
 	}
+	// This is a conservative active-sender allowance, not a count of every
+	// host-wide TIME_WAIT tuple. TCP source ports can be reused across peers.
+	if high > 0 && modules > 0 && senders+1024 > uint64(high-low+1) {
+		return fmt.Errorf("OS TCP concurrency exceeds ephemeral port headroom: senders=%d range=%d-%d", senders, low, high)
+	}
 	return nil
 }

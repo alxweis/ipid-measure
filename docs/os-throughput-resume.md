@@ -19,7 +19,8 @@ go_memory_limit: 2147483648
 ```
 
 The Go heap budget is 2 GiB. It is a soft runtime budget, not total process or
-zgrab2-child RSS. The existing 10000-worker configuration maxima remain.
+zgrab2-child RSS. DNS/SNMP retain their 10000-worker configuration maxima;
+ZGrab2 permits up to 20000 senders with explicit resource admission.
 DNS timeout-bound capacity becomes nominally 2000 targets/s; SNMP's three-second
 timeout permits nominally 3333/s. These are component capacities, **not an
 end-to-end throughput guarantee**. TCP handshakes, networking and local resource
@@ -38,6 +39,37 @@ No deployed default, module, timeout, target count or scanner packet is changed
 by this PR. Persist the chosen resource settings in the OS VM's infrastructure
 configuration separately so a later deployment does not restore the old pool
 sizes. Do not redeploy the 18 measurement VMs to change this OS-only profile.
+
+### TCP-bound follow-up profile
+
+After the first recovery, the current VM showed about 9935 TCP sockets in
+SYN-SENT, 88–95% idle CPU, 13 GiB available RAM, and roughly 868 newly completed
+IPs/s. In ZGrab2 v1.0.0 the four TCP modules execute sequentially per target.
+Four unsuccessful three-second connects give a rough 10000 / 12 = 833 IP/s
+capacity, consistent with that sample. See the upstream
+[target processing loop](https://github.com/zmap/zgrab2/blob/v1.0.0/processing.go).
+
+For this observed TCP-bound case, change **only** `zgrab2_senders` to `20000`.
+Leave DNS/SNMP at 10000, all six modules enabled, the heap budget at 2 GiB,
+and all timeouts unchanged. Use `ulimit -Sn 131072` in the worker shell:
+the conservative four-module descriptor check reserves 80256 descriptors
+for this profile. The observed hard limit of 1048576 permits that setting.
+
+TCP also receives a conservative active-sender ephemeral-port headroom check.
+TCP and UDP have separate port namespaces; host-wide TIME-WAIT entries are
+closed connection tuples and must not simply be subtracted from the ephemeral
+range. Admission does not prove the absence of kernel/network errors at runtime.
+
+Use the same graceful-stop and resume procedure below, taking the source ID
+from the **current** `scan.json`; never reuse a stale PID or assume the original
+source directory is still the newest checkpoint. A cumulative resumed attempt
+retains both previously imported and newly completed IPs. No ZMap rerun is needed.
+
+This profile is an opt-in, not a live setting change. Monitor actual completed-IP
+deltas, TCP/UDP errors and memory after recovery. It does not promise twice the
+throughput or unchanged observed coverage under load; DNS or network limits can
+become the next bottleneck. Preserve and inspect the original per-service
+evidence and ambiguous results. Default settings and classification are unchanged.
 
 ## What is preserved
 

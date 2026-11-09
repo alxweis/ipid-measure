@@ -72,8 +72,8 @@ func validateOSConfig(config *OSConfig) error {
 
 	if config.ZGrab2Senders != nil {
 		zgrab2Senders := uint64(*config.ZGrab2Senders)
-		if zgrab2Senders < 1 || zgrab2Senders > 10_000 {
-			return fmt.Errorf("zgrab2_senders must be in [1, 10K]")
+		if zgrab2Senders < 1 || zgrab2Senders > 20_000 {
+			return fmt.Errorf("zgrab2_senders must be in [1, 20K]")
 		}
 	} else if HasZGrab2Module(config.Modules) {
 		return fmt.Errorf("zgrab2_senders must be set, if you use zgrab2 modules")

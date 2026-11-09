@@ -129,7 +129,7 @@ cp config/ipid.yaml.example config/ipid.yaml
 |---|---|---|
 | `zmap` | measurement-id | zmap run to scan, e.g. `tcp-80_2026-06-03_00-13-06` (usually set via `--zmap`) |
 | `modules.{ssh,smb,http,https,snmp,dns_chaos}` | bool | the six required OS-evidence services; all are scanned for every target |
-| `zgrab2_senders` / `dns_chaos_workers` / `snmp_workers` | scaled-int | bounded concurrency for ZGrab2, DNS CHAOS, and SNMP |
+| `zgrab2_senders` / `dns_chaos_workers` / `snmp_workers` | scaled-int | ZGrab2: 1–20K senders; DNS CHAOS and SNMP: 1–10K workers each; subject to runtime resource checks |
 | `connect_timeout` / `read_timeout` / `snmp_timeout` | duration | TCP connect/read and SNMP timeouts |
 | `dns_chaos_timeout` | duration | independent DNS CHAOS timeout; omitted/zero uses `read_timeout` for compatibility |
 | `snmp_community` | string | SNMPv2c community |
