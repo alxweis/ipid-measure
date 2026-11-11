@@ -31,6 +31,12 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	configFlag := flag.String("config", files.IPIDConfigFilePath, "path to the ipid config file")
+	var inflightOverride *config.ScaledNumber
+	flag.Func("number_of_inflight_probes", "override concurrent target probes ([1,1M], e.g. 5K); omitted keeps config", func(value string) error {
+		var err error
+		inflightOverride, err = parseInflightOverride(value)
+		return err
+	})
 	zmapFlag := flag.String("zmap", "", "override the zmap run id referenced in the config")
 	connectionCountFlag := flag.Int("connection_count", 0, "override connection_count (even, [2,16]); 0 keeps the configured value")
 	requestsPerConnFlag := flag.Int("requests_per_connection", 0, "override requests_per_connection ([1,100]); 0 keeps the configured value")
@@ -81,6 +87,9 @@ func main() {
 			establishConn,
 			analysisWorkflow,
 		)
+		if inflightOverride != nil {
+			c.NumberOfInflightProbes = *inflightOverride
+		}
 	})
 	if err != nil {
 		log.Fatalf("load ipid config: %v", err)
@@ -143,6 +152,18 @@ func main() {
 	if *printID {
 		fmt.Println(m.ID)
 	}
+}
+
+func parseInflightOverride(value string) (*config.ScaledNumber, error) {
+	count, err := config.ParseScaledNumber(value)
+	if err != nil {
+		return nil, err
+	}
+	if count < 1 || count > 1_000_000 {
+		return nil, fmt.Errorf("number_of_inflight_probes must be in [1, 1M]")
+	}
+	result := config.ScaledNumber(count)
+	return &result, nil
 }
 
 func applyIPIDFlags(

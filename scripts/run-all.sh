@@ -6,11 +6,15 @@ cd "$(dirname "$0")/.."
 usage() {
     cat >&2 <<EOF
 usage: $0 [icmp|tcp|udp] [--zmap-id ID] [--os-id ID] [--skip-os]
+          [--rt-inflight-probes N] [--fi-inflight-probes N]
+          [--connection-rt-inflight-probes N] [--connection-fi-inflight-probes N]
 
 Without existing ids, run the complete sweep. --zmap-id reuses a local ZMap
 measurement and starts at OS; adding --os-id reuses both and starts at IPID.
 --os-id requires --zmap-id, and resume options require a single protocol.
 --skip-os explicitly disables OS; keep the same mode when resuming.
+Optional worker limits accept positive integers or integer K suffixes, up to 1M.
+Omitted phases retain config/ipid.yaml. OS resources/timeouts use config/os.yaml.
 EOF
 }
 
@@ -18,6 +22,25 @@ SELECTED_PROTOCOL=all
 RESUME_ZMAP_ID=
 RESUME_OS_ID=
 SKIP_OS=false
+RT_INFLIGHT_PROBES=
+FI_INFLIGHT_PROBES=
+CONNECTION_RT_INFLIGHT_PROBES=
+CONNECTION_FI_INFLIGHT_PROBES=
+
+parse_inflight_probes() {
+    local value=$1 count
+    if [[ ! $value =~ ^([0-9]{1,7})([Kk]?)$ ]]; then
+        echo "invalid worker limit: $value (expected an integer or integer K suffix)" >&2
+        return 1
+    fi
+    count=$((10#${BASH_REMATCH[1]}))
+    if [[ -n ${BASH_REMATCH[2]} ]]; then count=$((count * 1000)); fi
+    if ((count < 1 || count > 1000000)); then
+        echo "worker limit must be in [1, 1000000]: $value" >&2
+        return 1
+    fi
+    printf '%s\n' "$count"
+}
 
 if [[ $# -gt 0 && "$1" != --* ]]; then
     SELECTED_PROTOCOL=$1
@@ -26,6 +49,17 @@ fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --rt-inflight-probes|--fi-inflight-probes|--connection-rt-inflight-probes|--connection-fi-inflight-probes)
+            [[ $# -ge 2 ]] || { echo "$1 requires a value" >&2; exit 1; }
+            count=$(parse_inflight_probes "$2")
+            case "$1" in
+                --rt-inflight-probes) RT_INFLIGHT_PROBES=$count ;;
+                --fi-inflight-probes) FI_INFLIGHT_PROBES=$count ;;
+                --connection-rt-inflight-probes) CONNECTION_RT_INFLIGHT_PROBES=$count ;;
+                --connection-fi-inflight-probes) CONNECTION_FI_INFLIGHT_PROBES=$count ;;
+            esac
+            shift 2
+            ;;
         --zmap-id)
             [[ $# -ge 2 ]] || { echo "--zmap-id requires a value" >&2; usage; exit 1; }
             RESUME_ZMAP_ID=$2
@@ -175,14 +209,8 @@ RANDOM_REPRODUCIBILITY_MAXIMUM_TARGETS=10000
 RANDOM_REPRODUCIBILITY_REPEAT_COUNT=5
 RANDOM_REPRODUCIBILITY_SELECTION_SEED=42
 
-# Internet-wide OS profile: scan the six selected services for every target
-# with bounded concurrency in the three scanner implementations.
-OS_ZGRAB2_SENDERS=5K
-OS_DNS_CHAOS_WORKERS=1K
-OS_SNMP_WORKERS=3K
-OS_CONNECT_TIMEOUT=1s
-OS_READ_TIMEOUT=1s
-OS_SNMP_TIMEOUT=1s
+# OS modules, concurrency, timeouts and memory are configured in config/os.yaml.
+# Do not silently replace a validated VM profile with script-local defaults.
 
 # spec fields: mode:connection_count:requests_per_connection:request_interval:minimum_reply_rate
 MODES=(
@@ -239,13 +267,7 @@ for proto in "${PROTOS[@]}"; do
         echo "=== [$proto] reusing os id = $os_id ==="
     else
         echo "=== [$proto] os ==="
-        os_args=(--zmap "$id"
-                 --zgrab2-senders "$OS_ZGRAB2_SENDERS"
-                 --dns-chaos-workers "$OS_DNS_CHAOS_WORKERS"
-                 --snmp-workers "$OS_SNMP_WORKERS"
-                 --connect-timeout "$OS_CONNECT_TIMEOUT"
-                 --read-timeout "$OS_READ_TIMEOUT"
-                 --snmp-timeout "$OS_SNMP_TIMEOUT")
+        os_args=(--config "config/os.yaml" --zmap "$id")
         os_id=$(./bin/measure-os "${os_args[@]}" --print-id | tail -n1)
     fi
     OS[$proto]=$os_id
@@ -276,6 +298,22 @@ run_ipid() {
     fi
     if [[ -n "$target_file" ]]; then
         args+=(--target-file "$target_file")
+    fi
+
+    local inflight=
+    if [[ "$tcp_establish_con" == true ]]; then
+        if [[ "$mode" == rt-based ]]; then
+            inflight=$CONNECTION_RT_INFLIGHT_PROBES
+        else
+            inflight=$CONNECTION_FI_INFLIGHT_PROBES
+        fi
+    elif [[ "$mode" == rt-based ]]; then
+        inflight=$RT_INFLIGHT_PROBES
+    else
+        inflight=$FI_INFLIGHT_PROBES
+    fi
+    if [[ -n "$inflight" ]]; then
+        args+=(--number_of_inflight_probes "$inflight")
     fi
 
     echo "=== [$proto] ipid: mode=$mode con=$con_count reqs=$reqs_per_con establish=$tcp_establish_con ${fi_request_interval:+interval=$fi_request_interval rate=$fi_minimum_reply_rate} ${target_file:+targets=$target_file} ==="

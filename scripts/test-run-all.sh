@@ -26,6 +26,7 @@ sample="$PWD/zmap/raw/$id/zmap-fixed-base-sample.pq"
 connection="$PWD/zmap/raw/$id/zmap-connection-sample.pq"
 case "$(basename "$0")" in
     measure-zmap)
+        printf '%s\n' "$*" >> zmap-calls
         payload=$(value --payload "$@")
         case "$payload" in icmp) prefix=icmp ;; tcp) prefix=tcp-80 ;; udp-dns) prefix=udp-dns-53 ;; *) fail "invalid discovery payload" ;; esac
         run="${prefix}_${TEST_STAMP:?}"
@@ -35,6 +36,13 @@ case "$(basename "$0")" in
         printf '%s\n' "$run"
         ;;
     measure-os)
+        [[ $(value --config "$@") == config/os.yaml ]] || fail "OS config not selected"
+        for arg in "$@"; do
+            case "$arg" in
+                --zgrab2-senders|--dns-chaos-workers|--snmp-workers|--connect-timeout|--read-timeout|--dns-chaos-timeout|--snmp-timeout)
+                    fail "OS configuration silently overridden: $arg" ;;
+            esac
+        done
         run="${id%_*}_11-00-00"
         mkdir -p "os/raw/$run"
         printf 'fixture\n' > "os/raw/$run/os.pq"
@@ -61,6 +69,17 @@ case "$(basename "$0")" in
         mode=$(value --measurement_mode "$@")
         requests=$(value --requests_per_connection "$@")
         establish=$(value --tcp.establish_connection "$@")
+        expected_workers=
+        if [[ $establish == true && $mode == rt-based ]]; then
+            expected_workers=${TEST_CONNECTION_RT_WORKERS:-}
+        elif [[ $establish == true ]]; then
+            expected_workers=${TEST_CONNECTION_FI_WORKERS:-}
+        elif [[ $mode == rt-based ]]; then
+            expected_workers=${TEST_RT_WORKERS:-}
+        else
+            expected_workers=${TEST_FI_WORKERS:-}
+        fi
+        [[ $(value --number_of_inflight_probes "$@") == "$expected_workers" ]] || fail "wrong phase concurrency"
         if [[ $establish == true ]]; then
             [[ $id == tcp-80_* && $target == "$connection" && $requests == 4 ]] || fail "wrong connection targets"
         elif [[ $mode == rt-based ]]; then
@@ -185,3 +204,35 @@ done
 if bash "$test_root/scripts/run-all.sh" icmp --skip-os --zmap-id icmp_2026-09-22_09-00-00 --os-id icmp_2026-09-22_09-00-00 > "$test_root/output" 2>&1; then
     echo '--skip-os/--os-id conflict unexpectedly succeeded' >&2; exit 1
 fi
+
+# A complete TCP sweep must independently route all four resource settings.
+printf '0\n' > "$test_root/calls-count"
+TEST_STAMP=2026-09-24_09-00-00 TEST_RT_WORKERS=5000 TEST_FI_WORKERS=2000 \
+TEST_CONNECTION_RT_WORKERS=3000 TEST_CONNECTION_FI_WORKERS=1000 \
+PATH="$test_root/mock-path:$PATH" bash "$test_root/scripts/run-all.sh" tcp \
+    --rt-inflight-probes 5K --fi-inflight-probes 2000 \
+    --connection-rt-inflight-probes 3k --connection-fi-inflight-probes 1000 \
+    > "$test_root/output"
+[[ $(cat "$test_root/calls-count") == 10 ]]
+
+# Omitted FI/connection settings keep config rather than inheriting RT tuning.
+printf '0\n' > "$test_root/calls-count"
+TEST_STAMP=2026-09-24_09-00-01 TEST_RT_WORKERS=4000 \
+PATH="$test_root/mock-path:$PATH" bash "$test_root/scripts/run-all.sh" tcp \
+    --rt-inflight-probes 4K > "$test_root/output"
+[[ $(cat "$test_root/calls-count") == 10 ]]
+
+# All phases are validated before discovery, even when not selected for ICMP.
+for invalid in 0 -1 1000001 10000000 2M NaN 9999999K ''; do
+    printf '0\n' > "$test_root/calls-count"
+    rm -f "$test_root/zmap-calls"
+    if PATH="$test_root/mock-path:$PATH" bash "$test_root/scripts/run-all.sh" icmp \
+        --connection-fi-inflight-probes "$invalid" > "$test_root/output" 2>&1; then
+        echo "accepted invalid worker count: $invalid" >&2; exit 1
+    fi
+    [[ ! -f "$test_root/zmap-calls" && $(cat "$test_root/calls-count") == 0 ]]
+done
+if bash "$test_root/scripts/run-all.sh" icmp --rt-inflight-probes > "$test_root/output" 2>&1; then
+    echo 'accepted missing worker count' >&2; exit 1
+fi
+printf 'phase-specific concurrency and OS config preservation passed\n'
