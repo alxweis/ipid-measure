@@ -56,6 +56,10 @@ class PreservationTests(unittest.TestCase):
         self.store.command = [sys.executable, str(fake), str(self.remote)]
         self.source = self.root / "source"
         self.source.write_bytes(b"original evidence\x00\xff")
+        real_account = backup.pwd.getpwnam
+        accounts = patch.object(backup.pwd, "getpwnam", side_effect=lambda name: real_account("nobody" if name == "aweis" else name))
+        accounts.start()
+        self.addCleanup(accounts.stop)
         self.acl_supported = True
         try:
             backup.set_acl(self.root, "u::rwx,g::---,o::---")
