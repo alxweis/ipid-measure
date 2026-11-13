@@ -241,8 +241,14 @@ class PreservationTests(unittest.TestCase):
     def test_metadata_continuation_reuses_proofs_without_bulk_get_or_put(self):
         ws, rt, sources, logs, args = self.checkpoint_fixture()
         originals = {name: path.read_bytes() for name, path in sources.items()}
+        real_evidence = backup.evidence
+        def small_metadata_only(path):
+            if path.suffix == ".pq":
+                self.fail("Continuation must not duplicate the later resume admission's bulk source read")
+            return real_evidence(path)
         with patch.object(backup, "LOG_ROOT", logs), patch.object(backup, "assert_inactive"), \
              patch.object(backup, "Store", return_value=self.store), \
+             patch.object(backup, "evidence", side_effect=small_metadata_only), \
              patch.object(self.store, "verify", wraps=self.store.verify) as verify:
             backup.continue_backup(args)
         uris = [call.args[0] for call in verify.call_args_list]

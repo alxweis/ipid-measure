@@ -124,15 +124,17 @@ stops a backup, downloads/uploads objects or changes scientific state.
 For an already failed attempt, --continue-from-log /var/log/ipid-recovery/SITE-TIMESTAMP.log
 holds the controller lock and requires the private root-owned original log. It
 accepts only an unambiguous frozen journal and matching full read-back proofs
-for all five original data/config files. It hashes the local sources once more,
-checks the earlier digests and current S3 object sizes, then uploads/verifies
+for all five original data/config files. It reuses the earlier bulk SHA256
+proofs, checks current local/S3 bulk sizes and hashes the small metadata, then uploads/verifies
 only missing journal metadata and a new six-file receipt. The receipt binds the
 original verification log's digest. It refuses changed local originals, missing
 or truncated remote objects, mismatched proofs, incomplete proof sets and
 writable/untrusted logs; no automatic full bulk retry is attempted.
 
 This reuses completed full read-backs from the same attempt; it does **not**
-perform fresh full downloads of those bulk objects. As in the original tool,
+perform fresh full downloads or local rehashes of those bulk objects. The
+receipt explicitly labels this scope. RT resume admission must independently
+rehash current local bulk files before probing. As in the original tool,
 content-addressed keys are not S3 Object Lock. A later administrative equal-size
 overwrite is outside the size check's guarantee. Retain original disks and
 copies; the completion line appears only after all six files have verified

@@ -283,22 +283,33 @@ def continue_backup(args):
         verified = checkpoint_log(old_log, sources, root)
         if set(sources) - {"original-scanner.journal.jsonl"} - set(verified):
             raise RuntimeError("Prior attempt has not verified all five original data/config files; refusing expensive automatic retry")
-        # The old script did not persist its in-memory inode/mtime table. Rehash
-        # local originals once to prove they still match its SHA256 proofs.
         # Reuse the earlier full remote read-backs as this same attempt would;
         # a HEAD/list-size check detects missing/truncated objects, not arbitrary
         # later equal-size administrative overwrites (Object Lock is not used).
+        # The old process lost its in-memory inode/mtime table. Bulk source
+        # hashes refer to the earlier verification, not a new local content
+        # check. The RT resume admission independently rehashes those local
+        # sources before probing, so do not duplicate that expensive read here.
         store = Store()
         manifest = {
             "version": 1, "purpose": "interrupted-rt-preservation-not-measurement-completion",
             "campaign_id": CAMPAIGN, "site": args.site, "measurement_id": mid,
             "zmap_id": zid, "state_binding": state["binding"], "files": {},
             "prior_verification_log": {"path": str(old_log), "sha256": evidence(old_log)[0]["sha256"]},
+            "bulk_source_validation": "Earlier full SHA256 read-back proof reused; current local/remote sizes checked. Resume must independently revalidate current local content.",
         }
         identities = {}
         for name, path in sources.items():
-            print(f"Hashing local original: {path}", flush=True)
-            expected, before = evidence(path)
+            if name in verified and name.endswith(".pq"):
+                if path.is_symlink() or not path.is_file():
+                    raise RuntimeError(f"Unexpected bulk source: {path}")
+                before = identity(path)
+                expected = verified[name]
+                if before[2] != expected["size_bytes"]:
+                    raise RuntimeError(f"Prior verified source/object differs or is missing: {name}")
+            else:
+                print(f"Hashing local metadata: {path}", flush=True)
+                expected, before = evidence(path)
             uri = f"{root}/sha256-{expected['sha256']}/{name}"
             if name in verified:
                 if expected != verified[name] or store.remote_size(uri) != expected["size_bytes"]:
