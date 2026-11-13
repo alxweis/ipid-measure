@@ -12,6 +12,8 @@ on:
       - 'scripts/test-run-all.sh'
       - 'scripts/backup-interrupted-geo.py'
       - 'scripts/test_backup_interrupted_geo.py'
+      - 'scripts/accelerate-geo-backup.py'
+      - 'scripts/test_accelerate_geo_backup.py'
       - 'cmd/sample-zmap/**'
       - 'cmd/publish-analysis-job/**'
       - 'cmd/measure-interprotocol/**'
@@ -30,6 +32,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: python3 scripts/test_backup_interrupted_geo.py
+      - run: sudo python3 scripts/test_accelerate_geo_backup.py
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - run: go test -race ./...
       - run: go test ./cmd/sample-zmap ./cmd/publish-analysis-job
