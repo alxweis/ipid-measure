@@ -31,6 +31,7 @@ import (
 
 const Campaign = "geo-full-20261107-r1"
 const recoveryRoot = "s3://netds3o:aweis/ipid-2/raw/recovery/" + Campaign
+const originalRawRoot = "s3://netds3o:aweis/ipid-2/raw/continental/" + Campaign
 
 type original struct {
 	ID, ZMap, SHA256 string
@@ -50,14 +51,22 @@ type File struct {
 	LocalPath string `json:"local_path"`
 }
 type Receipt struct {
-	Version  int             `json:"version"`
-	Purpose  string          `json:"purpose"`
-	Campaign string          `json:"campaign_id"`
-	Site     string          `json:"site"`
-	ID       string          `json:"measurement_id"`
-	ZMap     string          `json:"zmap_id"`
-	Binding  string          `json:"state_binding"`
-	Files    map[string]File `json:"files"`
+	Version       int             `json:"version"`
+	Purpose       string          `json:"purpose"`
+	Campaign      string          `json:"campaign_id"`
+	Site          string          `json:"site"`
+	ID            string          `json:"measurement_id"`
+	ZMap          string          `json:"zmap_id"`
+	Binding       string          `json:"state_binding"`
+	Files         map[string]File `json:"files"`
+	ZMapReference *ZMapReference  `json:"zmap_reference,omitempty"`
+}
+
+type ZMapReference struct {
+	Version          int    `json:"version"`
+	ID               string `json:"measurement_id"`
+	CompletionURI    string `json:"completion_uri"`
+	CompletionSHA256 string `json:"completion_sha256"`
 }
 type Fetch func(context.Context, string) ([]byte, error)
 
@@ -141,7 +150,11 @@ func ReadReceipt(ctx context.Context, path, workspace, site, id, binding string,
 	}
 	for _, name := range []string{"ipid.pq", "ipid.snapshot.yaml", "state.json", "zmap.pq", "zmap.snapshot.yaml", "original-scanner.journal.jsonl"} {
 		f, ok := r.Files[name]
-		if !ok || f.Size <= 0 || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(f.SHA256) || f.URI != root+"/sha256-"+f.SHA256+"/"+name {
+		expectedURI := root + "/sha256-" + f.SHA256 + "/" + name
+		if r.ZMapReference != nil && (name == "zmap.pq" || name == "zmap.snapshot.yaml") {
+			expectedURI = originalRawRoot + "/" + site + "/zmap/" + want.ZMap + "/" + name
+		}
+		if !ok || f.Size <= 0 || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(f.SHA256) || f.URI != expectedURI {
 			return r, "", "", fmt.Errorf("invalid recovery file binding: %s", name)
 		}
 	}
@@ -171,6 +184,35 @@ func ReadReceipt(ctx context.Context, path, workspace, site, id, binding string,
 	}
 	if !bytes.Equal(data, remote) {
 		return r, "", "", fmt.Errorf("recovery receipt differs from published S3 copy")
+	}
+	if reference := r.ZMapReference; reference != nil {
+		expected := originalRawRoot + "/" + site + "/zmap/" + want.ZMap + "/measurement-complete.json"
+		if reference.Version != 1 || reference.ID != want.ZMap || reference.CompletionURI != expected || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(reference.CompletionSHA256) {
+			return r, "", "", fmt.Errorf("invalid original ZMap reference")
+		}
+		markerBytes, err := fetch(ctx, expected)
+		if err != nil {
+			return r, "", "", err
+		}
+		if hash(markerBytes) != reference.CompletionSHA256 {
+			return r, "", "", fmt.Errorf("original ZMap completion changed")
+		}
+		var marker struct {
+			Version int                            `json:"version"`
+			ID      string                         `json:"measurement_id"`
+			Files   map[string]upload.FileEvidence `json:"files"`
+		}
+		if err := json.Unmarshal(markerBytes, &marker); err != nil {
+			return r, "", "", err
+		}
+		if marker.Version != 1 || marker.ID != want.ZMap {
+			return r, "", "", fmt.Errorf("original ZMap identity mismatch")
+		}
+		for _, name := range []string{"zmap.pq", "zmap.snapshot.yaml"} {
+			if marker.Files[name] != r.Files[name].FileEvidence {
+				return r, "", "", fmt.Errorf("original ZMap evidence mismatch: %s", name)
+			}
+		}
 	}
 	return r, uri, digest, nil
 }

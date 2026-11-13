@@ -199,6 +199,62 @@ func admissionFixture(t *testing.T) fixture {
 	return fixture{ws, path, id, "binding", c, remote}
 }
 
+func TestOriginalCommittedZMapReferenceAdmission(t *testing.T) {
+	for _, kind := range []string{"valid", "wrong-uri", "wrong-id", "wrong-hash", "wrong-evidence", "missing-marker", "missing-reference"} {
+		t.Run(kind, func(t *testing.T) {
+			f := admissionFixture(t)
+			raw, err := os.ReadFile(f.receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var r Receipt
+			if err = json.Unmarshal(raw, &r); err != nil {
+				t.Fatal(err)
+			}
+			root := originalRawRoot + "/sa/zmap/" + r.ZMap
+			files := map[string]upload.FileEvidence{}
+			for _, name := range []string{"zmap.pq", "zmap.snapshot.yaml"} {
+				entry := r.Files[name]
+				entry.URI = root + "/" + name
+				r.Files[name] = entry
+				files[name] = entry.FileEvidence
+			}
+			if kind == "wrong-evidence" {
+				value := files["zmap.pq"]
+				value.Size++
+				files["zmap.pq"] = value
+			}
+			marker, _ := json.Marshal(map[string]any{"version": 1, "measurement_id": r.ZMap, "files": files})
+			r.ZMapReference = &ZMapReference{Version: 1, ID: r.ZMap, CompletionURI: root + "/measurement-complete.json", CompletionSHA256: hash(marker)}
+			f.remote[r.ZMapReference.CompletionURI] = marker
+			switch kind {
+			case "wrong-uri":
+				r.ZMapReference.CompletionURI = "s3://wrong/measurement-complete.json"
+			case "wrong-id":
+				r.ZMapReference.ID = "wrong"
+			case "wrong-hash":
+				r.ZMapReference.CompletionSHA256 = strings.Repeat("0", 64)
+			case "missing-marker":
+				delete(f.remote, r.ZMapReference.CompletionURI)
+			case "missing-reference":
+				r.ZMapReference = nil
+			}
+			raw, _ = json.Marshal(r)
+			if err = os.WriteFile(f.receipt, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			f.remote[recoveryRoot+"/sa/icmp/"+f.id+"/receipts/sha256-"+hash(raw)+"/backup-verified.json"] = raw
+			_, err = Admit(context.Background(), f.receipt, f.workspace, "sa", f.id, f.binding, f.current, f.fetch)
+			if kind == "valid" && err != nil {
+				t.Fatal(err)
+			}
+			if kind != "valid" && err == nil {
+				t.Fatal("accepted invalid committed ZMap reference")
+			}
+		})
+	}
+}
+
 func TestAdmissionCopyAndAppendPreservesOriginalSamples(t *testing.T) {
 	f := admissionFixture(t)
 	p, err := Admit(context.Background(), f.receipt, f.workspace, "sa", f.id, f.binding, f.current, f.fetch)

@@ -54,6 +54,13 @@ saved successes outside the claimed started prefix. One IPv4 bitset bounds the
 population-validation memory to 512 MiB plus readers/runtime; the temporary Go
 memory budget is 2 GiB and is restored before normal probing.
 
+The preservation receipt may reference the original committed ZMap objects
+instead of a duplicate recovery upload. In that case admission independently
+fetches the exact scoped completion marker, verifies its bound SHA256/identity
+and matches both ZMap file hashes/sizes with the receipt. The full local target
+hash and population checks still run. Legacy receipts with verified recovery
+copies remain supported; uploaded-only IPID receipts are not accepted.
+
 Admission requires local reads of the retained source and original targets.
 It is not instantaneous and does not redownload the bulk S3 objects. There is
 no guarantee of a particular admission duration or unchanged future coverage.
