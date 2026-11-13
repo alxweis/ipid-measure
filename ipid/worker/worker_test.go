@@ -8,6 +8,7 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/paths"
 	"github.com/alxweis/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/rtresume"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/stats"
 	"github.com/parquet-go/parquet-go"
@@ -93,6 +94,34 @@ func TestNonemptyZMapTargets(t *testing.T) {
 		if got := (<-targets).ip.String(); got != want {
 			t.Fatalf("target = %s, want %s", got, want)
 		}
+	}
+}
+
+func TestResumedStreamSchedulesOnlyUntouchedTail(t *testing.T) {
+	path := writeTargets(t, []records.ZMap{{IPAddress: "192.0.2.1"}, {IPAddress: "192.0.2.2"}, {IPAddress: "192.0.2.3"}, {IPAddress: "192.0.2.4"}})
+	setupTargetStream(t, path, false)
+	source := filepath.Join(t.TempDir(), "original.pq")
+	if err := os.WriteFile(source, []byte("retained source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	si, _ := os.Stat(source)
+	ti, _ := os.Stat(path)
+	previous := measurement.ResumePlan
+	t.Cleanup(func() { measurement.ResumePlan = previous })
+	measurement.ResumePlan = &rtresume.Plan{Source: source, Target: path, SourceInfo: si, TargetInfo: ti, Started: 2, Saved: 1, Total: 4}
+	if err := StreamZMapToWorkers(); err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("scheduled %d targets", len(targets))
+	}
+	for _, want := range []string{"192.0.2.3", "192.0.2.4"} {
+		if got := (<-targets).ip.String(); got != want {
+			t.Fatalf("%s != %s", got, want)
+		}
+	}
+	if atomic.LoadInt64(&stats.NumberOfTargetIPAddresses) != 4 {
+		t.Fatal("changed original coverage denominator")
 	}
 }
 

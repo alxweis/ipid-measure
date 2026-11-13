@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -16,6 +18,8 @@ import (
 	"github.com/alxweis/ipid-measure/internal/files"
 	"github.com/alxweis/ipid-measure/internal/logger"
 	"github.com/alxweis/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/internal/root"
+	"github.com/alxweis/ipid-measure/internal/rtresume"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/internal/upload"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
@@ -43,7 +47,15 @@ func main() {
 	analysisMaximumTargetsFlag := flag.Int("analysis_workflow.maximum_targets", analysisworkflow.MaximumReproducibilityTargets, "maximum RANDOM reproducibility targets for a 4x25 Mass measurement")
 	analysisSelectionSeedFlag := flag.Int("analysis_workflow.selection_seed", 42, "deterministic RANDOM reproducibility selection seed")
 	printID := flag.Bool("print-id", false, "print the measurement id to stdout on success")
+	resumeFrom := flag.String("resume-from", "", "retained original ICMP RT directory; requires independently verified backup")
+	resumeBackup := flag.String("resume-backup", "", "published preservation receipt for the original ICMP RT directory")
+	resumeSite := flag.String("resume-site", "", "audited legacy ICMP site (sa,af,as,au)")
+	resumeBinding := flag.String("resume-binding", "", "original geographic state binding")
+	checkResume := flag.Bool("check-resume", false, "validate a legacy RT prefix and output-space budget without probing/output creation")
 	flag.Parse()
+	if (*resumeFrom == "") != (*resumeBackup == "") || (*resumeFrom == "") != (*resumeSite == "") || (*resumeFrom == "") != (*resumeBinding == "") || (*checkResume && *resumeFrom == "") {
+		log.Fatal("resume requires --resume-from, --resume-backup, --resume-site and --resume-binding together")
+	}
 
 	configFilePath, err := filepath.Abs(*configFlag)
 	if err != nil {
@@ -87,6 +99,26 @@ func main() {
 	}
 
 	debug.SetMemoryLimit(config.GoMemoryLimitOrDefault(c.GoMemoryLimit, GoMemLimitDefaultBytes))
+	if *resumeFrom != "" {
+		// Population validation needs at most one 512 MiB IPv4 set, temporary
+		// Parquet buffers and Go overhead. Release it before ordinary probing.
+		previousLimit := debug.SetMemoryLimit(2 << 30)
+		plan, err := rtresume.Admit(context.Background(), *resumeBackup, root.Root, *resumeSite, filepath.Base(filepath.Clean(*resumeFrom)), *resumeBinding, c, rtresume.FetchS3)
+		if err != nil {
+			log.Fatalf("legacy RT recovery admission: %v", err)
+		}
+		if filepath.Clean(*resumeFrom) != filepath.Dir(plan.Source) {
+			log.Fatal("resume directory differs from bound original")
+		}
+		runtime.GC()
+		debug.SetMemoryLimit(previousLimit)
+		measurement.ResumePlan = plan
+		if *checkResume {
+			data, _ := json.Marshal(plan)
+			fmt.Println(string(data))
+			return
+		}
+	}
 
 	stamp, err := paths.MeasurementTime()
 	if err != nil {
@@ -94,7 +126,11 @@ func main() {
 	}
 	m := paths.NewIPIDMeasurement(c.ZMapPayload, c.ZMapPort, stamp)
 
-	if err := m.CreateDirectory(); err != nil {
+	if measurement.ResumePlan != nil {
+		if err := os.Mkdir(m.Path, 0755); err != nil {
+			log.Fatalf("create exclusive resume directory: %v", err)
+		}
+	} else if err := m.CreateDirectory(); err != nil {
 		log.Fatalf("create measurement directory: %v", err)
 	}
 	if err := m.CreateZMapLink(c.ZMapFilePath); err != nil {
@@ -102,6 +138,23 @@ func main() {
 	}
 	if err := m.CreateConfigSnapshot(c); err != nil {
 		log.Fatalf("create config snapshot: %v", err)
+	}
+	if measurement.ResumePlan != nil {
+		data, err := json.MarshalIndent(measurement.ResumePlan, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		file, err := os.OpenFile(filepath.Join(m.Path, "resume-evidence.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if _, err = file.Write(append(data, '\n')); err != nil {
+			_ = file.Close()
+			log.Fatal(err)
+		}
+		if err = file.Close(); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if c.LogToFile {

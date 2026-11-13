@@ -16,12 +16,15 @@ import (
 
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/paths"
+	"github.com/alxweis/ipid-measure/internal/rtresume"
 	"github.com/alxweis/ipid-measure/internal/types"
 )
 
 var (
 	Config *config.IPIDConfig
 	Paths  *paths.IPIDMeasurement
+	// ResumePlan is nil for every existing normal measurement path.
+	ResumePlan *rtresume.Plan
 
 	RequestCount uint16
 
@@ -97,6 +100,7 @@ var (
 	SetupPortPool    func()
 	SetupSaveChannel func()
 	StartSaver       func()
+	WaitSaverReady   func() error
 	StartReceivers   func()
 	StartWorkers     func()
 	StartStats       func()
@@ -160,6 +164,21 @@ func Run(c *config.IPIDConfig, m *paths.IPIDMeasurement) (int64, error) {
 	// Start the consumer stages first so producers never block on startup.
 	SaveWg.Add(1)
 	StartSaver()
+	// Replaying an admitted prefix must finish before receivers/workers are
+	// started. Failure or cancellation here therefore sends no probes.
+	if WaitSaverReady != nil {
+		if err := WaitSaverReady(); err != nil {
+			CloseSaveChan()
+			SaveWg.Wait()
+			if CloseSenders != nil {
+				CloseSenders()
+			}
+			if StopRateLimiter != nil {
+				StopRateLimiter()
+			}
+			return records(), fmt.Errorf("prepare result writer: %w", err)
+		}
+	}
 
 	StartReceivers()
 

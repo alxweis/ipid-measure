@@ -71,6 +71,10 @@ func Log() {
 	defer ticker.Stop()
 
 	startTime := time.Now()
+	var resumedPrefix int64
+	if measurement.ResumePlan != nil {
+		resumedPrefix = measurement.ResumePlan.Started
+	}
 
 	var (
 		lastProbeCount  int64
@@ -78,6 +82,10 @@ func Log() {
 		lastSentBytes   int64
 		lastSentPackets int64
 	)
+	lastProbeCount = resumedPrefix
+	if measurement.ResumePlan != nil {
+		lastValidProbes = measurement.ResumePlan.Saved
+	}
 
 	for {
 		select {
@@ -112,7 +120,7 @@ func Log() {
 			}
 
 			validProbeCountPercentage := 0.0
-			if probeCount > 0 {
+			if probeCount-resumedPrefix > 0 {
 				validProbeCountPercentage = float64(validProbes) / float64(probeCount) * 100
 			}
 
@@ -131,7 +139,7 @@ func Log() {
 
 				remainingTime := time.Duration(
 					float64(elapsedTime) /
-						float64(probeCount) *
+						float64(probeCount-resumedPrefix) *
 						float64(numberOfTargets-probeCount),
 				)
 
