@@ -3,7 +3,10 @@ import io
 import json
 import os
 import pwd
+import signal
 import subprocess
+import time
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 import tempfile
@@ -127,6 +130,17 @@ class PreservationTests(unittest.TestCase):
         (zmap / "zmap.snapshot.yaml").write_text("payload: icmp\n")
         return ws, rt
 
+    def seed_original_zmap(self, ws):
+        zid = backup.RUNS['sa'][1]
+        root = f's3://backup/raw/continental/{backup.CAMPAIGN}/sa/zmap/{zid}'
+        marker = {'version': 1, 'measurement_id': zid, 'files': {}}
+        for name in ('zmap.pq', 'zmap.snapshot.yaml'):
+            path = ws / 'zmap/raw' / zid / name
+            marker['files'][name] = backup.evidence(path)[0]
+            self.remote_path(root + '/' + name).write_bytes(path.read_bytes())
+        self.remote_path(root + '/measurement-complete.json').write_text(json.dumps(marker))
+        return root, marker
+
     def test_partial_or_different_campaign_state_is_refused(self):
         ws, rt = self.make_workspace()
         backup.validate_workspace(self.root, "sa")
@@ -143,6 +157,7 @@ class PreservationTests(unittest.TestCase):
     @unittest.skipIf(sys.platform == "win32", "Controller uses Unix flock")
     def test_receipt_published_only_after_all_sources_read_back(self):
         ws, rt = self.make_workspace()
+        self.seed_original_zmap(ws)
         original = (rt / "ipid.pq").read_bytes()
         original_state = (ws / "state.json").read_bytes()
         args = backup.argparse.Namespace(repo=str(self.root), site="sa", s3_root="s3://backup/raw")
@@ -167,7 +182,9 @@ class PreservationTests(unittest.TestCase):
         for entry in receipt["files"].values():
             self.assertTrue(self.remote_path(entry["uri"]).is_file())
         self.assertFalse((rt / "measurement-complete.json").exists())
-        self.assertEqual(len(list(self.remote.iterdir())), 7)
+        self.assertEqual(len(list(self.remote.iterdir())), 8)
+        self.assertIn('zmap_reference', receipt)
+        self.assertIn('/continental/', receipt['files']['zmap.pq']['uri'])
 
     @unittest.skipIf(sys.platform == "win32", "Controller uses Unix flock")
     def test_holds_the_controller_lock_exclusively(self):
@@ -211,6 +228,7 @@ class PreservationTests(unittest.TestCase):
 
     def checkpoint_fixture(self):
         ws, rt = self.make_workspace()
+        self.seed_original_zmap(ws)
         mid, zid, _ = backup.RUNS["sa"]
         local = backup.prepare_metadata(ws, mid)
         journal = local / "original-scanner-test.journal.jsonl"
@@ -262,7 +280,85 @@ class PreservationTests(unittest.TestCase):
         manifest = json.loads(receipts[0].read_text())
         self.assertEqual(len(manifest["files"]), 6)
         self.assertIn("prior_verification_log", manifest)
+        self.assertIn('zmap_reference', manifest)
         self.assertFalse((rt / "measurement-complete.json").exists())
+
+    def test_original_zmap_references_scoped_commit_without_bulk_reads_or_upload(self):
+        ws, _ = self.make_workspace()
+        root, marker = self.seed_original_zmap(ws)
+        real = backup.evidence
+        def metadata_only(path):
+            self.assertNotEqual(path.name, 'zmap.pq')
+            return real(path)
+        with patch.object(backup, 'evidence', side_effect=metadata_only), \
+             patch.object(self.store, 'verify', side_effect=AssertionError('No body read-back')), \
+             patch.object(self.store, 'preserve', side_effect=AssertionError('No upload')):
+            files, reference, _ = backup.original_zmap(self.store, 's3://backup/raw', ws, 'sa', backup.RUNS['sa'][1])
+        self.assertEqual(files['zmap.pq']['uri'], root + '/zmap.pq')
+        self.assertEqual(files['zmap.pq']['sha256'], marker['files']['zmap.pq']['sha256'])
+        self.assertEqual(reference['completion_uri'], root + '/measurement-complete.json')
+
+    def test_original_zmap_missing_or_wrong_commit_is_refused_without_fallback(self):
+        ws, _ = self.make_workspace()
+        root, marker = self.seed_original_zmap(ws)
+        path = self.remote_path(root + '/measurement-complete.json')
+        original = path.read_bytes()
+        for kind in ('missing', 'identity', 'size', 'snapshot'):
+            with self.subTest(kind=kind):
+                value = json.loads(original)
+                if kind == 'missing':
+                    path.unlink()
+                else:
+                    if kind == 'identity': value['measurement_id'] = 'wrong'
+                    if kind == 'size': value['files']['zmap.pq']['size_bytes'] += 1
+                    if kind == 'snapshot': value['files']['zmap.snapshot.yaml']['sha256'] = '0' * 64
+                    path.write_text(json.dumps(value))
+                with patch.object(self.store, 'preserve', side_effect=AssertionError('No fallback upload')):
+                    with self.assertRaises((RuntimeError, subprocess.CalledProcessError)):
+                        backup.original_zmap(self.store, 's3://backup/raw', ws, 'sa', backup.RUNS['sa'][1])
+                path.write_bytes(original)
+
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0, 'Original log must be root-owned')
+    def test_handoff_waits_for_ipid_proof_then_stops_only_backup_and_finishes_metadata(self):
+        ws, _, sources, logs, args = self.checkpoint_fixture()
+        path = Path(args.continue_from_log)
+        full = path.read_text()
+        # Old backup has only just started the IPID read-back. The frozen
+        # journal exists but its Hashing line is not printed until much later.
+        critical = full.split('Hashing: ' + str(sources['zmap.pq']))[0]
+        incomplete = critical.split('VERIFIED: ipid.pq:')[0]
+        path.write_text(incomplete)
+        args.handoff_zmap_from_log = str(path)
+        saved = {'pid': 123}
+        active = [True]
+        def advance(seconds):
+            stop.assert_not_called()
+            path.write_text(critical)
+        def stopped(*unused): active[0] = False
+        with patch.object(backup, 'LOG_ROOT', logs), patch.object(backup, 'assert_inactive'), \
+             patch.object(backup, 'Store', return_value=self.store), \
+             patch.object(backup, 'legacy_process', side_effect=lambda *a: saved if active[0] else None), \
+             patch.object(backup, 'stop_legacy', side_effect=stopped) as stop, \
+             patch.object(backup.time, 'sleep', side_effect=advance), \
+             patch.object(self.store, 'preserve', wraps=self.store.preserve) as preserve:
+            backup.handoff_zmap(args)
+        stop.assert_called_once()
+        self.assertEqual(len(preserve.call_args_list), 2)
+        self.assertTrue(all(call.args[0].suffix != '.pq' for call in preserve.call_args_list))
+        receipt = json.loads(next((ws / 'recovery-backup').glob('*/backup-verified-*.json')).read_text())
+        self.assertIn('zmap_reference', receipt)
+
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0, 'Original log must be root-owned')
+    def test_handoff_missing_original_commit_does_not_signal_backup(self):
+        ws, _, _, logs, args = self.checkpoint_fixture()
+        zid = backup.RUNS['sa'][1]
+        self.remote_path(f's3://backup/raw/continental/{backup.CAMPAIGN}/sa/zmap/{zid}/measurement-complete.json').unlink()
+        args.handoff_zmap_from_log = args.continue_from_log
+        with patch.object(backup, 'LOG_ROOT', logs), patch.object(backup, 'assert_inactive'), \
+             patch.object(backup, 'Store', return_value=self.store), patch.object(backup, 'stop_legacy') as stop:
+            with self.assertRaises(subprocess.CalledProcessError):
+                backup.handoff_zmap(args)
+        stop.assert_not_called()
 
     @unittest.skipUnless(sys.platform == "linux" and os.geteuid() == 0, "Original log must be root-owned")
     def test_metadata_continuation_refuses_changed_source_or_missing_remote(self):
@@ -295,6 +391,58 @@ class PreservationTests(unittest.TestCase):
             path.write_text(original.replace("Reading back and verifying: s3://backup/", "Reading back and verifying: s3://other/", 1))
             with self.assertRaisesRegex(RuntimeError, "read-back URI differs"):
                 backup.continue_backup(args)
+
+
+@unittest.skipIf(sys.platform == 'win32', 'Linux process identity and flock')
+class HandoffProcessTests(unittest.TestCase):
+    def spawn_tree(self, directory, valid):
+        child = Path(directory) / ('s3cmd' if valid else 'unexpected.py')
+        child.write_text('import time\ntime.sleep(120)\n')
+        parent = Path(directory) / 'parent.py'
+        parent.write_text('import subprocess,sys\np=subprocess.Popen([sys.executable,sys.argv[1],"get",sys.argv[2],"-"])\nprint(p.pid,flush=True)\np.wait()\n')
+        proc = subprocess.Popen([sys.executable, str(parent), str(child), 's3://backup/root/file'], stdout=subprocess.PIPE, text=True)
+        child_pid = int(proc.stdout.readline().strip())
+        time.sleep(0.1)
+        return proc, child_pid
+
+    def cleanup_tree(self, proc, child_pid):
+        for pid in (child_pid, proc.pid):
+            current = backup.process(pid)
+            if current:
+                backup.signal_saved(current, signal.SIGCONT)
+                backup.signal_saved(current, signal.SIGTERM)
+        proc.wait(timeout=5)
+        proc.stdout.close()
+
+    def test_real_signal_handoff_stops_only_validated_backup_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc, child_pid = self.spawn_tree(directory, True)
+            try:
+                with patch.object(backup.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=os.getuid())):
+                    backup.stop_legacy(backup.process(proc.pid), 's3://backup/root')
+                proc.wait(timeout=5)
+                self.assertIsNone(backup.process(child_pid))
+            finally:
+                self.cleanup_tree(proc, child_pid)
+
+    def test_unexpected_child_is_not_terminated_and_parent_is_continued(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc, child_pid = self.spawn_tree(directory, False)
+            try:
+                with patch.object(backup.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=os.getuid())):
+                    with self.assertRaisesRegex(RuntimeError, 'Unexpected backup child'):
+                        backup.stop_legacy(backup.process(proc.pid), 's3://backup/root')
+                self.assertIsNotNone(backup.process(proc.pid))
+                self.assertIsNotNone(backup.process(child_pid))
+                self.assertNotEqual(backup.process(proc.pid)['state'], 'T')
+            finally:
+                self.cleanup_tree(proc, child_pid)
+
+    def test_reused_pid_identity_is_not_signalled(self):
+        saved = {'pid': 123, 'start': 'old', 'args': ['old'], 'uid': 0}
+        with patch.object(backup, 'process', return_value={**saved, 'start': 'new'}), patch.object(backup.os, 'kill') as kill:
+            backup.signal_saved(saved, signal.SIGTERM)
+            kill.assert_not_called()
 
 
 if __name__ == "__main__":

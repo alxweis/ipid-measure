@@ -2,8 +2,9 @@
 """Preserve the four known interrupted Geo RT runs; never resume or commit them.
 
 Run as root on a stopped ICMP VM. S3 commands use the measurement user's existing
-configuration. Sources remain untouched. Every object is read back and SHA256
-verified before a separate recovery receipt is published.
+configuration. Sources remain untouched. Newly preserved objects are read back
+and SHA256 verified. Already committed ZMap objects are referenced through their
+original scoped completion marker instead of uploaded/read back again.
 """
 
 import argparse
@@ -20,6 +21,8 @@ from pathlib import Path
 import subprocess
 import stat
 import re
+import signal
+import time
 import tempfile
 
 
@@ -32,6 +35,7 @@ RUNS = {
 }
 CHUNK = 8 << 20
 LOG_ROOT = Path("/var/log/ipid-recovery")
+OLD_REVISION = "925067f98b37380f96bc16380d2981e721010066"
 
 
 def set_acl(path, text, default=False):
@@ -156,6 +160,12 @@ class Store:
                 return int(parts[-2])
         return None
 
+    def metadata(self, uri):
+        data = run(self.command + ["get", "--no-progress", uri, "-"], capture_output=True).stdout
+        if len(data) > 1 << 20:
+            raise RuntimeError("Oversized scoped completion metadata")
+        return data
+
     def verify(self, uri, expected):
         # Read back without downloading another 50-75 GB file to the VM disk.
         with tempfile.TemporaryFile() as error:
@@ -240,6 +250,151 @@ def checkpoint_log(path, sources, root):
     return verified
 
 
+def original_zmap(store, s3_root, workspace, site, zid):
+    """Reference the already committed raw ZMap; never copy/read its S3 body."""
+    root = f"{s3_root.rstrip('/')}/continental/{CAMPAIGN}/{site}/zmap/{zid}"
+    uri = root + "/measurement-complete.json"
+    raw = store.metadata(uri)
+    marker = json.loads(raw)
+    if marker.get("version") != 1 or marker.get("measurement_id") != zid:
+        raise RuntimeError("Original ZMap completion marker has the wrong identity")
+    files, identities = {}, {}
+    for name in ("zmap.pq", "zmap.snapshot.yaml"):
+        value = marker.get("files", {}).get(name)
+        if (not isinstance(value, dict) or type(value.get("size_bytes")) is not int
+            or value["size_bytes"] <= 0 or not isinstance(value.get("sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", value["sha256"])):
+            raise RuntimeError(f"Original ZMap marker omits valid evidence: {name}")
+        path = workspace / "zmap/raw" / zid / name
+        if path.is_symlink() or not path.is_file() or path.resolve() != path:
+            raise RuntimeError(f"Unexpected original ZMap source: {path}")
+        before = identity(path)
+        evidence_value = {"size_bytes": value["size_bytes"], "sha256": value["sha256"]}
+        if before[2] != value["size_bytes"] or store.remote_size(root + "/" + name) != value["size_bytes"]:
+            raise RuntimeError(f"Original committed ZMap object/source missing or size changed: {name}")
+        if name.endswith(".yaml") and evidence(path)[0] != evidence_value:
+            raise RuntimeError("Original ZMap snapshot differs from scoped commit")
+        files[name] = {**evidence_value, "uri": root + "/" + name, "local_path": str(path)}
+        identities[path] = before
+    reference = {"version": 1, "measurement_id": zid, "completion_uri": uri,
+                 "completion_sha256": hashlib.sha256(raw).hexdigest(),
+                 "validation": "Existing scoped commit and object/local sizes; no duplicate ZMap upload or fresh remote body read-back. Resume rehashes local targets."}
+    return files, reference, identities
+
+
+def process(pid):
+    root = Path('/proc') / str(pid)
+    try:
+        fields = (root / 'stat').read_text().rsplit(') ', 1)[1].split()
+        if fields[0] == 'Z':
+            return None
+        args = (root / 'cmdline').read_bytes().decode().rstrip('\0').split('\0')
+        return {'pid': pid, 'ppid': int(fields[1]), 'state': fields[0], 'start': fields[19], 'uid': root.stat().st_uid, 'args': args}
+    except FileNotFoundError:
+        return None
+
+def legacy_process(log_path, site):
+    pidfile = Path(str(log_path) + '.pid')
+    if pidfile.is_symlink() or not pidfile.is_file() or pidfile.stat().st_uid != 0 or pidfile.stat().st_mode & 0o022:
+        raise RuntimeError('Missing trusted backup PID file')
+    current = process(int(pidfile.read_text().strip()))
+    if current is None:
+        return None
+    args = current['args']
+    expected = '/var/lib/ipid-recovery-tools/' + OLD_REVISION + '/backup-interrupted-geo.py'
+    if current['uid'] != 0 or expected not in args or '--site' not in args or args[args.index('--site') + 1] != site:
+        raise RuntimeError('Backup PID no longer matches the known process; no signal sent')
+    return current
+
+def same_process(saved):
+    current = process(saved['pid'])
+    return current is not None and current['start'] == saved['start'] and current['args'] == saved['args'] and current['uid'] == saved['uid']
+
+def signal_saved(saved, value):
+    if same_process(saved):
+        try:
+            os.kill(saved['pid'], value)
+        except ProcessLookupError:
+            pass
+
+def children_of(pid):
+    children = []
+    for entry in Path('/proc').glob('[0-9]*'):
+        try:
+            fields = (entry / 'stat').read_text().rsplit(') ', 1)[1].split()
+            if int(fields[1]) != pid:
+                continue
+            child = process(int(entry.name))
+            if child is not None:
+                children.append(child)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return children
+
+def wait_stopped(saved):
+    deadline = time.monotonic() + 2
+    while True:
+        current = process(saved['pid'])
+        if current is None:
+            return
+        if current['start'] != saved['start'] or current['args'] != saved['args'] or current['uid'] != saved['uid']:
+            raise RuntimeError('Backup process identity changed while pausing')
+        if current['state'] == 'T':
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Backup process did not stop; no termination')
+        time.sleep(0.01)
+
+def stop_legacy(saved, root):
+    """Freeze the spawner briefly; validate all children before terminating it."""
+    if saved is None or not same_process(saved):
+        return
+    signal_saved(saved, signal.SIGSTOP)
+    terminated = False
+    children = []
+    try:
+        wait_stopped(saved)
+        if not same_process(saved):
+            return
+        pending = [saved['pid']]
+        while pending:
+            pid = pending.pop()
+            for child in children_of(pid):
+                args = child['args']
+                if child['uid'] not in {0, pwd.getpwnam('aweis').pw_uid}:
+                    raise RuntimeError('Unexpected backup child owner')
+                if not any(Path(x).name == 's3cmd' for x in args) or not any(x.startswith(root + '/') for x in args):
+                    raise RuntimeError('Unexpected backup child; original backup continued, no termination')
+                if not any(x in args for x in ('ls', 'get', 'put', 'info')):
+                    raise RuntimeError('Unexpected S3 operation in backup child')
+                children.append(child)
+                signal_saved(child, signal.SIGSTOP)
+                wait_stopped(child)
+                pending.append(child['pid'])
+        # SIGCONT delivers the pending default SIGTERM to the stopped Python parent.
+        signal_saved(saved, signal.SIGTERM)
+        signal_saved(saved, signal.SIGCONT)
+        deadline = time.monotonic() + 15
+        while same_process(saved) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if same_process(saved):
+            raise RuntimeError('Old backup parent did not exit; no replacement started')
+        terminated = True
+        for child in reversed(children):
+            signal_saved(child, signal.SIGTERM)
+            signal_saved(child, signal.SIGCONT)
+        deadline = time.monotonic() + 15
+        while any(same_process(x) for x in children) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if any(same_process(x) for x in children):
+            raise RuntimeError('Old backup child still active; no replacement started')
+    finally:
+        for child in reversed(children):
+            signal_saved(child, signal.SIGCONT)
+        if not terminated:
+            signal_saved(saved, signal.SIGCONT)
+
+
 def continue_backup(args):
     """Finish metadata after a failed attempt; never repeat bulk read-back."""
     if os.geteuid() != 0:
@@ -266,6 +421,10 @@ def continue_backup(args):
             Path(line[len("Hashing: "):]) for line in raw.splitlines()
             if line.startswith(f"Hashing: {local}/original-scanner-") and line.endswith(".journal.jsonl")
         }
+        if not journal_paths:
+            # The old process creates this frozen export before its file loop,
+            # but only prints its Hashing line when it reaches the last item.
+            journal_paths = set(local.glob("original-scanner-*.journal.jsonl"))
         if len(journal_paths) != 1:
             raise RuntimeError("No unambiguous frozen journal in the original attempt")
         journal = journal_paths.pop()
@@ -281,8 +440,8 @@ def continue_backup(args):
         }
         root = f"{args.s3_root.rstrip('/')}/recovery/{CAMPAIGN}/{args.site}/icmp/{mid}"
         verified = checkpoint_log(old_log, sources, root)
-        if set(sources) - {"original-scanner.journal.jsonl"} - set(verified):
-            raise RuntimeError("Prior attempt has not verified all five original data/config files; refusing expensive automatic retry")
+        if {"ipid.pq", "ipid.snapshot.yaml", "state.json"} - set(verified):
+            raise RuntimeError("Prior attempt has not verified IPID, its snapshot and state; refusing expensive automatic retry")
         # Reuse the earlier full remote read-backs as this same attempt would;
         # a HEAD/list-size check detects missing/truncated objects, not arbitrary
         # later equal-size administrative overwrites (Object Lock is not used).
@@ -291,15 +450,23 @@ def continue_backup(args):
         # check. The RT resume admission independently rehashes those local
         # sources before probing, so do not duplicate that expensive read here.
         store = Store()
+        zmap_files, zmap_reference, zmap_identities = original_zmap(store, args.s3_root, workspace, args.site, zid)
         manifest = {
             "version": 1, "purpose": "interrupted-rt-preservation-not-measurement-completion",
             "campaign_id": CAMPAIGN, "site": args.site, "measurement_id": mid,
             "zmap_id": zid, "state_binding": state["binding"], "files": {},
             "prior_verification_log": {"path": str(old_log), "sha256": evidence(old_log)[0]["sha256"]},
             "bulk_source_validation": "Earlier full SHA256 read-back proof reused; current local/remote sizes checked. Resume must independently revalidate current local content.",
+            "zmap_reference": zmap_reference,
         }
-        identities = {}
+        identities = dict(zmap_identities)
         for name, path in sources.items():
+            if name in zmap_files:
+                if name in verified and verified[name] != {k:zmap_files[name][k] for k in ("size_bytes","sha256")}:
+                    raise RuntimeError("Original ZMap reference differs from the earlier verified target source")
+                manifest["files"][name] = zmap_files[name]
+                print(f"REFERENCED original committed ZMap: {name}: {zmap_files[name]['uri']}", flush=True)
+                continue
             if name in verified and name.endswith(".pq"):
                 if path.is_symlink() or not path.is_file():
                     raise RuntimeError(f"Unexpected bulk source: {path}")
@@ -336,6 +503,85 @@ def continue_backup(args):
         print(f"BACKUP VERIFIED; originals unchanged. Receipt: {uri}", flush=True)
 
 
+def handoff_zmap(args):
+    """Wait for indispensable IPID proofs, then skip the duplicate ZMap stage."""
+    import fcntl
+    if os.geteuid() != 0:
+        raise RuntimeError("Run this guarded handoff as root")
+    workspace, rt, state = validate_workspace(Path(args.repo).resolve(), args.site)
+    assert_inactive()
+    mid, zid, _ = RUNS[args.site]
+    local = prepare_metadata(workspace, mid)
+    old_log = Path(args.handoff_zmap_from_log)
+    if (old_log.parent != LOG_ROOT or old_log.is_symlink() or not old_log.is_file()
+        or old_log.stat().st_uid != 0 or old_log.stat().st_mode & 0o022 or old_log.stat().st_size > 8 << 20
+        or not re.fullmatch(rf"{args.site}-\d{{8}}T\d{{6,18}}Z\.log", old_log.name)):
+        raise RuntimeError("Untrusted original backup log; no process stopped")
+    print("Checking the original published ZMap objects; no new ZMap upload will be started.", flush=True)
+    # Establish a usable reference before ever signalling the old backup.
+    original_zmap(Store(), args.s3_root, workspace, args.site, zid)
+    journal = local / "original-scanner.journal.jsonl"
+    candidates = set(local.glob("original-scanner-*.journal.jsonl"))
+    raw = old_log.read_text()
+    printed = {Path(line[len("Hashing: "):]) for line in raw.splitlines()
+               if line.startswith(f"Hashing: {local}/original-scanner-") and line.endswith(".journal.jsonl")}
+    if printed:
+        candidates = printed
+    if len(candidates) != 1:
+        raise RuntimeError("Frozen original journal is ambiguous; no process stopped")
+    journal = candidates.pop()
+    sources = {"ipid.pq": rt / "ipid.pq", "ipid.snapshot.yaml": rt / "ipid.snapshot.yaml",
+               "state.json": workspace / "state.json", "zmap.pq": workspace / "zmap/raw" / zid / "zmap.pq",
+               "zmap.snapshot.yaml": workspace / "zmap/raw" / zid / "zmap.snapshot.yaml",
+               "original-scanner.journal.jsonl": journal}
+    root = f"{args.s3_root.rstrip('/')}/recovery/{CAMPAIGN}/{args.site}/icmp/{mid}"
+    critical = {"ipid.pq", "ipid.snapshot.yaml", "state.json"}
+    deadline = time.monotonic() + 48 * 3600
+    last_message = 0
+    with (local / ".zmap-reference-watch.lock").open("a") as watcher:
+        fcntl.flock(watcher, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        while True:
+            if time.monotonic() > deadline:
+                raise RuntimeError("Handoff wait expired; no automatic bulk retry")
+            if "BACKUP VERIFIED; originals unchanged." in old_log.read_text():
+                print("Original backup already completed; no duplicate transfer started by this tool.", flush=True)
+                return
+            current = legacy_process(old_log, args.site)
+            try:
+                verified = checkpoint_log(old_log, sources, root)
+            except (SyntaxError, ValueError):
+                if current is None:
+                    raise
+                time.sleep(5)
+                continue
+            if critical - set(verified):
+                if current is None:
+                    raise RuntimeError("Original backup stopped before all indispensable IPID proofs; no automatic re-upload")
+                if time.monotonic() - last_message >= 60:
+                    print("Keeping the original IPID upload/read-back running; waiting for IPID, snapshot and state proofs.", flush=True)
+                    last_message = time.monotonic()
+                time.sleep(5)
+                continue
+            if current is not None and "zmap.pq" in verified:
+                # The old duplicate body already finished; let its tiny final
+                # metadata complete rather than interrupting it needlessly.
+                time.sleep(5)
+                continue
+            if current is not None:
+                assert_inactive()
+                print(f"IPID proofs complete; stopping only validated obsolete backup tree {current['pid']}.", flush=True)
+                stop_legacy(current, root)
+            args.continue_from_log = str(old_log)
+            try:
+                continue_backup(args)
+                return
+            except BlockingIOError:
+                if time.monotonic() - last_message >= 60:
+                    print("Another preservation process still owns the runner lock; waiting without stopping it.", flush=True)
+                    last_message = time.monotonic()
+                time.sleep(5)
+
+
 def backup(args):
     if os.geteuid() != 0:
         raise RuntimeError("Run this preservation script as root")
@@ -366,14 +612,20 @@ def backup(args):
             "original-scanner.journal.jsonl": log_path,
         }
         store = Store()
+        zmap_files, zmap_reference, zmap_identities = original_zmap(store, args.s3_root, workspace, args.site, zid)
         root = f"{args.s3_root.rstrip('/')}/recovery/{CAMPAIGN}/{args.site}/icmp/{mid}"
         manifest = {
             "version": 1, "purpose": "interrupted-rt-preservation-not-measurement-completion",
             "campaign_id": CAMPAIGN, "site": args.site, "measurement_id": mid,
             "zmap_id": zid, "state_binding": state["binding"], "files": {},
+            "zmap_reference": zmap_reference,
         }
-        identities = {}
+        identities = dict(zmap_identities)
         for name, path in sources.items():
+            if name in zmap_files:
+                manifest["files"][name] = zmap_files[name]
+                print(f"REFERENCED original committed ZMap: {name}: {zmap_files[name]['uri']}", flush=True)
+                continue
             print(f"Hashing: {path}", flush=True)
             expected, before = evidence(path)
             uri = f"{root}/sha256-{expected['sha256']}/{name}"
@@ -404,6 +656,7 @@ if __name__ == "__main__":
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--repair-metadata-access-only", action="store_true")
     modes.add_argument("--continue-from-log")
+    modes.add_argument("--handoff-zmap-from-log")
     args = parser.parse_args()
     if args.repair_metadata_access_only:
         if os.geteuid() != 0:
@@ -412,6 +665,8 @@ if __name__ == "__main__":
         assert_inactive()
         local = prepare_metadata(workspace, RUNS[args.site][0])
         print(f"Metadata access repaired: {local}; no process restarted or file contents changed.")
+    elif args.handoff_zmap_from_log:
+        handoff_zmap(args)
     elif args.continue_from_log:
         continue_backup(args)
     else:

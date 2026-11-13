@@ -21,7 +21,7 @@ The backup preserves:
 
 * the original `ipid.pq` and effective `ipid.snapshot.yaml`;
 * `state.json`, including the original target and measurement IDs;
-* the original ZMap Parquet and snapshot, without repeating discovery;
+* references to the already committed original ZMap Parquet and snapshot;
 * a small, PID-filtered export of the scanner's final journal messages.
 
 It checks the retained file's opening/closing Parquet magic. This is not a full
@@ -35,14 +35,23 @@ Objects are written below:
 s3://netds3o:aweis/ipid-2/raw/recovery/geo-full-20261107-r1/<site>/icmp/<old-rt-id>/
 ```
 
-Each source has a `sha256-<digest>/<filename>` key. An existing object is read
+Each newly backed-up source has a `sha256-<digest>/<filename>` key. An existing object is read
 and verified rather than overwritten. After upload the tool streams the entire
 object back through SHA256 and compares both its size and hash with the local
 source. It checks that local sources did not change during the operation.
 S3 commands use the measurement user's existing configuration; credentials are
 not copied into the backup or printed.
 
-Only after **all six sources** pass read-back verification is a separate
+ZMap is already published below the original raw campaign/site/zmap/measurement
+directory. The tool reads its scoped `measurement-complete.json`, verifies its
+identity and SHA256 evidence, checks both local and remote object sizes, and
+hashes the small local snapshot. It does not upload or download the ZMap body.
+The receipt binds those two original URIs and the completion-marker SHA256 in
+`zmap_reference`. The RT resume admission independently hashes the entire local
+target file and validates its population before probing. Missing/mismatched
+original commits are errors, never an automatic duplicate-upload fallback.
+
+Only after **all six sources** have the corresponding read-back/reference evidence is a separate
 `receipts/sha256-<digest>/backup-verified.json` uploaded and itself read back and
 verified. The receipt purpose is explicitly interrupted-RT preservation, not
 measurement completion. A successful run ends with:
@@ -124,7 +133,7 @@ stops a backup, downloads/uploads objects or changes scientific state.
 For an already failed attempt, --continue-from-log /var/log/ipid-recovery/SITE-TIMESTAMP.log
 holds the controller lock and requires the private root-owned original log. It
 accepts only an unambiguous frozen journal and matching full read-back proofs
-for all five original data/config files. It reuses the earlier bulk SHA256
+for IPID, its snapshot and the original state. It reuses the earlier bulk SHA256
 proofs, checks current local/S3 bulk sizes and hashes the small metadata, then uploads/verifies
 only missing journal metadata and a new six-file receipt. The receipt binds the
 original verification log's digest. It refuses changed local originals, missing
@@ -138,7 +147,25 @@ rehash current local bulk files before probing. As in the original tool,
 content-addressed keys are not S3 Object Lock. A later administrative equal-size
 overwrite is outside the size check's guarantee. Retain original disks and
 copies; the completion line appears only after all six files have verified
-proofs and the new receipt itself is uploaded and read back successfully.
+proofs/references and the new receipt itself is uploaded and read back successfully.
+
+## Skip the redundant ZMap stage in a currently running old backup
+
+`--handoff-zmap-from-log /var/log/ipid-recovery/SITE-TIMESTAMP.log` checks the
+original committed ZMap first, then repairs metadata ACLs and watches the trusted
+old attempt. It leaves IPID upload/full read-back running until IPID, snapshot
+and state have all printed their matching full verification proofs. Only then
+does it freeze and validate the exact old backup PID/start-time/owner/argv and
+its S3-only descendant tree before terminating that obsolete backup stage.
+It does not signal measurement services, controllers or scanners. Unknown or
+reused process identities are refused. A separate watch lock prevents duplicate
+watchers; the controller lock is acquired only for final continuation.
+
+If the original ZMap duplicate has already finished, the old backup is allowed
+to finish its tiny metadata naturally. If that attempt already failed at the
+journal upload, continuation reuses its proofs immediately. No original source
+or existing S3 object is removed. A failed old attempt without the three required
+proofs is refused; this mode never silently repeats the expensive IPID backup.
 
 CI runs the preservation tests as root, requires POSIX ACL support, and uses a
 real unprivileged nobody process to prove existing and future metadata are
