@@ -13,6 +13,11 @@ The existing `aweis` S3 credentials are read into child-process environment
 variables, never printed, put in command arguments, or written to a new config.
 The endpoint is restricted to the already configured ZIH S3 service.
 
+`bash scripts/start-fast-geo-backups.sh <reviewed-commit-sha>` runs on the
+Ansible VM and launches the four helpers in the background over SSH. It fetches
+the pinned helpers into a separate root-owned tool directory without checking
+out or overwriting measurement code. Logs are `/var/log/ipid-recovery/fast-<site>-*.log`.
+
 ## Transfer policy
 
 * Eight 32 MiB parts concurrently, one file at a time: approximately 256 MiB

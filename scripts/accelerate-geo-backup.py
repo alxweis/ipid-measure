@@ -163,6 +163,7 @@ class Rclone:
                    'ipidfast:' + uri[5:], *S3_FLAGS]
         process = subprocess.Popen(command, env=self.env, user=self.account.pw_uid,
                                    group=self.account.pw_gid,
+                                   cwd=self.account.pw_dir,
                                    extra_groups=os.getgrouplist(self.account.pw_name, self.account.pw_gid))
         try:
             status = process.wait(timeout=timeout)
@@ -233,22 +234,33 @@ def children_of(pid):
     return children
 
 
+def wait_stopped(saved):
+    deadline = time.monotonic() + 2
+    while True:
+        current = process(saved['pid'])
+        if current is None:
+            return
+        if current['start'] != saved['start'] or current['args'] != saved['args'] or current['uid'] != saved['uid']:
+            raise RuntimeError('Backup process identity changed while pausing')
+        if current['state'] == 'T':
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Backup process did not stop; no termination')
+        time.sleep(0.01)
+
+
 def stop_legacy(saved, root):
     """Freeze the spawner briefly; validate all children before terminating it."""
     if saved is None or not same_process(saved):
         return
     signal_saved(saved, signal.SIGSTOP)
     terminated = False
+    children = []
     try:
-        deadline = time.monotonic() + 2
-        while same_process(saved) and process(saved['pid'])['state'] != 'T':
-            if time.monotonic() >= deadline:
-                raise RuntimeError('Backup parent did not stop; no termination')
-            time.sleep(0.01)
+        wait_stopped(saved)
         if not same_process(saved):
             return
         pending = [saved['pid']]
-        children = []
         while pending:
             pid = pending.pop()
             for child in children_of(pid):
@@ -260,6 +272,8 @@ def stop_legacy(saved, root):
                 if not any(x in args for x in ('ls', 'get', 'put', 'info')):
                     raise RuntimeError('Unexpected S3 operation in backup child')
                 children.append(child)
+                signal_saved(child, signal.SIGSTOP)
+                wait_stopped(child)
                 pending.append(child['pid'])
         # SIGCONT delivers the pending default SIGTERM to the stopped Python parent.
         signal_saved(saved, signal.SIGTERM)
@@ -272,12 +286,15 @@ def stop_legacy(saved, root):
         terminated = True
         for child in reversed(children):
             signal_saved(child, signal.SIGTERM)
+            signal_saved(child, signal.SIGCONT)
         deadline = time.monotonic() + 15
         while any(same_process(x) for x in children) and time.monotonic() < deadline:
             time.sleep(0.1)
         if any(same_process(x) for x in children):
             raise RuntimeError('Old backup child still active; no replacement started')
     finally:
+        for child in reversed(children):
+            signal_saved(child, signal.SIGCONT)
         if not terminated:
             signal_saved(saved, signal.SIGCONT)
 
