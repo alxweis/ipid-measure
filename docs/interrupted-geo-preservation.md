@@ -100,3 +100,45 @@ Run `python3 scripts/test_backup_interrupted_geo.py` on Linux. Tests use an
 isolated fake S3 process and exercise complete read-back, corrupt existing
 objects, failed downloads, changed local sources, partial/unexpected source
 state, preserved originals, publication ordering, and exclusive controller locks.
+
+## Private metadata access and failed metadata-upload continuation
+
+The original root-run tool created its private recovery-backup directories and
+journal/receipt files without making them readable to the aweis uploader. With
+a restrictive umask, s3cmd could fail on the frozen journal after all bulk data
+had already passed full read-back. A final receipt would have had the same issue.
+
+Prepare narrow Linux access/default ACLs on **only** recovery-backup and the
+known measurement's metadata directory. The uploader gets traversal/read access,
+not write access or world access; future root-created receipts inherit read
+access even with umask 077. Original raw Parquet/snapshot/state permissions and
+contents are untouched. The tool uses the existing libacl through ctypes, with
+no package installation or running-process restart on measurement VMs.
+
+Use --repair-metadata-access-only for the known site to repair existing small
+metadata and future creation rights while its old backup process keeps running.
+This mode takes no runner lock because it changes only these private metadata
+ACLs, and it still refuses an active measurement service/controller. It never
+stops a backup, downloads/uploads objects or changes scientific state.
+
+For an already failed attempt, --continue-from-log /var/log/ipid-recovery/SITE-TIMESTAMP.log
+holds the controller lock and requires the private root-owned original log. It
+accepts only an unambiguous frozen journal and matching full read-back proofs
+for all five original data/config files. It hashes the local sources once more,
+checks the earlier digests and current S3 object sizes, then uploads/verifies
+only missing journal metadata and a new six-file receipt. The receipt binds the
+original verification log's digest. It refuses changed local originals, missing
+or truncated remote objects, mismatched proofs, incomplete proof sets and
+writable/untrusted logs; no automatic full bulk retry is attempted.
+
+This reuses completed full read-backs from the same attempt; it does **not**
+perform fresh full downloads of those bulk objects. As in the original tool,
+content-addressed keys are not S3 Object Lock. A later administrative equal-size
+overwrite is outside the size check's guarantee. Retain original disks and
+copies; the completion line appears only after all six files have verified
+proofs and the new receipt itself is uploaded and read back successfully.
+
+CI runs the preservation tests as root, requires POSIX ACL support, and uses a
+real unprivileged nobody process to prove existing and future metadata are
+readable but not writable. Local WSL1 may skip that one ACL test; CI may not.
+

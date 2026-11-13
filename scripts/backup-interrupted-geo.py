@@ -7,13 +7,19 @@ verified before a separate recovery receipt is published.
 """
 
 import argparse
+import ast
+import ctypes
+import ctypes.util
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import pwd
 from pathlib import Path
 import subprocess
+import stat
+import re
 import tempfile
 
 
@@ -25,6 +31,54 @@ RUNS = {
     "au": ("icmp_2026-11-08_03-37-59", "icmp_2026-11-07_04-20-21", "24145"),
 }
 CHUNK = 8 << 20
+LOG_ROOT = Path("/var/log/ipid-recovery")
+
+
+def set_acl(path, text, default=False):
+    """Set a narrow Linux ACL without installing packages on live VMs."""
+    library = ctypes.util.find_library("acl")
+    if not library:
+        raise RuntimeError("libacl is unavailable; no permission fallback applied")
+    lib = ctypes.CDLL(library, use_errno=True)
+    lib.acl_from_text.argtypes = [ctypes.c_char_p]
+    lib.acl_from_text.restype = ctypes.c_void_p
+    lib.acl_valid.argtypes = [ctypes.c_void_p]
+    lib.acl_valid.restype = ctypes.c_int
+    lib.acl_set_file.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_void_p]
+    lib.acl_set_file.restype = ctypes.c_int
+    lib.acl_free.argtypes = [ctypes.c_void_p]
+    lib.acl_free.restype = ctypes.c_int
+    acl = lib.acl_from_text(text.encode())
+    if not acl:
+        raise OSError(ctypes.get_errno(), "Cannot parse metadata ACL")
+    try:
+        if lib.acl_valid(acl) or lib.acl_set_file(os.fsencode(path), 0x4000 if default else 0x8000, acl):
+            raise OSError(ctypes.get_errno(), "Cannot set metadata ACL", str(path))
+    finally:
+        lib.acl_free(acl)
+
+
+def prepare_metadata(workspace, mid, user="aweis"):
+    uid = pwd.getpwnam(user).pw_uid
+    parent = workspace / "recovery-backup"
+    local = parent / mid
+    for directory in (parent, local):
+        directory.mkdir(mode=0o700, exist_ok=True)
+        if directory.is_symlink() or directory.resolve() != directory or not directory.is_dir():
+            raise RuntimeError(f"Unexpected metadata directory: {directory}")
+        if directory.stat().st_uid not in {os.geteuid(), uid}:
+            raise RuntimeError(f"Unexpected metadata owner: {directory}")
+    # The uploader can traverse the private parent and read metadata, but does
+    # not get write permission or access to other users' homes/credentials.
+    set_acl(parent, f"u::rwx,u:{uid}:--x,g::---,m::--x,o::---")
+    access = f"u::rwx,u:{uid}:r-x,g::---,m::r-x,o::---"
+    set_acl(local, access)
+    set_acl(local, access, default=True)
+    for path in (*local.glob("original-scanner-*.journal.jsonl"), *local.glob("backup-verified-*.json")):
+        if path.is_symlink() or not path.is_file() or path.stat().st_uid not in {os.geteuid(), uid}:
+            raise RuntimeError(f"Unexpected metadata file: {path}")
+        set_acl(path, f"u::rw-,u:{uid}:r--,g::---,m::r--,o::---")
+    return local
 
 
 def run(argv, **kwargs):
@@ -94,6 +148,14 @@ class Store:
         return any(line.split() and line.split()[-1] == uri
                    for line in result.stdout.splitlines())
 
+    def remote_size(self, uri):
+        result = run(self.command + ["ls", uri], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[-1] == uri and parts[-2].isdigit():
+                return int(parts[-2])
+        return None
+
     def verify(self, uri, expected):
         # Read back without downloading another 50-75 GB file to the VM disk.
         with tempfile.TemporaryFile() as error:
@@ -151,6 +213,118 @@ def validate_workspace(repo, site):
     return workspace, rt, state
 
 
+def checkpoint_log(path, sources, root):
+    """Recover exact per-file read-back proofs from a private original log."""
+    verified = {}
+    current = None
+    remote = None
+    for line in path.read_text(errors="strict").splitlines():
+        if line.startswith("Hashing: "):
+            current = Path(line[len("Hashing: "):])
+            remote = None
+        elif line.startswith("Reading back and verifying: "):
+            remote = line[len("Reading back and verifying: "):]
+        elif line.startswith("VERIFIED: "):
+            name, raw = line[len("VERIFIED: "):].split(": ", 1)
+            if name not in sources or current != sources[name] or name in verified:
+                raise RuntimeError("Ambiguous or mismatched prior file verification")
+            value = ast.literal_eval(raw)
+            if (not isinstance(value, dict) or set(value) != {"size_bytes", "sha256"}
+                or type(value["size_bytes"]) is not int or value["size_bytes"] <= 0
+                or not isinstance(value["sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value["sha256"])):
+                raise RuntimeError("Invalid prior file verification")
+            if remote != f"{root}/sha256-{value['sha256']}/{name}":
+                raise RuntimeError("Prior read-back URI differs from the expected recovery object")
+            verified[name] = value
+    return verified
+
+
+def continue_backup(args):
+    """Finish metadata after a failed attempt; never repeat bulk read-back."""
+    if os.geteuid() != 0:
+        raise RuntimeError("Run this preservation continuation as root")
+    repo = Path(args.repo).resolve()
+    workspace, rt, state = validate_workspace(repo, args.site)
+    with runner_lock(workspace):
+        assert_inactive()
+        workspace, rt, state = validate_workspace(repo, args.site)
+        mid, zid, _ = RUNS[args.site]
+        local = prepare_metadata(workspace, mid)
+        old_log = Path(args.continue_from_log)
+        if (old_log.parent != LOG_ROOT or old_log.is_symlink() or not old_log.is_file()
+            or not re.fullmatch(rf"{args.site}-\d{{8}}T\d{{6,18}}Z\.log", old_log.name)):
+            raise RuntimeError("Unexpected original backup-log path")
+        log_stat = old_log.stat()
+        if log_stat.st_uid != 0 or log_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH) or log_stat.st_size > 8 << 20:
+            raise RuntimeError("Backup log is not private root-owned checkpoint evidence")
+        raw = old_log.read_text()
+        if "BACKUP VERIFIED; originals unchanged." in raw:
+            print("Original backup already completed; no continuation needed.", flush=True)
+            return
+        journal_paths = {
+            Path(line[len("Hashing: "):]) for line in raw.splitlines()
+            if line.startswith(f"Hashing: {local}/original-scanner-") and line.endswith(".journal.jsonl")
+        }
+        if len(journal_paths) != 1:
+            raise RuntimeError("No unambiguous frozen journal in the original attempt")
+        journal = journal_paths.pop()
+        if journal.parent != local or journal.is_symlink() or not journal.is_file():
+            raise RuntimeError("Unexpected frozen journal source")
+        sources = {
+            "ipid.pq": rt / "ipid.pq",
+            "ipid.snapshot.yaml": rt / "ipid.snapshot.yaml",
+            "state.json": workspace / "state.json",
+            "zmap.pq": workspace / "zmap/raw" / zid / "zmap.pq",
+            "zmap.snapshot.yaml": workspace / "zmap/raw" / zid / "zmap.snapshot.yaml",
+            "original-scanner.journal.jsonl": journal,
+        }
+        root = f"{args.s3_root.rstrip('/')}/recovery/{CAMPAIGN}/{args.site}/icmp/{mid}"
+        verified = checkpoint_log(old_log, sources, root)
+        if set(sources) - {"original-scanner.journal.jsonl"} - set(verified):
+            raise RuntimeError("Prior attempt has not verified all five original data/config files; refusing expensive automatic retry")
+        # The old script did not persist its in-memory inode/mtime table. Rehash
+        # local originals once to prove they still match its SHA256 proofs.
+        # Reuse the earlier full remote read-backs as this same attempt would;
+        # a HEAD/list-size check detects missing/truncated objects, not arbitrary
+        # later equal-size administrative overwrites (Object Lock is not used).
+        store = Store()
+        manifest = {
+            "version": 1, "purpose": "interrupted-rt-preservation-not-measurement-completion",
+            "campaign_id": CAMPAIGN, "site": args.site, "measurement_id": mid,
+            "zmap_id": zid, "state_binding": state["binding"], "files": {},
+            "prior_verification_log": {"path": str(old_log), "sha256": evidence(old_log)[0]["sha256"]},
+        }
+        identities = {}
+        for name, path in sources.items():
+            print(f"Hashing local original: {path}", flush=True)
+            expected, before = evidence(path)
+            uri = f"{root}/sha256-{expected['sha256']}/{name}"
+            if name in verified:
+                if expected != verified[name] or store.remote_size(uri) != expected["size_bytes"]:
+                    raise RuntimeError(f"Prior verified source/object differs or is missing: {name}")
+                print(f"REUSED prior full read-back proof: {name}: {expected}", flush=True)
+            else:
+                store.preserve(path, uri, expected, before)
+                print(f"VERIFIED: {name}: {expected}", flush=True)
+            manifest["files"][name] = {**expected, "uri": uri, "local_path": str(path)}
+            identities[path] = before
+        assert_inactive()
+        for path, before in identities.items():
+            assert_unchanged(path, before)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        receipt = local / f"backup-verified-{stamp}.json"
+        with receipt.open("x") as stream:
+            json.dump(manifest, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        value, before = evidence(receipt)
+        uri = f"{root}/receipts/sha256-{value['sha256']}/backup-verified.json"
+        store.preserve(receipt, uri, value, before)
+        print(f"BACKUP VERIFIED; originals unchanged. Receipt: {uri}", flush=True)
+
+
 def backup(args):
     if os.geteuid() != 0:
         raise RuntimeError("Run this preservation script as root")
@@ -161,8 +335,7 @@ def backup(args):
         # Re-read after acquiring the same lock as run-continental.
         workspace, rt, state = validate_workspace(repo, args.site)
         mid, zid, pid = RUNS[args.site]
-        local = workspace / "recovery-backup" / mid
-        local.mkdir(parents=True, exist_ok=True, mode=0o700)
+        local = prepare_metadata(workspace, mid)
         log = run([
             "journalctl", "--utc", "_SYSTEMD_UNIT=measurement-ipid.service", f"_PID={pid}",
             "-g", r"replies_final\[|records before error|interrupt received|estimated_time_left=",
@@ -217,4 +390,19 @@ if __name__ == "__main__":
     parser.add_argument("--site", required=True, choices=RUNS)
     parser.add_argument("--repo", default="/mnt/data01/ipid-measure")
     parser.add_argument("--s3-root", default="s3://netds3o:aweis/ipid-2/raw")
-    backup(parser.parse_args())
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--repair-metadata-access-only", action="store_true")
+    modes.add_argument("--continue-from-log")
+    args = parser.parse_args()
+    if args.repair_metadata_access_only:
+        if os.geteuid() != 0:
+            raise RuntimeError("Run metadata-access repair as root")
+        workspace, _, _ = validate_workspace(Path(args.repo).resolve(), args.site)
+        assert_inactive()
+        local = prepare_metadata(workspace, RUNS[args.site][0])
+        print(f"Metadata access repaired: {local}; no process restarted or file contents changed.")
+    elif args.continue_from_log:
+        continue_backup(args)
+    else:
+        backup(args)
+
