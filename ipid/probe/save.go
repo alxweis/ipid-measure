@@ -3,9 +3,11 @@ package probe
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/alxweis/ipid-measure/internal/consts"
 
@@ -13,8 +15,10 @@ import (
 	"github.com/parquet-go/parquet-go/compress/snappy"
 
 	"github.com/alxweis/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/rtresume"
 	"github.com/alxweis/ipid-measure/internal/types"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
+	"github.com/alxweis/ipid-measure/ipid/stats"
 )
 
 const (
@@ -25,8 +29,19 @@ const (
 	InvalidSymbol             = '-'
 )
 
+var saveReady chan error
+
+func signalSaveReady(err error) {
+	// Direct writer tests/callers may provide their own closed save channel;
+	// the normal measurement lifecycle always calls SetupSaveChannel first.
+	if saveReady != nil {
+		saveReady <- err
+	}
+}
+
 func SetupSaveChannel() {
 	SaveProbesChannel = make(chan *Probe, consts.IPIDSaveChannelSize)
+	saveReady = make(chan error, 1)
 }
 
 func CloseSaveChannel() {
@@ -36,8 +51,15 @@ func CloseSaveChannel() {
 func Save() {
 	defer measurement.SaveWg.Done()
 
-	f, err := os.Create(measurement.Paths.MeasurementFilePath)
+	var f *os.File
+	var err error
+	if measurement.ResumePlan != nil {
+		f, err = os.OpenFile(measurement.Paths.MeasurementFilePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	} else {
+		f, err = os.Create(measurement.Paths.MeasurementFilePath)
+	}
 	if err != nil {
+		signalSaveReady(err)
 		measurement.Fail(fmt.Errorf("create ipid parquet file: %w", err))
 		for range SaveProbesChannel {
 		}
@@ -47,6 +69,7 @@ func Save() {
 	bw := bufio.NewWriterSize(f, consts.IPIDSaveFileBufferSize)
 
 	if measurement.IsInterProtocol() {
+		signalSaveReady(nil)
 		saveInterProtocol(bw, f)
 		return
 	}
@@ -59,6 +82,25 @@ func Save() {
 
 	batch := make([]records.IPIDRecord, 0, ParquetWriteBatchSize)
 	failed := false
+	if plan := measurement.ResumePlan; plan != nil {
+		if err := rtresume.Copy(plan, writer, measurement.StopSignal); err != nil {
+			failed = true
+			measurement.Fail(fmt.Errorf("copy retained RT results: %w", err))
+			signalSaveReady(err)
+		} else if err := bw.Flush(); err != nil {
+			failed = true
+			measurement.Fail(err)
+			signalSaveReady(err)
+		} else {
+			atomic.StoreInt64(&stats.ValidProbes, plan.Saved)
+			atomic.StoreInt64(&stats.ProbeCount, plan.Started)
+			stats.RestoreTerminalFailures(plan.Failures)
+			log.Printf("RT recovery: retained %d successes and %d terminal failures; resume at target %d/%d. Reply/network diagnostics cover the resumed segment only.", plan.Saved, plan.Started-plan.Saved, plan.Started, plan.Total)
+			signalSaveReady(nil)
+		}
+	} else {
+		signalSaveReady(nil)
+	}
 
 	flush := func() {
 		if len(batch) == 0 || failed {
@@ -209,5 +251,6 @@ func probeToRecord(p *Probe, rtBased bool) (records.IPIDRecord, bool) {
 func init() {
 	measurement.SetupSaveChannel = SetupSaveChannel
 	measurement.StartSaver = func() { go Save() }
+	measurement.WaitSaverReady = func() error { return <-saveReady }
 	measurement.CloseSaveChan = CloseSaveChannel
 }

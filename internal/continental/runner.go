@@ -27,9 +27,10 @@ type Step struct {
 	Signature string `json:"signature"`
 }
 type State struct {
-	Version int             `json:"version"`
-	Binding string          `json:"binding"`
-	Steps   map[string]Step `json:"steps"`
+	Version    int                   `json:"version"`
+	Binding    string                `json:"binding"`
+	Steps      map[string]Step       `json:"steps"`
+	Recoveries map[string]RTRecovery `json:"rt_recoveries,omitempty"`
 }
 type Execute func(context.Context, string, []string, []string) (string, error)
 
@@ -50,16 +51,18 @@ type Runner struct {
 	Store           Store
 	Execute         Execute
 	RetryIncomplete bool
+	ResumeRTReceipt string
 	SkipOS          bool
 	// RetainLocal disables bulk-file cleanup in protocol-specific Geo runs.
-	RetainLocal     bool
-	state           State
-	configs         map[string]string
-	workflow        config.AnalysisWorkflowConfig
-	handoffOverride func(context.Context, string, bool) error
-	targetsOverride func(context.Context, string, string, map[string]string, string) (string, error)
-	publishOverride func(context.Context, string, string) (string, error)
-	uploads         map[string]config.UploadConfig
+	RetainLocal         bool
+	state               State
+	configs             map[string]string
+	workflow            config.AnalysisWorkflowConfig
+	handoffOverride     func(context.Context, string, bool) error
+	targetsOverride     func(context.Context, string, string, map[string]string, string) (string, error)
+	publishOverride     func(context.Context, string, string) (string, error)
+	resumeFetchOverride func(context.Context, string) ([]byte, error)
+	uploads             map[string]config.UploadConfig
 }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
@@ -313,6 +316,9 @@ func (r *Runner) measure(ctx context.Context, name, kind, payload string, args .
 		}
 		if complete {
 			return step.ID, nil
+		}
+		if _, recovering := r.state.Recoveries[name]; recovering || (name == "icmp-rt" && r.ResumeRTReceipt != "") {
+			return r.resumeLegacyRT(ctx, name, step, signature, payload, args)
 		}
 		directory := filepath.Dir(r.rawPath(kind, step.ID, "unused"))
 		if _, err = os.Stat(directory); err == nil {

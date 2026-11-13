@@ -13,6 +13,7 @@ import (
 	"github.com/alxweis/ipid-measure/internal/config"
 	"github.com/alxweis/ipid-measure/internal/consts"
 	"github.com/alxweis/ipid-measure/internal/records"
+	"github.com/alxweis/ipid-measure/internal/rtresume"
 	"github.com/alxweis/ipid-measure/ipid/measurement"
 	"github.com/alxweis/ipid-measure/ipid/probe"
 	"github.com/alxweis/ipid-measure/ipid/stats"
@@ -80,6 +81,19 @@ func StreamZMapToWorkers() error {
 	// A valid zero-row cohort is complete without reading any data pages.
 	if reader.NumRows() == 0 {
 		return nil
+	}
+	if plan := measurement.ResumePlan; plan != nil {
+		if err := rtresume.Stable(plan); err != nil {
+			return err
+		}
+		if reader.NumRows() != plan.Total {
+			return fmt.Errorf("resume target footer changed")
+		}
+		// Admission rejects invalid/duplicate input addresses, so this is an
+		// exact physical row position as well as the count of started targets.
+		if err := reader.SeekToRow(plan.Started); err != nil {
+			return fmt.Errorf("seek admitted RT prefix: %w", err)
+		}
 	}
 
 	buffer := make([]records.ZMap, consts.ZMapReadBufferSize)
