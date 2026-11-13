@@ -10,6 +10,8 @@ on:
       - 'internal/**'
       - 'scripts/run-all.sh'
       - 'scripts/test-run-all.sh'
+      - 'scripts/backup-interrupted-geo.py'
+      - 'scripts/test_backup_interrupted_geo.py'
       - 'cmd/sample-zmap/**'
       - 'cmd/publish-analysis-job/**'
       - 'cmd/measure-interprotocol/**'
@@ -27,6 +29,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - run: python3 scripts/test_backup_interrupted_geo.py
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - run: go test -race ./...
       - run: go test ./cmd/sample-zmap ./cmd/publish-analysis-job
